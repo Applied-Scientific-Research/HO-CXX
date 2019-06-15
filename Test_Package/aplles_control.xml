@@ -1,0 +1,121 @@
+<!-- ASR Linear Solver Library XML Configuration file -->
+<ASR>
+   <!-- Options controlling the parallel processing-->
+   <Parallel>
+      <!-- enable_numa: enable (1) / disable (0) NUMA memory optimization if OpenMP is used. (int), default=0-->
+      <enable_numa>0</enable_numa>
+      <!-- verbosity: control the verbosity of the parallel section: 0=none, 1=mild, 2=very. (int), default=0-->
+      <verbosity>0</verbosity>
+   </Parallel>
+
+   <Solver>
+      <!-- Generic solver settings -->
+
+      <!-- max_iters: Control the maximum number of iterations by the solver. (int), default=500-->
+      <max_iters>500</max_iters>
+      <!-- tolerance (or max_resid): Control the convergence residual limit. (float), default=1.0e-08-->
+      <tolerance>1.0e-12</tolerance>
+      <!-- verbosity: Control the verbosity of the solvers. 0=none, 1=mild, 2=very. (int), default=0-->
+      <verbosity>1</verbosity>
+      <!-- absolute: enable(1) or disable(0) absolute residual testing for the convergence. (float), default=0-->
+      <absolute>1</absolute>
+
+      <!-- min_rate: sets the minimum acceptable rate of convergence. If above this rate, the solver will exit with the error flag = 2. A value of 0.0 disables the monitoring. (float), default=0.0-->
+      <min_rate>0.</min_rate>
+      <!-- monitor_width: sets the number of iterations over which to average the convergence rate for the min_rate test. (int), default=10-->
+      <monitor_width>10</monitor_width>
+
+      <!-- Special options for the individual solvers -->
+      <PCG>
+         <!-- PCG has no options-->
+      </PCG>
+      <BiCGstab>
+         <!-- BiCGstab has no options-->
+      </BiCGstab>
+      <GMRES>
+         <!-- restart: sets the Krylov space size (i.e., the number of iterations per inner cycle). The maximum number of total iterations will be rounded up to a multiple of this value. (int), default=8-->
+         <restart>16</restart>
+         <!-- version: specifies the type of GMRES solver to use. GMRES or LEFT = GMRES solver with left preconditioning; RGMRES or RIGHT = GMRES algorithm with right preconditioning; FGMRES or FLEXIBLE = flexible GMRES with right preconditioning. (string), default=GMRES-->
+         <version>FGMRES</version>
+      </GMRES>
+   </Solver>
+
+   <Preconditioner>
+      <!-- Generic preconditioner settings -->
+
+      <!-- max_iters: number of preconditioning iterations. (int), default=1 -->
+      <max_iters>1</max_iters>
+      <!-- mixed_precision: enable (1) or disable (0) mixed-precision preconditioning. (int), default=0 -->
+      <mixed_precision>1</mixed_precision>
+
+      <!-- Special options for the specific preconditioners -->
+
+      <!-- Relaxtion preconditioner applies to Jacobi (Diagonal), Gauss-Siedel (GS), and Symmetric GS-->
+      <Relaxation>
+         <!-- omega: relaxation factor for GS or SGS. (float), default=1.0 -->
+         <omega>1.2</omega>
+         <!-- color_matrix: enable (1) or disable (0) matrix reordering (coloring) to improve parallelism. May improve parallel efficiency for OpenMP but at the expense of lower convergence. (int), default=0 -->
+         <color_matrix>1</color_matrix>
+      </Relaxation>
+
+      <!-- Krylov preconditioner uses the GMRES family of solvers as a preconditioner.-->
+      <Krylov>
+         <!-- tolerance: set the convergence criteria for each preconditioning solve. (float), default=1.0e-8 -->
+         <tolerance>1.0e-5</tolerance>
+         <!-- max_iters: set the maximum number of iterations allowed per preconditioner solve. (int), default=500 -->
+         <max_iters>100</max_iters>
+         <!-- restart: set the inner iteration size. (int), default=8 -->
+         <restart>16</restart>
+         <!-- verbosity: set the verbosity of the preconditioner. 0=none, 1=mild, 2=very. (int), default=0 -->
+         <verbosity>0</verbosity>
+         <!-- solver: selects the GMRES version to use as a preconditioner. gmres or fgmres. (string), default=gmres -->
+         <solver>gmres</solver>
+      </Krylov>
+      <AMG>
+         <!-- print_info: enable(1)/disable(0) printing of the AMG heirarchy after the build phase. (int), default=0 -->
+         <print_info>0</print_info>
+         <!-- max_coarse_grid_size: sets the maximum size of the coarsest level in the heirarchy. The AMG build will continue to coarsen until the number or rows is less than this value. (int), default=1000 -->
+         <max_coarse_grid_size>100</max_coarse_grid_size>
+         <!-- max_levels: sets the maximum number of levels in the AMG heirarchy. Coarsening will not create more than max_levels levels regardless if the number of rows is > max_coarse_grid_size. (int), default=16 -->
+         <max_levels>16</max_levels>
+         <!-- coarse_grid_solver: sets the algorithm used to solver the coarsest level. This can be either a direct method (LU or SuperLU) or an iterative method. LU = Lapack direct solver; SLU = SuperLU direct solver; SVD = Lapack direct solver using SVD; ITER = solver with BiCGstab iterative solver. (string), default=SVD -->
+         <coarse_grid_solver>SLU</coarse_grid_solver>
+         <!-- strength: sets the strength-of-connection algorithm used to weight the edges of graph. classical = Classical strength-of-connection; Symmetric = symmetric strength-of-connection. (string), default=classical -->
+         <strength>classical</strength>
+         <!-- theta: sets the threshold to defined weak vs. strong connections for the edges in the graph. 0.5 is reasonable for 3d mesh poisson problems; 0.25 for 2d. Valid between [0,1). (float), default=0.5 -->
+         <theta>0.23</theta>
+         <coarsen>pmis</coarsen>
+         <interp>extended</interp>
+         <interp_trunc_factor>0.2</interp_trunc_factor>
+         <do_cf_splitting_2nd_pass>true</do_cf_splitting_2nd_pass>
+         <!-->
+         <coarsen>classic</coarsen>
+         <interp>classic</interp>
+         <coarsen>pmis</coarsen>
+         <interp>extended+iff</interp>
+         <interp_trunc_factor>0.2</interp_trunc_factor>
+         <interp>extended</interp>
+         <strength>symmetric</strength><theta>0.1</theta>
+         <do_cf_splitting_2nd_pass>true</do_cf_splitting_2nd_pass>
+         <max_levels>5</max_levels>
+         <-->
+         <smoother>
+            <level>0</level>
+            <type>WJ</type>
+            <iters>1,2</iters>
+            <color_matrix>true</color_matrix>
+            <coloring_threshold>2500</coloring_threshold>
+            <max_colors>4</max_colors>
+            <rho>2.5</rho>
+            <spectral_radius_method>Maxnorm</spectral_radius_method>
+            <!-->
+            <rho>2.0</rho>
+            <spectral_radius_method>Lanczos</spectral_radius_method>
+            <spectral_radius_method>Arnoldi</spectral_radius_method>
+            <spectral_radius_method>Maxnorm</spectral_radius_method>
+            <spectral_radius_method>None</spectral_radius_method>
+            <-->
+         </smoother>
+      </AMG>
+   </Preconditioner>
+</ASR>
