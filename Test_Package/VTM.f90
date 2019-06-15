@@ -1040,6 +1040,327 @@ SUBROUTINE SolveConvectionDiffusion(HuynhSolver_type, tIntegrator_type, Reyn, dt
        type(APLLES_PreconHandleType) :: P_handle
        type(APLLES_SolverHandleType) :: S_handle
 
+INTERFACE
+
+FUNCTION itoa(i) RESULT(res)
+
+       character(11) res
+       integer,intent(in) :: i
+       character(range(i)+2) :: tmp
+END FUNCTION itoa
+
+END INTERFACE
+
+       Vort = Vort0             ! leaving Vort0 alone, in case needed elsewhere; generally, we don't need to save in real problems
+       Uvel = 0.d0
+       Vvel = 0.d0
+       VelocJump = 0.d0
+
+       dto2 = dt / 2.d0   ! of course this is lazy programming :)
+       dto3 = dt / 3.d0
+       dto6 = dt / 6.d0
+
+       CALL SetLaplacian(HuynhSolver_type, A_handle, P_handle, S_handle)
+ tlap = 0.d0
+ tcrl = 0.d0
+ tdif = 0.d0
+ tcon = 0.d0
+
+DO nt = 1, 500
+
+         BC_Values = 0.d0
+         BC_Switch = DirichletBC
+         CALL GetLaplacian(HuynhSolver_type, Vort, psi, A_handle, P_handle, S_handle)                                ! Stage 1
+         CALL GetLaplacGrads(HuynhSolver_type, psi, 1)
+         VelocJump = VelocJump - BC_VelParl
+         BC_Values = (VelocJump) * Reyn / dt
+         BC_Switch = NeumannBC
+         CALL GetDiffusedFlux(HuynhSolver_type, Vort, f_of_Vort)
+
+         Vort = Vort + f_of_Vort * dt / Reyn
+ENDDO
+
+       DO nt = 1, numStep
+        print *,'timestep ',nt
+         Vort_tmp = Vort
+
+print *,'**** CONVECTION **** '
+
+         BC_Values = 0.d0
+         BC_Switch = DirichletBC
+         CALL GetLaplacian(HuynhSolver_type, Vort_tmp, psi, A_handle, P_handle, S_handle)                                ! Stage 1
+         CALL GetLaplacGrads(HuynhSolver_type, psi, 1)
+
+         BC_Values = BC_VelNorm
+         CALL GetConvectedFlux(HuynhSolver_type, Vort_tmp, f_of_Vort)
+
+         Vort = Vort + dt*f_of_Vort
+
+print *,'Post Conv Max Vort ',minval(vort),maxval(vort)
+
+print *,'**** DIFFUSION **** '
+
+ if (.false.) then
+         Vort_tmp = Vort
+         BC_Values = 0.d0
+         CALL GetLaplacian(HuynhSolver_type, Vort_tmp, psi, A_handle, P_handle, S_handle)                                ! Stage 1
+         CALL GetLaplacGrads(HuynhSolver_type, psi, 1)
+ endif
+
+print *,'Velocity ',minval(sqrt(uvel**2 + vvel**2)),maxval(sqrt(uvel**2 + vvel**2))
+
+print *,'Jump ',minval(VelocJump),maxval(VelocJump)
+         VelocJump = VelocJump - BC_VelParl
+         BC_Values = (VelocJump) * Reyn / dt
+         BC_Switch = NeumannBC
+         CALL GetDiffusedFlux(HuynhSolver_type, Vort_tmp, f_of_Vort)
+
+         Vort = Vort + f_of_Vort * dt / Reyn
+!         Vort_tmp = Vort
+print *,'Post Diff Max Vort ',minval(vort),maxval(vort)
+         IF (tIntegrator_type .eq. 0) THEN
+
+           Vort = Vort + dt*f_of_Vort
+
+         ELSEIF (tIntegrator_type .eq. 2) THEN
+
+           Vort_str = Vort_tmp + dto2*f_of_Vort
+         t1 = omp_get_wtime()
+           CALL GetLaplacian(HuynhSolver_type, Vort_str, psi, A_handle, P_handle, S_handle)                              ! Stage 2
+         t2 = omp_get_wtime()
+           IF (nt > 1) CALL GetLaplacGrads(HuynhSolver_type, psi, 1)
+           CALL GetLaplacGrads(HuynhSolver_type, psi, 0)
+         t3 = omp_get_wtime()
+     print *,'stage 2 ',MaxVal(Sqrt(Uvel**2 + Vvel**2))
+           CALL GetDiffusedFlux(HuynhSolver_type, Vort_str, f_of_Vort)
+         t4 = omp_get_wtime()
+           f_of_Vort = f_of_Vort / Reyn
+!           IF (prob_type .eq. 2) f_of_Vort = 0.d0
+           CALL GetConvectedFlux(HuynhSolver_type, Vort_str, f_of_Vort)
+         t5 = omp_get_wtime()
+ tlap = tlap + t2 - t1
+ tcrl = tcrl + t3 - t2
+ tdif = tdif + t4 - t3
+ tcon = tcon + t5 - t4
+           Vort = Vort + dt*f_of_Vort
+
+         ELSEIF (tIntegrator_type .eq. 4) THEN
+
+           Vort = Vort + dto6*f_of_Vort
+           Vort_str = Vort_tmp + dto2*f_of_Vort
+           CALL GetLaplacian(HuynhSolver_type, Vort_str, psi, A_handle, P_handle, S_handle)                              ! Stage 2
+           IF (nt > 1) CALL GetLaplacGrads(HuynhSolver_type, psi, 1)
+           CALL GetLaplacGrads(HuynhSolver_type, psi, 0)
+           CALL GetDiffusedFlux(HuynhSolver_type, Vort_str, f_of_Vort)
+           f_of_Vort = f_of_Vort / Reyn
+!           IF (prob_type .eq. 2) f_of_Vort = 0.d0
+           CALL GetConvectedFlux(HuynhSolver_type, Vort_str, f_of_Vort)
+
+           Vort = Vort + dto3*f_of_Vort
+           Vort_str = Vort_tmp + dto2*f_of_Vort
+           CALL GetLaplacian(HuynhSolver_type, Vort_str, psi, A_handle, P_handle, S_handle)                              ! Stage 3
+           IF (nt > 1) CALL GetLaplacGrads(HuynhSolver_type, psi, 1)
+           CALL GetLaplacGrads(HuynhSolver_type, psi, 0)
+           CALL GetDiffusedFlux(HuynhSolver_type, Vort_str, f_of_Vort)
+           f_of_Vort = f_of_Vort / Reyn
+!           IF (prob_type .eq. 2) f_of_Vort = 0.d0
+           CALL GetConvectedFlux(HuynhSolver_type, Vort_str, f_of_Vort)
+
+           Vort = Vort + dto3*f_of_Vort
+           Vort_str = Vort_tmp + dt*f_of_Vort
+           CALL GetLaplacian(HuynhSolver_type, Vort_str, psi, A_handle, P_handle, S_handle)                              ! Stage 4
+           IF (nt > 1) CALL GetLaplacGrads(HuynhSolver_type, psi, 1)
+           CALL GetLaplacGrads(HuynhSolver_type, psi, 0)
+           CALL GetDiffusedFlux(HuynhSolver_type, Vort_str, f_of_Vort)
+           f_of_Vort = f_of_Vort / Reyn
+!           IF (prob_type .eq. 2) f_of_Vort = 0.d0
+           CALL GetConvectedFlux(HuynhSolver_type, Vort_str, f_of_Vort)
+
+           Vort = Vort + dto6*f_of_Vort
+
+         ENDIF
+
+!         IF (MOD(nt,dumpFreq) .eq. 0) CALL dumpResult(nt, Reyn, dt, HuynhSolver_type, tIntegrator_type, prob_type)
+         IF (MOD(nt,dumpFreq) .eq. 0) THEN
+
+       OPEN(unit = 8, file = 'Vorticity'//trim(itoa(nt))//'.vtk', status = 'unknown')
+       write(8,'(a)') '# vtk DataFile Version 3.0'
+       write(8,'(a)') '2D Unstructured Grid of Quads'
+       write(8,'(a)') 'ASCII'
+       write(8,'(a)') ' '
+!       write(8,'(a)') 'DATASET UNSTRUCTURED_GRID'
+       write(8,'(a)') 'DATASET POLYDATA'
+
+       write(8,'(a,i8,a)') 'POINTS ', Knod*Knod*Nel, ' float'
+       DO i = 1, Nel
+         DO ky = 1, Knod
+           DO kx = 1, Knod
+             ! interpolate x/y-coord of sol pt at (kx,ky) using nodal coordinates of element i
+             x = 0.d0
+             y = 0.d0
+             DO jy = 1, Lnod
+               DO jx = 1, Lnod
+                           ! along x-dir                  along y-dir                    x-coord of geom
+                 x = x + GeomNodesLgrangeBasis(jx,kx) * GeomNodesLgrangeBasis(jy,ky) * xcoord(nodeID(t2f(jx,jy),i))
+                 y = y + GeomNodesLgrangeBasis(jx,kx) * GeomNodesLgrangeBasis(jy,ky) * ycoord(nodeID(t2f(jx,jy),i))
+               ENDDO
+             ENDDO
+             write(8,*) real(x),real(y),' 0.0'
+           ENDDO
+         ENDDO
+       ENDDO
+
+ if(.false.) then
+       write(8,'(a)') ' '
+       write(8,'(a,i8,1x,i8)') 'CELLS ', Knod*Knod*Nel, 2*Knod*Knod*Nel
+       DO i = 1, Knod*Knod*Nel
+         write(8,*) "1",i-1
+       ENDDO
+       write(8,'(a)') ' '
+       write(8,'(a,i8)') 'CELL_TYPES ', Knod*Knod*Nel
+       DO i = 1, Knod*Knod*Nel
+         write(8,*)  "1"
+       ENDDO
+endif
+Vort_tmp = vort
+       write(8,'(a)') ' '
+       write(8,'(a,i8,a)') 'POINT_DATA ', Knod*Knod*Nel
+       write(8,'(a)') 'SCALARS vorticity float 1'
+       write(8,'(a)') 'LOOKUP_TABLE default'
+       DO i = 1, Nel
+         DO ky = 1, Knod
+           DO kx = 1, Knod
+             write(8,*) real(Vort_tmp(kx,ky,i))
+           ENDDO
+         ENDDO
+       ENDDO
+if(.true.) then
+       BC_Switch = DirichletBC
+       BC_Values = 0.d0
+       CALL GetLaplacian(HuynhSolver_type, Vort_tmp, psi, A_handle, P_handle, S_handle)                                ! Stage 1
+       CALL GetLaplacGrads(HuynhSolver_type, psi, 1)
+
+endif
+
+       write(8,'(a)') 'VECTORS velocity float'
+
+       DO i = 1, Nel
+         DO ky = 1, Knod
+           DO kx = 1, Knod
+             write(8,*) real(Uvel(kx,ky,i)),real(Vvel(kx,ky,i)),' 0.0'
+           ENDDO
+         ENDDO
+       ENDDO
+       CLOSE(unit = 8)
+
+         ENDIF 
+
+       ENDDO
+print *,'avg tlap ',0.5*tlap/numStep
+print *,'avg tcrl ',0.5*tcrl/numStep
+print *,'avg tdif ',0.5*tdif/numStep
+print *,'avg tcon ',0.5*tcon/numStep
+       IF (MOD(numStep,dumpFreq) .ne. 0) &
+           CALL dumpResult(numStep, Reyn, dt, HuynhSolver_type, tIntegrator_type, prob_type)
+
+       IF (MOD(numStep,dumpFreq) .ne. 0) THEN
+       OPEN(unit = 8, file = 'Vorticity'//trim(itoa(numStep))//'.vtk', status = 'unknown')
+       write(8,'(a)') '# vtk DataFile Version 3.0'
+       write(8,'(a)') '2D Unstructured Grid of Quads'
+       write(8,'(a)') 'ASCII'
+       write(8,'(a)') ' '
+!       write(8,'(a)') 'DATASET UNSTRUCTURED_GRID'
+       write(8,'(a)') 'DATASET POLYDATA'
+
+       write(8,'(a,i8,a)') 'POINTS ', Knod*Knod*Nel, ' float'
+       DO i = 1, Nel
+         DO ky = 1, Knod
+           DO kx = 1, Knod
+             ! interpolate x/y-coord of sol pt at (kx,ky) using nodal coordinates of element i
+             x = 0.d0
+             y = 0.d0
+             DO jy = 1, Lnod
+               DO jx = 1, Lnod
+                           ! along x-dir                  along y-dir                    x-coord of geom
+                 x = x + GeomNodesLgrangeBasis(jx,kx) * GeomNodesLgrangeBasis(jy,ky) * xcoord(nodeID(t2f(jx,jy),i))
+                 y = y + GeomNodesLgrangeBasis(jx,kx) * GeomNodesLgrangeBasis(jy,ky) * ycoord(nodeID(t2f(jx,jy),i))
+               ENDDO
+             ENDDO
+             write(8,*) real(x),real(y),' 0.0'
+           ENDDO
+         ENDDO
+       ENDDO
+
+ if(.false.) then
+       write(8,'(a)') ' '
+       write(8,'(a,i8,1x,i8)') 'CELLS ', Knod*Knod*Nel, 2*Knod*Knod*Nel
+       DO i = 1, Knod*Knod*Nel
+         write(8,*) "1",i-1
+       ENDDO
+       write(8,'(a)') ' '
+       write(8,'(a,i8)') 'CELL_TYPES ', Knod*Knod*Nel
+       DO i = 1, Knod*Knod*Nel
+         write(8,*)  "1"
+       ENDDO
+endif
+Vort_tmp = vort
+       write(8,'(a)') ' '
+       write(8,'(a,i8,a)') 'POINT_DATA ', Knod*Knod*Nel
+       write(8,'(a)') 'SCALARS vorticity float 1'
+       write(8,'(a)') 'LOOKUP_TABLE default'
+       DO i = 1, Nel
+         DO ky = 1, Knod
+           DO kx = 1, Knod
+             write(8,*) real(Vort_tmp(kx,ky,i))
+           ENDDO
+         ENDDO
+       ENDDO
+if(.true.) then
+       BC_Switch = DirichletBC
+       BC_Values = 0.d0
+       CALL GetLaplacian(HuynhSolver_type, Vort_tmp, psi, A_handle, P_handle, S_handle)                                ! Stage 1
+       CALL GetLaplacGrads(HuynhSolver_type, psi, 1)
+
+endif
+
+       write(8,'(a)') 'VECTORS velocity float'
+
+       DO i = 1, Nel
+         DO ky = 1, Knod
+           DO kx = 1, Knod
+             write(8,*) real(Uvel(kx,ky,i)),real(Vvel(kx,ky,i)),' 0.0'
+           ENDDO
+         ENDDO
+       ENDDO
+       CLOSE(unit = 8)
+       ENDIF
+
+END SUBROUTINE SolveConvectionDiffusion
+
+
+SUBROUTINE SolveConvectionDiffusion_Orig(HuynhSolver_type, tIntegrator_type, Reyn, dt, numStep, dumpFreq, prob_type)
+       USE params
+       USE variables
+       USE CnvrtTensor2FemIndices
+       USE APLLES_Solvers_Module
+       USE omp_lib
+
+       USE iso_c_binding
+
+       implicit NONE
+       integer HuynhSolver_type, tIntegrator_type, numStep, dumpFreq, prob_type
+       real*8 Reyn, dt
+
+       integer nt, i, kx,ky,jx,jy
+       real*8 x,y
+       real*8 dto2, dto3, dto6
+       real*8, dimension(Knod, Knod, Nel) :: Vort_tmp, Vort_str, f_of_Vort, psi
+       real*8 t1, t2, t3, t4, t5, tlap, tcrl, tdif, tcon
+
+       type(APLLES_MatrixHandleType) :: A_handle
+       type(APLLES_PreconHandleType) :: P_handle
+       type(APLLES_SolverHandleType) :: S_handle
+
        Vort = Vort0             ! leaving Vort0 alone, in case needed elsewhere; generally, we don't need to save in real problems
        Uvel = 0.d0
        Vvel = 0.d0
@@ -4719,11 +5040,20 @@ SUBROUTINE dumpResult(numStep, Reyn, dt, HuynhSolver_type, tIntegrator_type, pro
        real*8, dimension(Lnod) :: xloc1D, yloc1D
 
    INTERFACE
+
+     FUNCTION itoa(i) RESULT(res)
+
+       character(11) res
+       integer,intent(in) :: i
+       character(range(i)+2) :: tmp
+     END FUNCTION itoa
+
      FUNCTION Vort_xct(x, y, t, Re, prob_type)
        implicit NONE
        real*8 x, y, t, Re, Vort_xct
        integer prob_type
      END FUNCTION Vort_xct
+
      FUNCTION Uvel_xct(x, y, t, Re, prob_type)
        implicit NONE
        real*8 x, y, t, Re, Uvel_xct
@@ -5011,7 +5341,8 @@ SUBROUTINE dumpResult(numStep, Reyn, dt, HuynhSolver_type, tIntegrator_type, pro
 
        close(unit=9)
 
-CONTAINS
+END SUBROUTINE dumpResult
+
 
 FUNCTION itoa(i) RESULT(res)
 
@@ -5023,8 +5354,6 @@ FUNCTION itoa(i) RESULT(res)
        res = tmp
 
 END FUNCTION itoa
-
-END SUBROUTINE dumpResult
 
 
 FUNCTION Vort_xct(x, y, t, Re, prob_type)
