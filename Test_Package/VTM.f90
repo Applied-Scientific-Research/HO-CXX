@@ -1584,7 +1584,7 @@ endif
        ENDDO
        CLOSE(unit = 8)
 
-END SUBROUTINE SolveConvectionDiffusion
+END SUBROUTINE SolveConvectionDiffusion_Orig
 
 
 SUBROUTINE SetLaplacian(HuynhSolver_type, A_handle, P_handle, S_handle)
