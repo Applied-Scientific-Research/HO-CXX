@@ -3897,8 +3897,7 @@ SUBROUTINE GetDiffusedFlux(HuynhSolver_type, uin, ddu)
 
                dcomx(1:Knod,1,i) = BC_Values(1:Knod,-elemID(2,i)) * Sqrt(Acoef(1:Knod))
 
-               NeuRHS(1:Knod) = Jac(1:Knod)*BC_Values(1:Knod,-elemID(2,i)) - &
-                                Acoef(1:Knod)*(dxuBx(1:Knod,1,i) - uBx(1:Knod,1,i)*gLprime)
+               NeuRHS(1:Knod) = Jac(1:Knod)*dcomx(1:Knod,1,i) - Acoef(1:Knod)*(dxuBx(1:Knod,1,i) - uBx(1:Knod,1,i)*gLprime)
                DO j = 1, Knod
                  NeuMatrix(j,1:Knod) = -Bcoef(j) * SolnNodesGradLgrangeBasis(1:Knod,j)
                  NeuMatrix(j,j) = NeuMatrix(j,j) + Acoef(j)*gLprime
@@ -3973,8 +3972,7 @@ SUBROUTINE GetDiffusedFlux(HuynhSolver_type, uin, ddu)
 
                dcomx(1:Knod,0,i) = BC_Values(1:Knod,-elemID(4,i)) * Sqrt(Acoef(1:Knod))
 
-               NeuRHS(1:Knod) = Jac(1:Knod)*BC_Values(1:Knod,-elemID(4,i)) - &
-                                Acoef(1:Knod)*(dxuBx(1:Knod,0,i) + uBx(1:Knod,0,i)*gLprime)
+               NeuRHS(1:Knod) = Jac(1:Knod)*dcomx(1:Knod,0,i) - Acoef(1:Knod)*(dxuBx(1:Knod,0,i) + uBx(1:Knod,0,i)*gLprime)
                DO j = 1, Knod
                  NeuMatrix(j,1:Knod) = -Bcoef(j) * SolnNodesGradLgrangeBasis(1:Knod,j)
                  NeuMatrix(j,j) = NeuMatrix(j,j) - Acoef(j)*gLprime
@@ -4049,8 +4047,7 @@ SUBROUTINE GetDiffusedFlux(HuynhSolver_type, uin, ddu)
 
                dcomy(1:Knod,1,i) = BC_Values(1:Knod,-elemID(3,i)) * Sqrt(Acoef(1:Knod))
 
-               NeuRHS(1:Knod) = Jac(1:Knod)*BC_Values(1:Knod,-elemID(3,i)) - &
-                                Acoef(1:Knod)*(dyuBy(1:Knod,1,i) - uBy(1:Knod,1,i)*gLprime)
+               NeuRHS(1:Knod) = Jac(1:Knod)*dcomy(1:Knod,1,i) - Acoef(1:Knod)*(dyuBy(1:Knod,1,i) - uBy(1:Knod,1,i)*gLprime)
                DO j = 1, Knod
                  NeuMatrix(j,1:Knod) = -Bcoef(j) * SolnNodesGradLgrangeBasis(1:Knod,j)
                  NeuMatrix(j,j) = NeuMatrix(j,j) + Acoef(j)*gLprime
@@ -4125,8 +4122,7 @@ SUBROUTINE GetDiffusedFlux(HuynhSolver_type, uin, ddu)
 
                dcomy(1:Knod,0,i) = BC_Values(1:Knod,-elemID(1,i)) * Sqrt(Acoef(1:Knod))
 
-               NeuRHS(1:Knod) = Jac(1:Knod)*BC_Values(1:Knod,-elemID(1,i)) - &
-                                Acoef(1:Knod)*(dyuBy(1:Knod,0,i) + uBy(1:Knod,0,i)*gLprime)
+               NeuRHS(1:Knod) = Jac(1:Knod)*dcomy(1:Knod,0,i) - Acoef(1:Knod)*(dyuBy(1:Knod,0,i) + uBy(1:Knod,0,i)*gLprime)
                DO j = 1, Knod
                  NeuMatrix(j,1:Knod) = -Bcoef(j) * SolnNodesGradLgrangeBasis(1:Knod,j)
                  NeuMatrix(j,j) = NeuMatrix(j,j) - Acoef(j)*gLprime
@@ -4804,13 +4800,15 @@ SUBROUTINE GetConvectedFlux(HuynhSolver_type, uin, du)
          ! Right face
          IF (elemID(2,i) .gt. 0) THEN
            DO j = 1, Knod
-             IF (Abs(uBx(j,1,i) - uBx(j,0,elemID(2,i))) .gt. 1.0d-10) THEN
+             IF (Abs(uBx(j,1,i) - uBx(j,0,elemID(2,i))) .gt. 1.0d-6) THEN
                conv = (FlxUBx(j,1,i) - FlxUBx(j,0,elemID(2,i))) / (uBx(j,1,i) - uBx(j,0,elemID(2,i)))
+               jFlxBx(j,1,i) = 0.5d0*( FlxUBx(j,1,i) + FlxUBx(j,0,elemID(2,i)) + Abs(conv) * ( uBx(j,1,i) - uBx(j,0,elemID(2,i)) ) )
              ELSE
-               conv = FlxVBx(j,1,i)
+               jFlxBx(j,1,i) = 0.5d0*( FlxUBx(j,1,i) + FlxUBx(j,0,elemID(2,i)) )
+!               conv = FlxVBx(j,1,i)
              ENDIF
-             upwind = 0.5d0 * ( FlxUBx(j,1,i) + FlxUBx(j,0,elemID(2,i)) + Abs(conv) * ( uBx(j,1,i) - uBx(j,0,elemID(2,i)) ) )
-             jFlxBx(j,1,i) = upwind !- jFlxBx(j,1,i)
+!             upwind = 0.5d0 * ( FlxUBx(j,1,i) + FlxUBx(j,0,elemID(2,i)) + Abs(conv) * ( uBx(j,1,i) - uBx(j,0,elemID(2,i)) ) )
+!             jFlxBx(j,1,i) = upwind !- jFlxBx(j,1,i)
            ENDDO
          ELSEIF (elemID(2,i) .lt. 0) THEN
            ! Dirichlet BC
@@ -4824,13 +4822,15 @@ SUBROUTINE GetConvectedFlux(HuynhSolver_type, uin, du)
          ! Left face
          IF (elemID(4,i) .gt. 0) THEN
            DO j = 1, Knod
-             IF (Abs(uBx(j,0,i) - uBx(j,1,elemID(4,i))) .gt. 1.0d-10) THEN
+             IF (Abs(uBx(j,0,i) - uBx(j,1,elemID(4,i))) .gt. 1.0d-6) THEN
                conv = (FlxUBx(j,0,i) - FlxUBx(j,1,elemID(4,i))) / (uBx(j,0,i) - uBx(j,1,elemID(4,i)))
+               jFlxBx(j,0,i) = 0.5d0*( FlxUBx(j,0,i) + FlxUBx(j,1,elemID(4,i)) - Abs(conv) * ( uBx(j,0,i) - uBx(j,1,elemID(4,i)) ) )
              ELSE
-               conv = FlxVBx(j,0,i)
+               jFlxBx(j,0,i) = 0.5d0*( FlxUBx(j,0,i) + FlxUBx(j,1,elemID(4,i)) )
+!               conv = FlxVBx(j,0,i)
              ENDIF
-             upwind = 0.5d0 * ( FlxUBx(j,0,i) + FlxUBx(j,1,elemID(4,i)) - Abs(conv) * ( uBx(j,0,i) - uBx(j,1,elemID(4,i)) ) )
-             jFlxBx(j,0,i) = upwind !- jFlxBx(j,0,i)
+!             upwind = 0.5d0 * ( FlxUBx(j,0,i) + FlxUBx(j,1,elemID(4,i)) - Abs(conv) * ( uBx(j,0,i) - uBx(j,1,elemID(4,i)) ) )
+!             jFlxBx(j,0,i) = upwind !- jFlxBx(j,0,i)
            ENDDO
          ELSEIF (elemID(4,i) .lt. 0) THEN
            ! Dirichlet BC
@@ -4844,13 +4844,15 @@ SUBROUTINE GetConvectedFlux(HuynhSolver_type, uin, du)
          ! North face
          IF (elemID(3,i) .gt. 0) THEN
            DO j = 1, Knod
-             IF (Abs(uBy(j,1,i) - uBy(j,0,elemID(3,i))) .gt. 1.0d-10) THEN
+             IF (Abs(uBy(j,1,i) - uBy(j,0,elemID(3,i))) .gt. 1.0d-6) THEN
                conv = (FlxVBy(j,1,i) - FlxVBy(j,0,elemID(3,i))) / (uBy(j,1,i) - uBy(j,0,elemID(3,i)))
+               jFlxBy(j,1,i) = 0.5d0*( FlxVBy(j,1,i) + FlxVBy(j,0,elemID(3,i)) + Abs(conv) * ( uBy(j,1,i) - uBy(j,0,elemID(3,i)) ) )
              ELSE
-               conv = FlxUBy(j,1,i)
+               jFlxBy(j,1,i) = 0.5d0*( FlxVBy(j,1,i) + FlxVBy(j,0,elemID(3,i)) )
+!               conv = FlxUBy(j,1,i)
              ENDIF
-             upwind = 0.5d0 * ( FlxVBy(j,1,i) + FlxVBy(j,0,elemID(3,i)) + Abs(conv) * ( uBy(j,1,i) - uBy(j,0,elemID(3,i)) ) )
-             jFlxBy(j,1,i) = upwind !- jFlxBy(j,1,i)
+!             upwind = 0.5d0 * ( FlxVBy(j,1,i) + FlxVBy(j,0,elemID(3,i)) + Abs(conv) * ( uBy(j,1,i) - uBy(j,0,elemID(3,i)) ) )
+!             jFlxBy(j,1,i) = upwind !- jFlxBy(j,1,i)
            ENDDO
          ELSEIF (elemID(3,i) .lt. 0) THEN
            ! Dirichlet BC
@@ -4864,13 +4866,15 @@ SUBROUTINE GetConvectedFlux(HuynhSolver_type, uin, du)
          ! South face
          IF (elemID(1,i) .gt. 0) THEN
            DO j = 1, Knod
-             IF (Abs(uBy(j,0,i) - uBy(j,1,elemID(1,i))) .gt. 1.0d-10) THEN
+             IF (Abs(uBy(j,0,i) - uBy(j,1,elemID(1,i))) .gt. 1.0d-6) THEN
                conv = (FlxVBy(j,0,i) - FlxVBy(j,1,elemID(1,i))) / (uBy(j,0,i) - uBy(j,1,elemID(1,i)))
+               jFlxBy(j,0,i) = 0.5d0*( FlxVBy(j,0,i) + FlxVBy(j,1,elemID(1,i)) - Abs(conv) * ( uBy(j,0,i) - uBy(j,1,elemID(1,i)) ) )
              ELSE
-               conv = FlxUBy(j,0,i)
+               jFlxBy(j,0,i) = 0.5d0*( FlxVBy(j,0,i) + FlxVBy(j,1,elemID(1,i)) )
+!               conv = FlxUBy(j,0,i)
              ENDIF
-             upwind = 0.5d0 * ( FlxVBy(j,0,i) + FlxVBy(j,1,elemID(1,i)) - Abs(conv) * ( uBy(j,0,i) - uBy(j,1,elemID(1,i)) ) )
-             jFlxBy(j,0,i) = upwind !- jFlxBy(j,0,i)
+!             upwind = 0.5d0 * ( FlxVBy(j,0,i) + FlxVBy(j,1,elemID(1,i)) - Abs(conv) * ( uBy(j,0,i) - uBy(j,1,elemID(1,i)) ) )
+!             jFlxBy(j,0,i) = upwind !- jFlxBy(j,0,i)
            ENDDO
          ELSEIF (elemID(1,i) .lt. 0) THEN
            ! Dirichlet BC
@@ -5059,6 +5063,7 @@ SUBROUTINE dumpResult(numStep, Reyn, dt, HuynhSolver_type, tIntegrator_type, pro
        real*8 x, y, t, Re, Uvel_xct
        integer prob_type
      END FUNCTION Uvel_xct
+
    END INTERFACE
 
        time = numStep*dt
