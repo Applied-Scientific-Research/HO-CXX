@@ -1,27 +1,29 @@
 Nx, Ny             ! num. of meshes/elements
-128,128 
+32,32  
 K                  ! nodes per elem
-2
+4
 L                  ! geometry parametric order
 1
 Exact              ! Exact geometry for concentric cylinders, prob_type=7,8
 false  
 Reyn               ! Reynolds number
-100.0d0
+10000.0d0
+dxrat              ! multiplier to make geometrically expanding grids uniform: dxrat = 1.
+1.10d0
 fac                ! multiplier to make grids randomly non-uniform; uniform: fac=0.
 0.00d0
 HuynhSolver_type   ! Huynh's scheme types: 2=std DG; 11=higher order
-11
+2
 tIntegrator_type   ! time integration method; 1=Euler; 2=Mod. Euler; 4=RK4
-1
+2
 prob_type          ! Solve different problems
 3
 numStep            ! num. of timesteps
-1000000
+100000
 dt                 ! timestep size
-1.0d-5
+1.0d-3
 dumpFreq           ! dump output at every dumpFreq steps; (= 0 will dump only the last step)
-0
+100
 Fast               ! Enter 0 for original diffusion
 0
 solver/precon      ! Solver and Preconditioner methods

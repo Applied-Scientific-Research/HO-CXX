@@ -27,8 +27,12 @@ MODULE params
        integer, parameter :: DefaultBC = 0, DirichletBC = 1, NeumannBC = 2
 
        integer Knod, Lnod, Nel, NelB
+       ! i2f converts indexed notation (0-1 are left-right; 2-3 are south-north) to CCW FEM face numbers starting from the south
+       ! face
+       integer, parameter, dimension(0:3) :: i2f = (/4, 2, 1, 3/)
 
        logical exact
+
 END MODULE params
 
 
@@ -52,11 +56,12 @@ MODULE variables
        real*8, allocatable :: sps(:)                ! scaled/parametric coordinates of the solution points (in 1-D)
        real*8, allocatable :: wgt(:)                ! Gaussian weights at the solution points (in 1-D)
 
-       real*8, allocatable :: SJacs(:,:)
        real*8, allocatable :: Vort0(:,:,:), Vort(:,:,:)   ! initial Vort0(i,kx,ky) and convected+diffused Vort(i,kx,ky) values of the unknowns
                                                     ! per element i and at (kx,ky) nodes per elem
        real*8, allocatable :: Uvel(:,:,:), Vvel(:,:,:)    ! u(i,kx,ky) and v(i,kx,ky) velocity components
                                                     ! per element i and at (kx,ky) nodes per elem
+       real*8, allocatable :: Vol_Dx_iDxsi_j(:,:,:,:,:), Vol_Jac(:,:,:)
+       real*8, allocatable :: Face_Acoef(:,:,:), Face_Bcoef(:,:,:), Face_Norm(:,:,:), Face_Jac(:,:,:)
        ! These bases use the element nodes as collocation points
        real*8, allocatable :: GeomBndryLgrangeBasis(:,:)       ! Lagrange interpolation basis for Left and Right boundaries of elem
        real*8, allocatable :: GeomBndryGradLgrangeBasis(:,:)   ! Corresponding Basis for derivatives at L + R boundaries
@@ -68,6 +73,7 @@ MODULE variables
        real*8, allocatable :: SolnNodesGradLgrangeBasis(:,:)   ! Basis for derivatives of Lagrange interpol. at solution points
        real*8, allocatable :: NodesRadau(:,:)                  ! Left (0) and Right (1) Radau function at solution points
        real*8, allocatable :: NodesGradRadau(:,:)              ! Derivatives of Left (0) and Right (1) Radau function at solution points
+       real*8 gLprim(0:1)
        ! Neumann or Dirichlet BC. The patches are numbered from the bottom/south and go counter-clockwise
        ! S=1; E=2; N=3; W=4
        ! For now, memory is over-allocated based on the original value of NelB (NelB gets modified properly in MeshSetup)
@@ -194,7 +200,7 @@ PROGRAM TwoD_Vorticity_Transport
 
        implicit NONE
        integer Nelx, Nely, Lnod_in, prob_type, HuynhSolver_type, tIntegrator_type, numStep, dumpFreq, fast
-       real*8 Reyn, fac, dt
+       real*8 Reyn, fac, dxrat, dt
        character(132) dum
 
        type(APLLES_MatrixHandleType) :: A_handle
@@ -214,6 +220,8 @@ PROGRAM TwoD_Vorticity_Transport
          read(2,'(a)') dum
          read(2,*) Reyn                 ! Reynolds number
          read(2,'(a)') dum
+         read(2,*) dxrat                ! multiplier to expand the grid geometrically by factor dxrat   
+         read(2,'(a)') dum
          read(2,*) fac                  ! multiplier to make grids randomly non-uniform; uniform: fac=0.
          read(2,'(a)') dum
          read(2,*) HuynhSolver_type     ! based on Huynh's scheme type in Table 6.1 of his diffusion paper
@@ -225,7 +233,7 @@ PROGRAM TwoD_Vorticity_Transport
          read(2,'(a)') dum
          read(2,*) prob_type            ! Solve different problems (types 1 and 2)
          IF (prob_type .eq. 2 .or. prob_type .eq. 6 .or. prob_type .eq. 5 .or. prob_type > 8) THEN
-           print *,'problem type unavailable '
+           print *,'problem type unavailable ', prob_type
            stop
          ENDIF
          IF (prob_type .lt. 7) THEN
@@ -330,12 +338,15 @@ PROGRAM TwoD_Vorticity_Transport
        CALL GetRadauBases
 
        ! Nothing to do here: Set up nodes and element meshes
-       CALL SetupMesh(Nelx, Nely, fac, prob_type)
+       CALL SetupMesh(Nelx, Nely, fac, dxrat, prob_type)
 
        ! Nothing to do here: UNLESS we want to add new problem types
        !                     Set up IC, BC, and Source for a given problem
        ! NOTE: Make sure to add the corresponding exact solution for the problem type in Function u_xct
        CALL SetupICBCandSrc(Nel, NelB, Knod, Lnod, prob_type)
+
+       ! Nothing to do here: Set up volume and surface metrics
+       CALL GetMetrics
 
        ! Nothing to do here: Now solve the convection+diffusion problem
        CALL SolveConvectionDiffusion(HuynhSolver_type, tIntegrator_type, Reyn, dt, numStep, dumpFreq, prob_type)
@@ -372,8 +383,9 @@ SUBROUTINE Allocate_Arrays(Nx, Ny, N, NB, K, L)
        allocate (BndrySrc(K,Ksq,NB))
        allocate (sps(K), wgt(K))
        allocate (gps(L))
-       allocate (SJacs(Ksq,N))
        allocate (Vort0(K,K,N), Vort(K,K,N), Uvel(K,K,N), Vvel(K,K,N))
+       allocate (Vol_Dx_iDxsi_j(K,K,2,2,N), Vol_Jac(K,K,N))
+       allocate (Face_Acoef(K,0:3,N), Face_Bcoef(K,0:3,N), Face_Norm(K,0:3,N), Face_Jac(K,0:3,N))
        allocate (SolnBndryLgrangeBasis(K,0:1), SolnBndryGradLgrangeBasis(K,0:1))
        allocate (NodesRadau(K,0:1), NodesGradRadau(K,0:1))
        allocate (SolnNodesGradLgrangeBasis(K,K))
@@ -396,8 +408,9 @@ SUBROUTINE deAllocate_Arrays
        deallocate (BndrySrc)
        deallocate (sps, wgt)
        deallocate (gps)
-       deallocate (SJacs)
        deallocate (Vort0, Vort, Uvel, Vvel)
+       deallocate (Vol_Dx_iDxsi_j, Vol_Jac)
+       deallocate (Face_Acoef, Face_Bcoef, Face_Norm, Face_Jac)
        deallocate (SolnBndryLgrangeBasis, SolnBndryGradLgrangeBasis)
        deallocate (NodesRadau, NodesGradRadau)
        deallocate (SolnNodesGradLgrangeBasis)
@@ -579,7 +592,7 @@ SUBROUTINE SetupMesh(Nelx, Nely, fac, prob_type)
 
        implicit NONE
        integer Nelx, Nely, prob_type
-       real*8 fac
+       real*8 fac, dxrat
 
        ! A few grid types
        ! square box w/ random perturbation = 1
@@ -604,7 +617,13 @@ SUBROUTINE SetupMesh(Nelx, Nely, fac, prob_type)
        xL = 1.d0
        yL = 1.d0
 
+       IF (prob_type .eq. 1) THEN
+         xL = 2.d-1
+         yL = 1.d1
+       ENDIF
+
        grid_type = 2
+       IF (Abs(dxrat - 1.d0) .gt. 1.d-4) grid_type = 4
        IF (prob_type .le. 2) periodic = .TRUE.
        IF (prob_type .gt. 6) grid_type = 3
 
@@ -678,6 +697,48 @@ SUBROUTINE SetupMesh(Nelx, Nely, fac, prob_type)
          nd = nd + 1
          xcoord(nd) = xL
          ycoord(nd) = yL
+
+       ELSEIF (grid_type .eq. 4) THEN
+
+         Lm1 = Lnod - 1
+         ! only for Lm1 = 1 and even Nelx/Nely
+         IF (Lm1 .ne. 1) THEN
+           print *,'only linear elements allowed'
+           stop
+         ENDIF
+         IF (Mod(Nelx,2) .eq. 1 .or. Mod(Nely,2) .eq. 1) THEN
+           print *,'only even element counts allowed'
+           stop
+         ENDIF
+
+         dx = 0.5d0 * xL * (1.d0 - dxrat) / (1.d0 - dxrat**(Nelx/2))
+         dy = 0.5d0 * yL * (1.d0 - dxrat) / (1.d0 - dxrat**(Nely/2))
+         print *,'Smallest and largest dx ', dx, dx * (1.d0 - dxrat**(Nelx/2-1)) / (1.d0 - dxrat)
+         nd = 0
+         DO j = 1, Nely + 1
+           DO i = 1, Nelx + 1
+             nd = nd + 1
+             IF (i .le. Nelx/2) THEN
+             xcoord(nd) = dx * (1.d0 - dxrat**(i-1)) / (1.d0 - dxrat)
+             ELSEIF (i .eq. Nelx/2 + 1) THEN
+             xcoord(nd) = 0.5d0 * xL
+             ELSEIF (i .le. Nelx) THEN
+             xcoord(nd) = xL - dx * (1.d0 - dxrat**(Nelx + 1 - i)) / (1.d0 - dxrat)
+             ELSE
+             xcoord(nd) = xL
+             ENDIF
+             IF (j .le. Nely/2) THEN
+             ycoord(nd) = dy * (1.d0 - dxrat**(j-1)) / (1.d0 - dxrat)
+             ELSEIF (j .eq. Nely/2 + 1) THEN
+             ycoord(nd) = 0.5d0 * yL
+             ELSEIF (j .le. Nely) THEN
+             ycoord(nd) = yL - dy * (1.d0 - dxrat**(Nely + 1 - j)) / (1.d0 - dxrat)
+             ELSE
+             ycoord(nd) = yL
+             ENDIF
+           ENDDO
+         ENDDO
+
 
        ELSEIF (grid_type .eq. 2) THEN
 
@@ -992,7 +1053,20 @@ SUBROUTINE SetupICBCandSrc(N, NB, K, L, prob_type)
        BC_VelNorm(1:K,1:NB) = 0.d0   ! Wall normal velocity
        BC_VelParl(1:K,1:NB) = 0.d0   ! Wall parallel velocity
 
-       IF (prob_type .eq. 3) THEN
+       IF (prob_type .eq. 1) THEN
+
+         ! Periodic moving wall problem; bottom velocity is 1; top is 0
+
+          BC_Switch(1:NB) = DirichletBC
+          DO i = 1, NB
+            IF (ABS(ycoord(BoundaryNodeID(1,i))) < 1.d-6 .and. ABS(ycoord(BoundaryNodeID(2,i))) < 1.d-6) THEN
+             BC_VelParl(1:K,i) = 1.d0   ! Wall parallel velocity
+            ENDIF
+          ENDDO
+
+         Vort0 = 0.d0
+
+       ELSEIF (prob_type .eq. 3) THEN
 
           ! Square Cavity Problem; top velocity is 1
 
@@ -1030,10 +1104,10 @@ SUBROUTINE SolveConvectionDiffusion(HuynhSolver_type, tIntegrator_type, Reyn, dt
        integer HuynhSolver_type, tIntegrator_type, numStep, dumpFreq, prob_type
        real*8 Reyn, dt
 
-       integer nt, i, kx,ky,jx,jy
+       integer nt, i, kx,ky,jx,jy, j,el
        real*8 x,y
        real*8 dto2, dto3, dto6
-       real*8, dimension(Knod, Knod, Nel) :: Vort_tmp, Vort_str, f_of_Vort, psi
+       real*8, dimension(Knod, Knod, Nel) :: Vort_tmp, Vort_str, f_of_Vort, psi, k1, k2, k3, k4
        real*8 t1, t2, t3, t4, t5, tlap, tcrl, tdif, tcon
 
        type(APLLES_MatrixHandleType) :: A_handle
@@ -1066,7 +1140,7 @@ END INTERFACE
  tdif = 0.d0
  tcon = 0.d0
 
-DO nt = 1, 500
+DO nt = 1, 0
 
          BC_Values = 0.d0
          BC_Switch = DirichletBC
@@ -1084,46 +1158,25 @@ ENDDO
         print *,'timestep ',nt
          Vort_tmp = Vort
 
-print *,'**** CONVECTION **** '
+         DO el = 1, Nel
+         DO j = 1, Knod
+         DO i = 1, Knod
+           IF (Abs(Vort(i,j,el)) < 1.d-10) Vort(i,j,el) = 0.d0
+         ENDDO
+         ENDDO
+         ENDDO
+         IF (tIntegrator_type .eq. 1) THEN
 
-         BC_Values = 0.d0
-         BC_Switch = DirichletBC
-         CALL GetLaplacian(HuynhSolver_type, Vort_tmp, psi, A_handle, P_handle, S_handle)                                ! Stage 1
-         CALL GetLaplacGrads(HuynhSolver_type, psi, 1)
-
-         BC_Values = BC_VelNorm
-         CALL GetConvectedFlux(HuynhSolver_type, Vort_tmp, f_of_Vort)
-
-         Vort = Vort + dt*f_of_Vort
-
-print *,'Post Conv Max Vort ',minval(vort),maxval(vort)
-
-print *,'**** DIFFUSION **** '
-
- if (.false.) then
-         Vort_tmp = Vort
-         BC_Values = 0.d0
-         CALL GetLaplacian(HuynhSolver_type, Vort_tmp, psi, A_handle, P_handle, S_handle)                                ! Stage 1
-         CALL GetLaplacGrads(HuynhSolver_type, psi, 1)
- endif
-
-print *,'Velocity ',minval(sqrt(uvel**2 + vvel**2)),maxval(sqrt(uvel**2 + vvel**2))
-
-print *,'Jump ',minval(VelocJump),maxval(VelocJump)
-         VelocJump = VelocJump - BC_VelParl
-         BC_Values = (VelocJump) * Reyn / dt
-         BC_Switch = NeumannBC
-         CALL GetDiffusedFlux(HuynhSolver_type, Vort_tmp, f_of_Vort)
-
-         Vort = Vort + f_of_Vort * dt / Reyn
-!         Vort_tmp = Vort
-print *,'Post Diff Max Vort ',minval(vort),maxval(vort)
-         IF (tIntegrator_type .eq. 0) THEN
-
-           Vort = Vort + dt*f_of_Vort
+           CALL  EulerTimeIntegrate(dt, Reyn, Vort, k1, HuynhSolver_type, A_handle, P_handle, S_handle)
+           Vort = Vort + k1
 
          ELSEIF (tIntegrator_type .eq. 2) THEN
 
+           CALL  EulerTimeIntegrate(dt, Reyn, Vort, k1, HuynhSolver_type, A_handle, P_handle, S_handle)
+           CALL  EulerTimeIntegrate(dt, Reyn, Vort + k1, k2, HuynhSolver_type, A_handle, P_handle, S_handle)
+           Vort = Vort + 0.5d0 * (k1 + k2)
+
+if (.false.) then
            Vort_str = Vort_tmp + dto2*f_of_Vort
          t1 = omp_get_wtime()
            CALL GetLaplacian(HuynhSolver_type, Vort_str, psi, A_handle, P_handle, S_handle)                              ! Stage 2
@@ -1143,9 +1196,16 @@ print *,'Post Diff Max Vort ',minval(vort),maxval(vort)
  tdif = tdif + t4 - t3
  tcon = tcon + t5 - t4
            Vort = Vort + dt*f_of_Vort
-
+endif
          ELSEIF (tIntegrator_type .eq. 4) THEN
 
+           CALL  EulerTimeIntegrate(dt, Reyn, Vort, k1, HuynhSolver_type, A_handle, P_handle, S_handle)
+           CALL  EulerTimeIntegrate(dto2, Reyn, Vort + k1/2.d0, k2, HuynhSolver_type, A_handle, P_handle, S_handle)
+           CALL  EulerTimeIntegrate(dto2, Reyn, Vort + k2, k3, HuynhSolver_type, A_handle, P_handle, S_handle)
+           CALL  EulerTimeIntegrate(dt, Reyn, Vort + 2.d0*k3, k4, HuynhSolver_type, A_handle, P_handle, S_handle)
+           Vort = Vort + (k1 + 4.d0*k2 + 4.d0*k3 + k4) / 6.d0
+
+if (.false.) then
            Vort = Vort + dto6*f_of_Vort
            Vort_str = Vort_tmp + dto2*f_of_Vort
            CALL GetLaplacian(HuynhSolver_type, Vort_str, psi, A_handle, P_handle, S_handle)                              ! Stage 2
@@ -1177,6 +1237,7 @@ print *,'Post Diff Max Vort ',minval(vort),maxval(vort)
            CALL GetConvectedFlux(HuynhSolver_type, Vort_str, f_of_Vort)
 
            Vort = Vort + dto6*f_of_Vort
+ endif
 
          ENDIF
 
@@ -1334,6 +1395,64 @@ endif
        ENDDO
        CLOSE(unit = 8)
        ENDIF
+
+CONTAINS
+
+  SUBROUTINE EulerTimeIntegrate(dt, Reyn, VortIn, VortOut, HuynhSolver_type, A_handle, P_handle, S_handle)
+       USE params
+       USE variables
+       USE APLLES_Solvers_Module
+       USE omp_lib
+
+       USE iso_c_binding
+
+       implicit NONE
+       integer HuynhSolver_type
+       real*8 Reyn, dt
+       real*8, dimension(Knod, Knod, Nel) :: VortIn, VortOut, f_of_Vort, psi
+
+       type(APLLES_MatrixHandleType) :: A_handle
+       type(APLLES_PreconHandleType) :: P_handle
+       type(APLLES_SolverHandleType) :: S_handle
+
+print *,'**** CONVECTION **** '
+
+         BC_Values = 0.d0
+         BC_Switch = DirichletBC
+         CALL GetLaplacian(HuynhSolver_type, VortIn, psi, A_handle, P_handle, S_handle)                                ! Stage 1
+         CALL GetLaplacGrads(HuynhSolver_type, psi, 1)
+
+         BC_Values = BC_VelNorm
+         CALL GetConvectedFlux(HuynhSolver_type, VortIn, f_of_Vort)
+
+         VortOut =  dt*f_of_Vort
+
+print *,'Post Conv Max Vort ',minval(vortin+vortOut),maxval(vortin+vortOut)
+
+print *,'**** DIFFUSION **** '
+
+ if (.false.) then
+         VortIn = VortOut
+         BC_Values = 0.d0
+         CALL GetLaplacian(HuynhSolver_type, VortIn, psi, A_handle, P_handle, S_handle)                                ! Stage 1
+         CALL GetLaplacGrads(HuynhSolver_type, psi, 1)
+ endif
+
+print *,'Velocity ',minval(sqrt(uvel**2 + vvel**2)),maxval(sqrt(uvel**2 + vvel**2))
+
+print *,'Jump ',minval(VelocJump),maxval(VelocJump)
+         VelocJump = VelocJump - BC_VelParl
+         BC_Values = (VelocJump) * Reyn / dt
+         BC_Switch = NeumannBC
+         CALL GetDiffusedFlux(HuynhSolver_type, VortIn, f_of_Vort)
+
+         VortOut = VortOut + f_of_Vort * dt / Reyn
+
+print *,'Post Diff Max Vort ',minval(vortin+vortOut),maxval(vortin+vortOut)
+
+         RETURN
+
+  END SUBROUTINE EulerTimeIntegrate
 
 END SUBROUTINE SolveConvectionDiffusion
 
@@ -1601,16 +1720,14 @@ SUBROUTINE SetLaplacian(HuynhSolver_type, A_handle, P_handle, S_handle)
 
        integer i, j, l, m, p, el, bel, jx, jy, lx, ly, jm1, ij, mj, im, mm1, lm, ml
        integer colc, cole, colw, coln, cols, nnz, nrows, Ksq, K4, ierr
-       real*8 gL, tmp, tmpx, tmpy
-       real*8 DxDxsi, DyDxsi, DxDeta, DyDeta, FaceJac
+       real*8 gL, tmp, tmpx, tmpy, Ovr_Jac
        real*8, dimension(Knod) :: Acoef, Bcoef
+       real*8, dimension(Knod) :: FaceAE, FaceBE, FaceAW, FaceBW, FaceAN, FaceBN, FaceAS, FaceBS
+       real*8, dimension(Knod) :: NormAE, NormAW, NormAN, NormAS
        real*8, dimension(Knod, Knod) :: SBLB_i0_NGR_j0, SBLB_i0_NGR_j1, SBLB_i1_NGR_j1, SBLB_i1_NGR_j0
        real*8, dimension(Knod, Knod) :: SNGLB_SBLBdotNGR, SNGLB_2xSBLBdotNGR
        real*8, dimension(Knod, Knod) :: SBGLB_SBLB_i0_NGR_j0, SBGLB_SBLB_i0_NGR_j1, SBGLB_SBLB_i1_NGR_j1, SBGLB_SBLB_i1_NGR_j0
-       real*8, dimension(Lnod, Lnod) :: xloc, yloc
-       real*8, dimension(Knod, Nel) :: FaceAE, FaceBE, FaceAW, FaceBW, FaceAN, FaceBN, FaceAS, FaceBS
-       real*8, dimension(Knod, Nel) :: NormAE, NormAW, NormAN, NormAS
-       real*8, dimension(Knod, Knod, Nel) :: SolnJac, SolnAxx, SolnAxy, SolnAyy
+       real*8, dimension(Knod, Knod) :: SolnAxx, SolnAxy, SolnAyy
        real*8, dimension(Knod, Knod) :: NeuMatrix_Orig, NeuMatrix  ! small dense matrix to obtain comx (per element) for a given Neumann BC
 
        real*8, allocatable, dimension(:,:,:) :: LaplacianCenter, LaplacianEast, LaplacianWest, LaplacianNorth, LaplacianSouth
@@ -1626,8 +1743,6 @@ SUBROUTINE SetLaplacian(HuynhSolver_type, A_handle, P_handle, S_handle)
 
        integer, dimension(:), allocatable :: rowptr_filtered, colidx_filtered
        real*8, dimension(:), allocatable :: values_filtered
-
-       real*8 xx,yy,theta2,theta1,thetam,thetad,rad2,rad1,radm,radd
 
 interface
 function inv(A) result(Ainv)
@@ -1648,7 +1763,7 @@ end interface
                                                LaplacianNorth(Ksq,Ksq,Nel), LaplacianSouth(Ksq,Ksq,Nel))
 
        gL = 0.25d0 * (Knod*Knod)
-!       gL = 0.25d0 * (Knod*(Knod+1))
+       gL = 0.25d0 * (Knod*(Knod+1))
 
        BndrySrc = 0.d0
        LaplacianCenter = 0.d0
@@ -1686,225 +1801,37 @@ end interface
 
        DO el = 1, Nel
 
-         DO ly = 1, Lnod
-           DO lx = 1, Lnod
-             xloc(lx,ly) = xcoord(nodeID(t2f(lx,ly),el))
-             yloc(lx,ly) = ycoord(nodeID(t2f(lx,ly),el))
-           ENDDO
-         ENDDO
-
          DO jy = 1, Knod
-           ! Geometric metric stuff at all solution nodes, Soln (per element)
            DO jx = 1, Knod
-             DxDxsi = 0.d0
-             DyDxsi = 0.d0
-             DxDeta = 0.d0
-             DyDeta = 0.d0
-!xx = 0.d0
-!yy = 0.d0
-             DO ly = 1, Lnod
-               DO lx = 1, Lnod
-                 DxDxsi = DxDxsi + &
-                              ! grad at x-dir                    no grad at y-dir               x/y-coord of geom
-                              GeomNodesGradLgrangeBasis(lx,jx) * GeomNodesLgrangeBasis(ly,jy) * xloc(lx,ly)
-                 DyDxsi = DyDxsi + &
-                              GeomNodesGradLgrangeBasis(lx,jx) * GeomNodesLgrangeBasis(ly,jy) * yloc(lx,ly)
-                 DxDeta = DxDeta + &
-                              ! no grad at x-dir             grad at y-dir                      x/y-coord of geom
-                              GeomNodesLgrangeBasis(lx,jx) * GeomNodesGradLgrangeBasis(ly,jy) * xloc(lx,ly)
-                 DyDeta = DyDeta + &
-                              GeomNodesLgrangeBasis(lx,jx) * GeomNodesGradLgrangeBasis(ly,jy) * yloc(lx,ly)
-!  xx = xx + GeomNodesLgrangeBasis(lx,jx) * GeomNodesLgrangeBasis(ly,jy) * xloc(lx,ly)
-!  yy = yy + GeomNodesLgrangeBasis(lx,jx) * GeomNodesLgrangeBasis(ly,jy) * yloc(lx,ly)
-               ENDDO
-             ENDDO
-
- if (exact) then
-! print *,el,jx,jy,xx,yy,sqrt(xx**2+yy**2),atan2(yy,xx),DxDxsi,DyDxsi,DxDeta,DyDeta, &
-! print *,el,jx,jy,DxDxsi,DyDxsi,DxDeta,DyDeta,(DxDxsi * DyDeta - DxDeta * DyDxsi)
-             if (abs(yloc(Lnod,1)) < 1.d-12) yloc(Lnod,1) = 0.d0
-             if (abs(xloc(Lnod,1)) < 1.d-12) xloc(Lnod,1) = 0.d0
-             if (abs(yloc(1,1)) < 1.d-12) yloc(1,1) = 0.d0
-             if (abs(xloc(1,1)) < 1.d-12) xloc(1,1) = 0.d0
-             theta2 = atan2(yloc(Lnod,1),xloc(Lnod,1))
-             if (theta2 < 0.d0) theta2 = theta2 + 2.d0*pi
-             theta1 = atan2(yloc(1,1),xloc(1,1))
-             if (theta1 <= 0.d0) theta1 = theta1 + 2.d0*pi
-             thetam = 0.5d0 * (theta2 + theta1)
-             thetad = 0.5d0 * (theta2 - theta1)
-             rad2 = sqrt(xloc(1,Lnod)**2 + yloc(1,Lnod)**2)
-             rad1 = sqrt(xloc(1,1)**2 + yloc(1,1)**2)
-             radm = 0.5d0 * (rad2 + rad1)
-             radd = 0.5d0 * (rad2 - rad1)
-
-             DxDxsi = -thetad * (radm + sps(jy)*radd) * sin(thetam + sps(jx)*thetad)
-             DyDxsi =  thetad * (radm + sps(jy)*radd) * cos(thetam + sps(jx)*thetad)
-             DxDeta =  radd * cos(thetam + sps(jx)*thetad)
-             DyDeta =  radd * sin(thetam + sps(jx)*thetad)
-
-! print *,el,jx,jy,-thetad*(radm+sps(jy)*radd)*sin(thetam+sps(jx)*thetad), &
-!                   thetad*(radm+sps(jy)*radd)*cos(thetam+sps(jx)*thetad), &
-!                   radd*cos(thetam+sps(jx)*thetad), &
-!                   radd*sin(thetam+sps(jx)*thetad), &
-!                  -radd*thetad*(radm+sps(jy)*radd)
-! print *,el,jx,jy,100*(1.d0-DxDxsi/(-thetad*(radm+sps(jy)*radd)*sin(thetam+sps(jx)*thetad))), &
-!                  100*(1.d0-DyDxsi/(thetad*(radm+sps(jy)*radd)*cos(thetam+sps(jx)*thetad))), &
-!                  100*(1.d0-DxDeta/(radd*cos(thetam+sps(jx)*thetad))), &
-!                  100*(1.d0-DyDeta/(radd*sin(thetam+sps(jx)*thetad))), &
-!                  100*(1.d0-(DxDxsi * DyDeta - DxDeta * DyDxsi)/(-radd*thetad*(radm+sps(jy)*radd)))
-! print *,el,jx,jy,xloc(1,1),yloc(1,1),xloc(Lnod,1),yloc(Lnod,1),theta2,theta1,rad2,rad1
-! print *,el,jx,jy,xloc(1,1),yloc(1,1),xloc(Lnod,1),yloc(Lnod,1),theta2,theta1,thetad   
-! print *,el,jx,jy,xx,yy,sqrt(xx**2+yy**2),atan2(yy,xx),radm+sps(jy)*radd,thetam+sps(jx)*thetad
-! print *,' '
- endif
-
-             SolnJac(jx,jy,el) = 1.d0 / (DxDxsi * DyDeta - DxDeta * DyDxsi)
+             Ovr_Jac = 1.d0 / Vol_Jac(jx,jy,el)
              ! Ax in notes
-             SolnAxx(jx,jy,el) = (DxDeta * DxDeta + DyDeta * DyDeta) * SolnJac(jx,jy,el)
+             SolnAxx(jx,jy) = ( Vol_Dx_iDxsi_j(jx,jy,1,2,el) *  Vol_Dx_iDxsi_j(jx,jy,1,2,el) + &
+                                Vol_Dx_iDxsi_j(jx,jy,2,2,el) *  Vol_Dx_iDxsi_j(jx,jy,2,2,el) ) * Ovr_Jac
              ! B in notes   --  should try Axy and Ayx in (jx,jy) and (jy,jx) storage form
-             SolnAxy(jx,jy,el) = (DxDxsi * DxDeta + DyDxsi * DyDeta) * SolnJac(jx,jy,el)
+             SolnAxy(jx,jy) = ( Vol_Dx_iDxsi_j(jx,jy,1,1,el) *  Vol_Dx_iDxsi_j(jx,jy,1,2,el) + &
+                                Vol_Dx_iDxsi_j(jx,jy,2,1,el) *  Vol_Dx_iDxsi_j(jx,jy,2,2,el) ) * Ovr_Jac
              ! Ay in notes  --  should try saving in (jy,jx) form to speed up a bit
-             SolnAyy(jx,jy,el) = (DxDxsi * DxDxsi + DyDxsi * DyDxsi) * SolnJac(jx,jy,el)
+             SolnAyy(jx,jy) = ( Vol_Dx_iDxsi_j(jx,jy,1,1,el) *  Vol_Dx_iDxsi_j(jx,jy,1,1,el) + &
+                                Vol_Dx_iDxsi_j(jx,jy,2,1,el) *  Vol_Dx_iDxsi_j(jx,jy,2,1,el) ) * Ovr_Jac
            ENDDO
 
-           ! Right Face: Geometric metric stuff (per element)
-           DxDxsi = 0.d0
-           DyDxsi = 0.d0
-           DxDeta = 0.d0
-           DyDeta = 0.d0
-           DO ly = 1, Lnod
-             DO lx = 1, Lnod
-               DxDxsi = DxDxsi + &
-                                 ! grad at x-dir                   no grad along y-dir            x/y-coord of geom
-                                 GeomBndryGradLgrangeBasis(lx,1) * GeomNodesLgrangeBasis(ly,jy) * xloc(lx,ly)
-               DyDxsi = DyDxsi + &
-                                 GeomBndryGradLgrangeBasis(lx,1) * GeomNodesLgrangeBasis(ly,jy) * yloc(lx,ly)
-               DxDeta = DxDeta + &
-                                 ! no grad at x-dir            grad along y-dir                   x/y-coord of geom
-                                 GeomBndryLgrangeBasis(lx,1) * GeomNodesGradLgrangeBasis(ly,jy) * xloc(lx,ly)
-               DyDeta = DyDeta + &
-                                 GeomBndryLgrangeBasis(lx,1) * GeomNodesGradLgrangeBasis(ly,jy) * yloc(lx,ly)
-             ENDDO
-           ENDDO
+           FaceAE(jy) = Face_Acoef(jy,1,el) / Face_Jac(jy,1,el)
+           FaceBE(jy) = Face_Bcoef(jy,1,el) / Face_Jac(jy,1,el)
+           NormAE(jy) = Face_Norm(jy,1,el)
 
-!print *,'E el,jx,jy, dx,dy ',el,jx,jy,dxdxsi,dydxsi,dxdeta,dydeta
+           FaceAW(jy) = Face_Acoef(jy,0,el) / Face_Jac(jy,0,el)
+           FaceBW(jy) = Face_Bcoef(jy,0,el) / Face_Jac(jy,0,el)
+           NormAW(jy) = Face_Norm(jy,0,el)
 
- if (exact) then
-             DxDxsi = -thetad * (radm + sps(jy)*radd) * sin(theta2)
-             DyDxsi =  thetad * (radm + sps(jy)*radd) * cos(theta2)
-             DxDeta =  radd * cos(theta2)
-             DyDeta =  radd * sin(theta2)
- endif
+           FaceAN(jy) = Face_Acoef(jy,1+2,el) / Face_Jac(jy,1+2,el)
+           FaceBN(jy) = Face_Bcoef(jy,1+2,el) / Face_Jac(jy,1+2,el)
+           NormAN(jy) = Face_Norm(jy,1+2,el)
 
-           FaceJac = 1.d0 / (DxDxsi * DyDeta - DxDeta * DyDxsi)
-           FaceAE(jy,el) = (DxDeta * DxDeta + DyDeta * DyDeta) * FaceJac
-           FaceBE(jy,el) = (DxDxsi * DxDeta + DyDxsi * DyDeta) * FaceJac
-           NormAE(jy,el) = Sqrt(DxDeta * DxDeta + DyDeta * DyDeta)
-
-           ! Left Face: Geometric metric stuff (per element)
-           DxDxsi = 0.d0
-           DyDxsi = 0.d0
-           DxDeta = 0.d0
-           DyDeta = 0.d0
-           DO ly = 1, Lnod
-             DO lx = 1, Lnod
-               DxDxsi = DxDxsi + &
-                                 ! grad at x-dir                   no grad along y-dir            x/y-coord of geom
-                                 GeomBndryGradLgrangeBasis(lx,0) * GeomNodesLgrangeBasis(ly,jy) * xloc(lx,ly)
-               DyDxsi = DyDxsi + &
-                                 GeomBndryGradLgrangeBasis(lx,0) * GeomNodesLgrangeBasis(ly,jy) * yloc(lx,ly)
-               DxDeta = DxDeta + &
-                                 ! no grad at x-dir            grad along y-dir                   x/y-coord of geom
-                                 GeomBndryLgrangeBasis(lx,0) * GeomNodesGradLgrangeBasis(ly,jy) * xloc(lx,ly)
-               DyDeta = DyDeta + &
-                                 GeomBndryLgrangeBasis(lx,0) * GeomNodesGradLgrangeBasis(ly,jy) * yloc(lx,ly)
-             ENDDO
-           ENDDO
-!print *,'W el,jx,jy, dx,dy ',el,jx,jy,dxdxsi,dydxsi,dxdeta,dydeta
-
- if (exact) then
-             DxDxsi = -thetad * (radm + sps(jy)*radd) * sin(theta1)
-             DyDxsi =  thetad * (radm + sps(jy)*radd) * cos(theta1)
-             DxDeta =  radd * cos(theta1)
-             DyDeta =  radd * sin(theta1)
- endif
-
-           FaceJac = 1.d0 / (DxDxsi * DyDeta - DxDeta * DyDxsi)
-           FaceAW(jy,el) = (DxDeta * DxDeta + DyDeta * DyDeta) * FaceJac
-           FaceBW(jy,el) = (DxDxsi * DxDeta + DyDxsi * DyDeta) * FaceJac
-           NormAW(jy,el) = Sqrt(DxDeta * DxDeta + DyDeta * DyDeta)
-
-           ! North Face: Geometric metric stuff (per element)
-           DxDxsi = 0.d0
-           DyDxsi = 0.d0
-           DxDeta = 0.d0
-           DyDeta = 0.d0
-           DO ly = 1, Lnod
-             DO lx = 1, Lnod
-               DxDeta = DxDeta + &
-                                 ! grad at x-dir                   no grad along y-dir            x/y-coord of geom
-                                 GeomBndryGradLgrangeBasis(ly,1) * GeomNodesLgrangeBasis(lx,jy) * xloc(lx,ly)
-               DyDeta = DyDeta + &
-                                 GeomBndryGradLgrangeBasis(ly,1) * GeomNodesLgrangeBasis(lx,jy) * yloc(lx,ly)
-               DxDxsi = DxDxsi + &
-                                 ! no grad at x-dir            grad along y-dir                   x/y-coord of geom
-                                 GeomBndryLgrangeBasis(ly,1) * GeomNodesGradLgrangeBasis(lx,jy) * xloc(lx,ly)
-               DyDxsi = DyDxsi + &
-                                 GeomBndryLgrangeBasis(ly,1) * GeomNodesGradLgrangeBasis(lx,jy) * yloc(lx,ly)
-             ENDDO
-           ENDDO
-
- if (exact) then
-             DxDxsi = -thetad * (rad2) * sin(thetam + sps(jy)*thetad)
-             DyDxsi =  thetad * (rad2) * cos(thetam + sps(jy)*thetad)
-             DxDeta =  radd * cos(thetam + sps(jy)*thetad)
-             DyDeta =  radd * sin(thetam + sps(jy)*thetad)
- endif
-
-           FaceJac = 1.d0 / (DxDxsi * DyDeta - DxDeta * DyDxsi)
-           FaceAN(jy,el) = (DxDxsi * DxDxsi + DyDxsi * DyDxsi) * FaceJac
-           FaceBN(jy,el) = (DxDxsi * DxDeta + DyDxsi * DyDeta) * FaceJac
-           NormAN(jy,el) = Sqrt(DxDxsi * DxDxsi + DyDxsi * DyDxsi)
-
-           ! South Face: Geometric metric stuff (per element)
-           DxDxsi = 0.d0
-           DyDxsi = 0.d0
-           DxDeta = 0.d0
-           DyDeta = 0.d0
-           DO ly = 1, Lnod
-             DO lx = 1, Lnod
-               DxDeta = DxDeta + &
-                                 ! grad at x-dir                   no grad along y-dir            x/y-coord of geom
-                                 GeomBndryGradLgrangeBasis(ly,0) * GeomNodesLgrangeBasis(lx,jy) * xloc(lx,ly)
-               DyDeta = DyDeta + &
-                                 GeomBndryGradLgrangeBasis(ly,0) * GeomNodesLgrangeBasis(lx,jy) * yloc(lx,ly)
-               DxDxsi = DxDxsi + &
-                                 ! no grad at x-dir            grad along y-dir                   x/y-coord of geom
-                                 GeomBndryLgrangeBasis(ly,0) * GeomNodesGradLgrangeBasis(lx,jy) * xloc(lx,ly)
-               DyDxsi = DyDxsi + &
-                                 GeomBndryLgrangeBasis(ly,0) * GeomNodesGradLgrangeBasis(lx,jy) * yloc(lx,ly)
-             ENDDO
-           ENDDO
-!print *,'S el,jx,jy, dx,dy ',el,jx,jy,dxdxsi,dydxsi,dxdeta,dydeta
-
- if (exact) then
-             DxDxsi = -thetad * (rad1) * sin(thetam + sps(jy)*thetad)
-             DyDxsi =  thetad * (rad1) * cos(thetam + sps(jy)*thetad)
-             DxDeta =  radd * cos(thetam + sps(jy)*thetad)
-             DyDeta =  radd * sin(thetam + sps(jy)*thetad)
- endif
-
-           FaceJac = 1.d0 / (DxDxsi * DyDeta - DxDeta * DyDxsi)
-           FaceAS(jy,el) = (DxDxsi * DxDxsi + DyDxsi * DyDxsi) * FaceJac
-           FaceBS(jy,el) = (DxDxsi * DxDeta + DyDxsi * DyDeta) * FaceJac
-           NormAS(jy,el) = Sqrt(DxDxsi * DxDxsi + DyDxsi * DyDxsi)
-
+           FaceAS(jy) = Face_Acoef(jy,0+2,el) / Face_Jac(jy,0+2,el)
+           FaceBS(jy) = Face_Bcoef(jy,0+2,el) / Face_Jac(jy,0+2,el)
+           NormAS(jy) = Face_Norm(jy,0+2,el)
          ENDDO
-!print *,' '
-       ENDDO
 
-
-       DO el = 1, Nel
          DO j = 1, Knod
            jm1 = (j-1) * Knod
            DO i = 1, Knod
@@ -1916,16 +1843,16 @@ end interface
                tmpx = 0.d0
                tmpy = 0.d0
                DO l = 1, Knod
-                 tmpx = tmpx + SolnAxx(l,j,el) * SNGLB_2xSBLBdotNGR(l,i) * SNGLB_SBLBdotNGR(m,l)
-                 tmpy = tmpy + SolnAyy(i,l,el) * SNGLB_2xSBLBdotNGR(l,j) * SNGLB_SBLBdotNGR(m,l)
+                 tmpx = tmpx + SolnAxx(l,j) * SNGLB_2xSBLBdotNGR(l,i) * SNGLB_SBLBdotNGR(m,l)
+                 tmpy = tmpy + SolnAyy(i,l) * SNGLB_2xSBLBdotNGR(l,j) * SNGLB_SBLBdotNGR(m,l)
                ENDDO
                LaplacianCenter(mj,ij,el) = LaplacianCenter(mj,ij,el) + tmpx
                LaplacianCenter(im,ij,el) = LaplacianCenter(im,ij,el) + tmpy
                DO l = 1, Knod
                  lm = mm1 + l
                  LaplacianCenter(lm,ij,el) = LaplacianCenter(lm,ij,el) - ( &
-                                               SolnAxy(l,j,el) * SNGLB_2xSBLBdotNGR(l,i) * SNGLB_SBLBdotNGR(m,j) + &
-                                               SolnAxy(i,m,el) * SNGLB_2xSBLBdotNGR(m,j) * SNGLB_SBLBdotNGR(l,i) )
+                                               SolnAxy(l,j) * SNGLB_2xSBLBdotNGR(l,i) * SNGLB_SBLBdotNGR(m,j) + &
+                                               SolnAxy(i,m) * SNGLB_2xSBLBdotNGR(m,j) * SNGLB_SBLBdotNGR(l,i) )
                ENDDO
              ENDDO
            ENDDO
@@ -1940,7 +1867,7 @@ end interface
              DO j = 1, Knod
                jm1 = (j-1) * Knod
 !               tmp = 2.d0 * gL * FaceAE(j,el) * BC_Values(j,-elemID(2,el))
-               tmp = 2.d0 * gL * FaceAE(j,el)
+               tmp = 2.d0 * gL * FaceAE(j)
                DO i = 1, Knod
                  ij = jm1 + i
 !                 BndrySrc(ij,el) = BndrySrc(ij,el) + tmp * NodesGradRadau(i,1)
@@ -1955,17 +1882,17 @@ end interface
 !                                                           * ( SolnAxy(i,m,el) * SNGLB_2xSBLBdotNGR(m,j) + &
 !                                                               FaceBE(j,el) * SolnNodesGradLgrangeBasis(m,j) )
                    BndrySrc(j,ij,bel) = BndrySrc(j,ij,bel) + &
-                                        SolnAxx(m,j,el) * SNGLB_2xSBLBdotNGR(m,i) * NodesGradRadau(m,1)
+                                        SolnAxx(m,j) * SNGLB_2xSBLBdotNGR(m,i) * NodesGradRadau(m,1)
                    BndrySrc(m,ij,bel) = BndrySrc(m,ij,bel) - NodesGradRadau(i,1) &
-                                                        * ( SolnAxy(i,m,el) * SNGLB_2xSBLBdotNGR(m,j) + &
-                                                            FaceBE(j,el) * SolnNodesGradLgrangeBasis(m,j) )
+                                                        * ( SolnAxy(i,m) * SNGLB_2xSBLBdotNGR(m,j) + &
+                                                            FaceBE(j) * SolnNodesGradLgrangeBasis(m,j) )
                    tmpx = 0.d0
                    DO l = 1, Knod
-                     tmpx = tmpx + SolnAxx(l,j,el) * SNGLB_2xSBLBdotNGR(l,i) * SBLB_i1_NGR_j1(m,l)
+                     tmpx = tmpx + SolnAxx(l,j) * SNGLB_2xSBLBdotNGR(l,i) * SBLB_i1_NGR_j1(m,l)
                    ENDDO
-                   LaplacianCenter(mj,ij,el) = LaplacianCenter(mj,ij,el) - tmpx + 2.d0 * FaceAE(j,el) * &
+                   LaplacianCenter(mj,ij,el) = LaplacianCenter(mj,ij,el) - tmpx + 2.d0 * FaceAE(j) * &
                                                  ( SBGLB_SBLB_i1_NGR_j1(m,i) - gL * SBLB_i1_NGR_j1(m,i) )
-                   tmpy = SolnAxy(i,m,el) * SNGLB_2xSBLBdotNGR(m,j)
+                   tmpy = SolnAxy(i,m) * SNGLB_2xSBLBdotNGR(m,j)
                    DO l = 1, Knod
                      lm = mm1 + l
                      LaplacianCenter(lm,ij,el) = LaplacianCenter(lm,ij,el) + tmpy * SBLB_i1_NGR_j1(l,i)
@@ -1978,9 +1905,9 @@ end interface
 
              DO j = 1, Knod
                DO i = 1, Knod
-                 NeuMatrix_Orig(i,j) = FaceBE(i,el) * SolnNodesGradLgrangeBasis(j,i)
+                 NeuMatrix_Orig(i,j) = FaceBE(i) * SolnNodesGradLgrangeBasis(j,i)
                ENDDO
-               NeuMatrix_Orig(j,j) = NeuMatrix_Orig(j,j) - 2.d0 * gL * FaceAE(j,el)
+               NeuMatrix_Orig(j,j) = NeuMatrix_Orig(j,j) - 2.d0 * gL * FaceAE(j)
              ENDDO
 
              NeuMatrix = inv(NeuMatrix_Orig)
@@ -1991,7 +1918,7 @@ end interface
                DO i = 1, Knod
                  ij = jm1 + i
 !                 BndrySrc(ij,el) = BndrySrc(ij,el) + NodesGradRadau(i,1) * BC_Values(j,-elemID(2,el)) * NormAE(j,el)
-                 BndrySrc(j,ij,bel) = BndrySrc(j,ij,bel) + NodesGradRadau(i,1) * NormAE(j,el)
+                 BndrySrc(j,ij,bel) = BndrySrc(j,ij,bel) + NodesGradRadau(i,1) * NormAE(j)
                  DO m = 1, Knod
                    mm1 = (m-1) * Knod
                    mj = jm1 + m
@@ -2003,39 +1930,39 @@ end interface
 !                     BndrySrc(ij,el) = BndrySrc(ij,el) + tmpy * NeuMatrix(m,l) * BC_Values(l,-elemID(2,el)) * NormAE(l,el)
 !                   ENDDO
 !                   BndrySrc(ij,el) = BndrySrc(ij,el) - tmpx * SolnAxx(m,j,el) * SNGLB_2xSBLBdotNGR(m,i) * NodesGradRadau(m,1)
-                   tmpx = SolnAxx(m,j,el) * SNGLB_2xSBLBdotNGR(m,i) * NodesGradRadau(m,1)
-                   tmpy = SolnAxy(i,m,el) * SNGLB_2xSBLBdotNGR(m,j) * NodesGradRadau(i,1)
+                   tmpx = SolnAxx(m,j) * SNGLB_2xSBLBdotNGR(m,i) * NodesGradRadau(m,1)
+                   tmpy = SolnAxy(i,m) * SNGLB_2xSBLBdotNGR(m,j) * NodesGradRadau(i,1)
                    DO l = 1, Knod
-                     BndrySrc(l,ij,bel) = BndrySrc(l,ij,bel) + (tmpy * NeuMatrix(m,l) - tmpx * NeuMatrix(j,l)) * NormAE(l,el)
+                     BndrySrc(l,ij,bel) = BndrySrc(l,ij,bel) + (tmpy * NeuMatrix(m,l) - tmpx * NeuMatrix(j,l)) * NormAE(l)
                    ENDDO
 
                    tmpx = 0.d0
                    DO l = 1, Knod
-                     tmpx = tmpx + SolnAxx(l,j,el) * SNGLB_2xSBLBdotNGR(l,i) * SBLB_i1_NGR_j1(m,l)
+                     tmpx = tmpx + SolnAxx(l,j) * SNGLB_2xSBLBdotNGR(l,i) * SBLB_i1_NGR_j1(m,l)
                    ENDDO
                    LaplacianCenter(mj,ij,el) = LaplacianCenter(mj,ij,el) - tmpx
 
                    tmpy =0.d0
                    DO l = 1, Knod
-                     tmpy = tmpy + SolnAxy(i,l,el) * SNGLB_2xSBLBdotNGR(l,j) * NeuMatrix(l,m)
+                     tmpy = tmpy + SolnAxy(i,l) * SNGLB_2xSBLBdotNGR(l,j) * NeuMatrix(l,m)
                    ENDDO
                    DO l = 1, Knod
                      lm = mm1 + l
-                     LaplacianCenter(lm,ij,el) = LaplacianCenter(lm,ij,el) - 2.d0 * tmpy * FaceAE(m,el) * &
+                     LaplacianCenter(lm,ij,el) = LaplacianCenter(lm,ij,el) - 2.d0 * tmpy * FaceAE(m) * &
                                                                             (SBGLB_SBLB_i1_NGR_j1(l,i) - gL * SBLB_i1_NGR_j1(l,i))
                    ENDDO
 
                    DO l = 1, Knod
                      tmpx = 0.d0
                      DO p = 1, Knod
-                       tmpx = tmpx + SolnAxx(p,j,el) * SNGLB_2xSBLBdotNGR(p,i) * &
+                       tmpx = tmpx + SolnAxx(p,j) * SNGLB_2xSBLBdotNGR(p,i) * &
                                                                             (SBGLB_SBLB_i1_NGR_j1(l,p) - gL * SBLB_i1_NGR_j1(l,p))
                      ENDDO
                      lm = mm1 + l
-                     LaplacianCenter(lm,ij,el) = LaplacianCenter(lm,ij,el) + 2.d0 * tmpx * FaceAE(m,el) * NeuMatrix(j,m)
+                     LaplacianCenter(lm,ij,el) = LaplacianCenter(lm,ij,el) + 2.d0 * tmpx * FaceAE(m) * NeuMatrix(j,m)
                    ENDDO
 
-                   tmpy = SolnAxy(i,m,el) * SNGLB_2xSBLBdotNGR(m,j)
+                   tmpy = SolnAxy(i,m) * SNGLB_2xSBLBdotNGR(m,j)
                    DO l = 1, Knod
                      lm = mm1 + l
                      LaplacianCenter(lm,ij,el) = LaplacianCenter(lm,ij,el) + tmpy * SBLB_i1_NGR_j1(l,i)
@@ -2049,8 +1976,10 @@ end interface
          ELSE
 
            DO j = 1, Knod
-             Acoef(j) = FaceAW(j,elemID(2,el))
-             Bcoef(j) = 0.5d0 * (FaceBE(j,el) + FaceBW(j,elemID(2,el)))
+!             Acoef(j) = FaceAW(j,elemID(2,el))
+!             Bcoef(j) = 0.5d0 * (FaceBE(j,el) + FaceBW(j,elemID(2,el)))
+             Acoef(j) = Face_Acoef(j,0,elemID(2,el)) / Face_Jac(j,0,elemID(2,el))
+             Bcoef(j) = 0.5d0 * ( FaceBE(j) + Face_Bcoef(j,0,elemID(2,el)) / Face_Jac(j,0,elemID(2,el)) )
            ENDDO
 
            DO j = 1, Knod
@@ -2062,16 +1991,16 @@ end interface
                  mj = jm1 + m
                  tmpx = 0.d0
                  DO l = 1, Knod
-                   tmpx = tmpx + SolnAxx(l,j,el) * SNGLB_2xSBLBdotNGR(l,i) * SBLB_i0_NGR_j1(m,l)
+                   tmpx = tmpx + SolnAxx(l,j) * SNGLB_2xSBLBdotNGR(l,i) * SBLB_i0_NGR_j1(m,l)
                  ENDDO
                  LaplacianEast(mj,ij,el) = LaplacianEast(mj,ij,el) + tmpx + &
                                                Acoef(j) * SBGLB_SBLB_i0_NGR_j1(m,i) + &
-                                               gL * FaceAE(j,el) * SBLB_i0_NGR_j1(m,i)
+                                               gL * FaceAE(j) * SBLB_i0_NGR_j1(m,i)
                  LaplacianCenter(mj,ij,el) = LaplacianCenter(mj,ij,el) + ( &
-                                               FaceAE(j,el) * SBGLB_SBLB_i1_NGR_j1(m,i) - &
+                                               FaceAE(j) * SBGLB_SBLB_i1_NGR_j1(m,i) - &
                                                gL * Acoef(j) * SBLB_i1_NGR_j1(m,i) )
                  tmp = Bcoef(j) * SolnNodesGradLgrangeBasis(m,j)
-                 tmpy = tmp + SolnAxy(i,m,el) * SNGLB_2xSBLBdotNGR(m,j)
+                 tmpy = tmp + SolnAxy(i,m) * SNGLB_2xSBLBdotNGR(m,j)
                  DO l = 1, Knod
                    lm = mm1 + l
                    LaplacianEast(lm,ij,el) = LaplacianEast(lm,ij,el) - tmpy * SBLB_i0_NGR_j1(l,i) 
@@ -2092,7 +2021,7 @@ end interface
              DO j = 1, Knod
                jm1 = (j-1) * Knod
 !               tmp = - 2.d0 * gL * FaceAW(j,el) * BC_Values(j,-elemID(4,el))
-               tmp = - 2.d0 * gL * FaceAW(j,el)
+               tmp = - 2.d0 * gL * FaceAW(j)
                DO i = 1, Knod
                  ij = jm1 + i
 !                 BndrySrc(ij,el) = BndrySrc(ij,el) + tmp * NodesGradRadau(i,0)
@@ -2107,17 +2036,17 @@ end interface
 !                                                           * ( SolnAxy(i,m,el) * SNGLB_2xSBLBdotNGR(m,j) + &
 !                                                               FaceBW(j,el) * SolnNodesGradLgrangeBasis(m,j) )
                    BndrySrc(j,ij,bel) = BndrySrc(j,ij,bel) + &
-                                        SolnAxx(m,j,el) * SNGLB_2xSBLBdotNGR(m,i) * NodesGradRadau(m,0)
+                                        SolnAxx(m,j) * SNGLB_2xSBLBdotNGR(m,i) * NodesGradRadau(m,0)
                    BndrySrc(m,ij,bel) = BndrySrc(m,ij,bel) - NodesGradRadau(i,0) &
-                                                        * ( SolnAxy(i,m,el) * SNGLB_2xSBLBdotNGR(m,j) + &
-                                                            FaceBW(j,el) * SolnNodesGradLgrangeBasis(m,j) )
+                                                        * ( SolnAxy(i,m) * SNGLB_2xSBLBdotNGR(m,j) + &
+                                                            FaceBW(j) * SolnNodesGradLgrangeBasis(m,j) )
                    tmpx = 0.d0
                    DO l = 1, Knod
-                     tmpx = tmpx + SolnAxx(l,j,el) * SNGLB_2xSBLBdotNGR(l,i) * SBLB_i0_NGR_j0(m,l)
+                     tmpx = tmpx + SolnAxx(l,j) * SNGLB_2xSBLBdotNGR(l,i) * SBLB_i0_NGR_j0(m,l)
                    ENDDO
-                   LaplacianCenter(mj,ij,el) = LaplacianCenter(mj,ij,el) - tmpx + 2.d0 * FaceAW(j,el) * &
+                   LaplacianCenter(mj,ij,el) = LaplacianCenter(mj,ij,el) - tmpx + 2.d0 * FaceAW(j) * &
                                                  ( SBGLB_SBLB_i0_NGR_j0(m,i) + gL * SBLB_i0_NGR_j0(m,i) )
-                   tmpy = SolnAxy(i,m,el) * SNGLB_2xSBLBdotNGR(m,j)
+                   tmpy = SolnAxy(i,m) * SNGLB_2xSBLBdotNGR(m,j)
                    DO l = 1, Knod
                      lm = mm1 + l
                      LaplacianCenter(lm,ij,el) = LaplacianCenter(lm,ij,el) + tmpy * SBLB_i0_NGR_j0(l,i)
@@ -2130,9 +2059,9 @@ end interface
 
              DO j = 1, Knod
                DO i = 1, Knod
-                 NeuMatrix_Orig(i,j) = FaceBW(i,el) * SolnNodesGradLgrangeBasis(j,i)
+                 NeuMatrix_Orig(i,j) = FaceBW(i) * SolnNodesGradLgrangeBasis(j,i)
                ENDDO
-               NeuMatrix_Orig(j,j) = NeuMatrix_Orig(j,j) + 2.d0 * gL * FaceAW(j,el)
+               NeuMatrix_Orig(j,j) = NeuMatrix_Orig(j,j) + 2.d0 * gL * FaceAW(j)
              ENDDO
 
              NeuMatrix = inv(NeuMatrix_Orig)
@@ -2143,7 +2072,7 @@ end interface
                DO i = 1, Knod
                  ij = jm1 + i
 !                 BndrySrc(ij,el) = BndrySrc(ij,el) + NodesGradRadau(i,0) * BC_Values(j,-elemID(4,el)) * NormAW(j,el)
-                 BndrySrc(j,ij,bel) = BndrySrc(j,ij,bel) + NodesGradRadau(i,0) * NormAW(j,el)
+                 BndrySrc(j,ij,bel) = BndrySrc(j,ij,bel) + NodesGradRadau(i,0) * NormAW(j)
                  DO m = 1, Knod
                    mm1 = (m-1) * Knod
                    mj = jm1 + m
@@ -2155,39 +2084,39 @@ end interface
 !                     BndrySrc(ij,el) = BndrySrc(ij,el) + tmpy * NeuMatrix(m,l) * BC_Values(l,-elemID(4,el)) * NormAW(l,el)
 !                   ENDDO
 !                   BndrySrc(ij,el) = BndrySrc(ij,el) - tmpx * SolnAxx(m,j,el) * SNGLB_2xSBLBdotNGR(m,i) * NodesGradRadau(m,0)
-                   tmpx = SolnAxx(m,j,el) * SNGLB_2xSBLBdotNGR(m,i) * NodesGradRadau(m,0)
-                   tmpy = SolnAxy(i,m,el) * SNGLB_2xSBLBdotNGR(m,j) * NodesGradRadau(i,0)
+                   tmpx = SolnAxx(m,j) * SNGLB_2xSBLBdotNGR(m,i) * NodesGradRadau(m,0)
+                   tmpy = SolnAxy(i,m) * SNGLB_2xSBLBdotNGR(m,j) * NodesGradRadau(i,0)
                    DO l = 1, Knod
-                     BndrySrc(l,ij,bel) = BndrySrc(l,ij,bel) + (tmpy * NeuMatrix(m,l) - tmpx * NeuMatrix(j,l)) * NormAW(l,el)
+                     BndrySrc(l,ij,bel) = BndrySrc(l,ij,bel) + (tmpy * NeuMatrix(m,l) - tmpx * NeuMatrix(j,l)) * NormAW(l)
                    ENDDO
 
                    tmpx = 0.d0
                    DO l = 1, Knod
-                     tmpx = tmpx + SolnAxx(l,j,el) * SNGLB_2xSBLBdotNGR(l,i) * SBLB_i0_NGR_j0(m,l)
+                     tmpx = tmpx + SolnAxx(l,j) * SNGLB_2xSBLBdotNGR(l,i) * SBLB_i0_NGR_j0(m,l)
                    ENDDO
                    LaplacianCenter(mj,ij,el) = LaplacianCenter(mj,ij,el) - tmpx
 
                    tmpy =0.d0
                    DO l = 1, Knod
-                     tmpy = tmpy + SolnAxy(i,l,el) * SNGLB_2xSBLBdotNGR(l,j) * NeuMatrix(l,m)
+                     tmpy = tmpy + SolnAxy(i,l) * SNGLB_2xSBLBdotNGR(l,j) * NeuMatrix(l,m)
                    ENDDO
                    DO l = 1, Knod
                      lm = mm1 + l
-                     LaplacianCenter(lm,ij,el) = LaplacianCenter(lm,ij,el) - 2.d0 * tmpy * FaceAW(m,el) * &
+                     LaplacianCenter(lm,ij,el) = LaplacianCenter(lm,ij,el) - 2.d0 * tmpy * FaceAW(m) * &
                                                                             (SBGLB_SBLB_i0_NGR_j0(l,i) + gL * SBLB_i0_NGR_j0(l,i))
                    ENDDO
 
                    DO l = 1, Knod
                      tmpx = 0.d0
                      DO p = 1, Knod
-                       tmpx = tmpx + SolnAxx(p,j,el) * SNGLB_2xSBLBdotNGR(p,i) * &
+                       tmpx = tmpx + SolnAxx(p,j) * SNGLB_2xSBLBdotNGR(p,i) * &
                                                                             (SBGLB_SBLB_i0_NGR_j0(l,p) + gL * SBLB_i0_NGR_j0(l,p))
                      ENDDO
                      lm = mm1 + l
-                     LaplacianCenter(lm,ij,el) = LaplacianCenter(lm,ij,el) + 2.d0 * tmpx * FaceAW(m,el) * NeuMatrix(j,m)
+                     LaplacianCenter(lm,ij,el) = LaplacianCenter(lm,ij,el) + 2.d0 * tmpx * FaceAW(m) * NeuMatrix(j,m)
                    ENDDO
 
-                   tmpy = SolnAxy(i,m,el) * SNGLB_2xSBLBdotNGR(m,j)
+                   tmpy = SolnAxy(i,m) * SNGLB_2xSBLBdotNGR(m,j)
                    DO l = 1, Knod
                      lm = mm1 + l
                      LaplacianCenter(lm,ij,el) = LaplacianCenter(lm,ij,el) + tmpy * SBLB_i0_NGR_j0(l,i)
@@ -2201,8 +2130,10 @@ end interface
          ELSE
 
            DO j = 1, Knod
-             Acoef(j) = FaceAE(j,elemID(4,el))
-             Bcoef(j) = 0.5d0 * (FaceBW(j,el) + FaceBE(j,elemID(4,el)))
+!             Acoef(j) = FaceAE(j,elemID(4,el))
+!             Bcoef(j) = 0.5d0 * (FaceBW(j,el) + FaceBE(j,elemID(4,el)))
+             Acoef(j) = Face_Acoef(j,1,elemID(4,el)) / Face_Jac(j,1,elemID(4,el))
+             Bcoef(j) = 0.5d0 * ( FaceBW(j) + Face_Bcoef(j,1,elemID(4,el)) / Face_Jac(j,1,elemID(4,el)) )
            ENDDO
 
            DO j = 1, Knod
@@ -2214,16 +2145,16 @@ end interface
                  mj = jm1 + m
                  tmpx = 0.d0
                  DO l = 1, Knod
-                   tmpx = tmpx + SolnAxx(l,j,el) * SNGLB_2xSBLBdotNGR(l,i) * SBLB_i1_NGR_j0(m,l)
+                   tmpx = tmpx + SolnAxx(l,j) * SNGLB_2xSBLBdotNGR(l,i) * SBLB_i1_NGR_j0(m,l)
                  ENDDO
                  LaplacianWest(mj,ij,el) = LaplacianWest(mj,ij,el) + tmpx + &
                                                Acoef(j) * SBGLB_SBLB_i1_NGR_j0(m,i) - &
-                                               gL * FaceAW(j,el) * SBLB_i1_NGR_j0(m,i)
+                                               gL * FaceAW(j) * SBLB_i1_NGR_j0(m,i)
                  LaplacianCenter(mj,ij,el) = LaplacianCenter(mj,ij,el) + ( &
-                                               FaceAW(j,el) * SBGLB_SBLB_i0_NGR_j0(m,i) + &
+                                               FaceAW(j) * SBGLB_SBLB_i0_NGR_j0(m,i) + &
                                                gL * Acoef(j) * SBLB_i0_NGR_j0(m,i) )
                  tmp = Bcoef(j) * SolnNodesGradLgrangeBasis(m,j)
-                 tmpy = tmp + SolnAxy(i,m,el) * SNGLB_2xSBLBdotNGR(m,j)
+                 tmpy = tmp + SolnAxy(i,m) * SNGLB_2xSBLBdotNGR(m,j)
                  DO l = 1, Knod
                    lm = mm1 + l
                    LaplacianWest(lm,ij,el) = LaplacianWest(lm,ij,el) - tmpy * SBLB_i1_NGR_j0(l,i) 
@@ -2243,7 +2174,7 @@ end interface
              bel = -elemID(3,el)
              DO i = 1, Knod
 !               tmp = 2.d0 * gL * FaceAN(i,el) * BC_Values(i,-elemID(3,el))
-               tmp = 2.d0 * gL * FaceAN(i,el)
+               tmp = 2.d0 * gL * FaceAN(i)
                DO j = 1, Knod
                  ij = (j-1) * Knod + i
 !                 BndrySrc(ij,el) = BndrySrc(ij,el) + tmp * NodesGradRadau(j,1)
@@ -2257,17 +2188,17 @@ end interface
 !                                                           * ( SolnAxy(m,j,el) * SNGLB_2xSBLBdotNGR(m,i) + &
 !                                                               FaceBN(i,el) * SolnNodesGradLgrangeBasis(m,i) )
                    BndrySrc(i,ij,bel) = BndrySrc(i,ij,bel) + &
-                                       SolnAyy(i,m,el) * SNGLB_2xSBLBdotNGR(m,j) * NodesGradRadau(m,1)
+                                       SolnAyy(i,m) * SNGLB_2xSBLBdotNGR(m,j) * NodesGradRadau(m,1)
                    BndrySrc(m,ij,bel) = BndrySrc(m,ij,bel) - NodesGradRadau(j,1) &
-                                                       * ( SolnAxy(m,j,el) * SNGLB_2xSBLBdotNGR(m,i) + &
-                                                           FaceBN(i,el) * SolnNodesGradLgrangeBasis(m,i) )
+                                                       * ( SolnAxy(m,j) * SNGLB_2xSBLBdotNGR(m,i) + &
+                                                           FaceBN(i) * SolnNodesGradLgrangeBasis(m,i) )
                    tmpy = 0.d0
                    DO l = 1, Knod
-                     tmpy = tmpy + SolnAyy(i,l,el) * SNGLB_2xSBLBdotNGR(l,j) * SBLB_i1_NGR_j1(m,l)
+                     tmpy = tmpy + SolnAyy(i,l) * SNGLB_2xSBLBdotNGR(l,j) * SBLB_i1_NGR_j1(m,l)
                    ENDDO
-                   LaplacianCenter(im,ij,el) = LaplacianCenter(im,ij,el) - tmpy + 2.d0 * FaceAN(i,el) * &
+                   LaplacianCenter(im,ij,el) = LaplacianCenter(im,ij,el) - tmpy + 2.d0 * FaceAN(i) * &
                                                  ( SBGLB_SBLB_i1_NGR_j1(m,j) - gL * SBLB_i1_NGR_j1(m,j) )
-                   tmpx = SolnAxy(m,j,el) * SNGLB_2xSBLBdotNGR(m,i)
+                   tmpx = SolnAxy(m,j) * SNGLB_2xSBLBdotNGR(m,i)
                    DO l = 1, Knod
                      ml = (l-1) * Knod + m
                      LaplacianCenter(ml,ij,el) = LaplacianCenter(ml,ij,el) + tmpx * SBLB_i1_NGR_j1(l,j)
@@ -2280,9 +2211,9 @@ end interface
 
              DO j = 1, Knod
                DO i = 1, Knod
-                 NeuMatrix_Orig(i,j) = FaceBN(i,el) * SolnNodesGradLgrangeBasis(j,i)
+                 NeuMatrix_Orig(i,j) = FaceBN(i) * SolnNodesGradLgrangeBasis(j,i)
                ENDDO
-               NeuMatrix_Orig(j,j) = NeuMatrix_Orig(j,j) - 2.d0 * gL * FaceAN(j,el)
+               NeuMatrix_Orig(j,j) = NeuMatrix_Orig(j,j) - 2.d0 * gL * FaceAN(j)
              ENDDO
 
              NeuMatrix = inv(NeuMatrix_Orig)
@@ -2292,7 +2223,7 @@ end interface
                DO j = 1, Knod
                  ij = (j-1) * Knod + i
 !                 BndrySrc(ij,el) = BndrySrc(ij,el) + NodesGradRadau(j,1) * BC_Values(i,-elemID(3,el)) * NormAN(i,el)
-                 BndrySrc(i,ij,bel) = BndrySrc(i,ij,bel) + NodesGradRadau(j,1) * NormAN(i,el)
+                 BndrySrc(i,ij,bel) = BndrySrc(i,ij,bel) + NodesGradRadau(j,1) * NormAN(i)
                  DO m = 1, Knod
                    im = (m-1) * Knod + i
 
@@ -2303,39 +2234,39 @@ end interface
 !                     BndrySrc(ij,el) = BndrySrc(ij,el) + tmpy * NeuMatrix(m,l) * BC_Values(l,-elemID(3,el)) * NormAN(l,el)
 !                   ENDDO
 !                   BndrySrc(ij,el) = BndrySrc(ij,el) - tmpx * SolnAyy(i,m,el) * SNGLB_2xSBLBdotNGR(m,j) * NodesGradRadau(m,1)
-                   tmpx = SolnAyy(i,m,el) * SNGLB_2xSBLBdotNGR(m,j) * NodesGradRadau(m,1)
-                   tmpy = SolnAxy(m,j,el) * SNGLB_2xSBLBdotNGR(m,i) * NodesGradRadau(j,1)
+                   tmpx = SolnAyy(i,m) * SNGLB_2xSBLBdotNGR(m,j) * NodesGradRadau(m,1)
+                   tmpy = SolnAxy(m,j) * SNGLB_2xSBLBdotNGR(m,i) * NodesGradRadau(j,1)
                    DO l = 1, Knod
-                     BndrySrc(l,ij,bel) = BndrySrc(l,ij,bel) + (tmpy * NeuMatrix(m,l) - tmpx * NeuMatrix(i,l)) * NormAN(l,el)
+                     BndrySrc(l,ij,bel) = BndrySrc(l,ij,bel) + (tmpy * NeuMatrix(m,l) - tmpx * NeuMatrix(i,l)) * NormAN(l)
                    ENDDO
 
                    tmpx = 0.d0
                    DO l = 1, Knod
-                     tmpx = tmpx + SolnAyy(i,l,el) * SNGLB_2xSBLBdotNGR(l,j) * SBLB_i1_NGR_j1(m,l)
+                     tmpx = tmpx + SolnAyy(i,l) * SNGLB_2xSBLBdotNGR(l,j) * SBLB_i1_NGR_j1(m,l)
                    ENDDO
                    LaplacianCenter(im,ij,el) = LaplacianCenter(im,ij,el) - tmpx
 
                    tmpy =0.d0
                    DO l = 1, Knod
-                     tmpy = tmpy + SolnAxy(l,j,el) * SNGLB_2xSBLBdotNGR(l,i) * NeuMatrix(l,m)
+                     tmpy = tmpy + SolnAxy(l,j) * SNGLB_2xSBLBdotNGR(l,i) * NeuMatrix(l,m)
                    ENDDO
                    DO l = 1, Knod
                      ml = (l-1) * Knod + m
-                     LaplacianCenter(ml,ij,el) = LaplacianCenter(ml,ij,el) - 2.d0 * tmpy * FaceAN(m,el) * &
+                     LaplacianCenter(ml,ij,el) = LaplacianCenter(ml,ij,el) - 2.d0 * tmpy * FaceAN(m) * &
                                                                             (SBGLB_SBLB_i1_NGR_j1(l,j) - gL * SBLB_i1_NGR_j1(l,j))
                    ENDDO
 
                    DO l = 1, Knod
                      tmpx = 0.d0
                      DO p = 1, Knod
-                       tmpx = tmpx + SolnAyy(i,p,el) * SNGLB_2xSBLBdotNGR(p,j) * &
+                       tmpx = tmpx + SolnAyy(i,p) * SNGLB_2xSBLBdotNGR(p,j) * &
                                                                             (SBGLB_SBLB_i1_NGR_j1(l,p) - gL * SBLB_i1_NGR_j1(l,p))
                      ENDDO
                      ml = (l-1) * Knod + m
-                     LaplacianCenter(ml,ij,el) = LaplacianCenter(ml,ij,el) + 2.d0 * tmpx * FaceAN(m,el) * NeuMatrix(i,m)
+                     LaplacianCenter(ml,ij,el) = LaplacianCenter(ml,ij,el) + 2.d0 * tmpx * FaceAN(m) * NeuMatrix(i,m)
                    ENDDO
 
-                   tmpy = SolnAxy(m,j,el) * SNGLB_2xSBLBdotNGR(m,i)
+                   tmpy = SolnAxy(m,j) * SNGLB_2xSBLBdotNGR(m,i)
                    DO l = 1, Knod
                      ml = (l-1) * Knod + m
                      LaplacianCenter(ml,ij,el) = LaplacianCenter(ml,ij,el) + tmpy * SBLB_i1_NGR_j1(l,j)
@@ -2349,8 +2280,10 @@ end interface
          ELSE
 
            DO j = 1, Knod
-             Acoef(j) = FaceAS(j,elemID(3,el))
-             Bcoef(j) = 0.5d0 * (FaceBN(j,el) + FaceBS(j,elemID(3,el)))
+!             Acoef(j) = FaceAS(j,elemID(3,el))
+!             Bcoef(j) = 0.5d0 * (FaceBN(j,el) + FaceBS(j,elemID(3,el)))
+             Acoef(j) = Face_Acoef(j,0+2,elemID(3,el)) / Face_Jac(j,0+2,elemID(3,el))
+             Bcoef(j) = 0.5d0 * ( FaceBN(j) + Face_Bcoef(j,0+2,elemID(3,el)) / Face_Jac(j,0+2,elemID(3,el)) )
            ENDDO
 
            DO i = 1, Knod
@@ -2360,16 +2293,16 @@ end interface
                  im = (m-1) * Knod + i
                  tmpy = 0.d0
                  DO l = 1, Knod
-                   tmpy = tmpy + SolnAyy(i,l,el) * SNGLB_2xSBLBdotNGR(l,j) * SBLB_i0_NGR_j1(m,l)
+                   tmpy = tmpy + SolnAyy(i,l) * SNGLB_2xSBLBdotNGR(l,j) * SBLB_i0_NGR_j1(m,l)
                  ENDDO
                  LaplacianNorth(im,ij,el) = LaplacianNorth(im,ij,el) + tmpy + &
                                                Acoef(i) * SBGLB_SBLB_i0_NGR_j1(m,j) + &
-                                               gL * FaceAN(i,el) * SBLB_i0_NGR_j1(m,j)
+                                               gL * FaceAN(i) * SBLB_i0_NGR_j1(m,j)
                  LaplacianCenter(im,ij,el) = LaplacianCenter(im,ij,el) + ( &
-                                               FaceAN(i,el) * SBGLB_SBLB_i1_NGR_j1(m,j) - &
+                                               FaceAN(i) * SBGLB_SBLB_i1_NGR_j1(m,j) - &
                                                gL * Acoef(i) * SBLB_i1_NGR_j1(m,j) )
                  tmp = Bcoef(i) * SolnNodesGradLgrangeBasis(m,i)
-                 tmpx = tmp + SolnAxy(m,j,el) * SNGLB_2xSBLBdotNGR(m,i)
+                 tmpx = tmp + SolnAxy(m,j) * SNGLB_2xSBLBdotNGR(m,i)
                  DO l = 1, Knod
                    ml = (l-1) * Knod + m
                    LaplacianNorth(ml,ij,el) = LaplacianNorth(ml,ij,el) - tmpx * SBLB_i0_NGR_j1(l,j) 
@@ -2389,7 +2322,7 @@ end interface
              bel = -elemID(1,el)
              DO i = 1, Knod
 !               tmp = - 2.d0 * gL * FaceAS(i,el) * BC_Values(i,-elemID(1,el))
-               tmp = - 2.d0 * gL * FaceAS(i,el)
+               tmp = - 2.d0 * gL * FaceAS(i)
                DO j = 1, Knod
                  ij = (j-1) * Knod + i
 !                 BndrySrc(ij,el) = BndrySrc(ij,el) + tmp * NodesGradRadau(j,0)
@@ -2403,17 +2336,17 @@ end interface
 !                                                           * ( SolnAxy(m,j,el) * SNGLB_2xSBLBdotNGR(m,i) + &
 !                                                               FaceBS(i,el) * SolnNodesGradLgrangeBasis(m,i) )
                    BndrySrc(i,ij,bel) = BndrySrc(i,ij,bel) + &
-                                        SolnAyy(i,m,el) * SNGLB_2xSBLBdotNGR(m,j) * NodesGradRadau(m,0)
+                                        SolnAyy(i,m) * SNGLB_2xSBLBdotNGR(m,j) * NodesGradRadau(m,0)
                    BndrySrc(m,ij,bel) = BndrySrc(m,ij,bel) - NodesGradRadau(j,0) &
-                                                        * ( SolnAxy(m,j,el) * SNGLB_2xSBLBdotNGR(m,i) + &
-                                                            FaceBS(i,el) * SolnNodesGradLgrangeBasis(m,i) )
+                                                        * ( SolnAxy(m,j) * SNGLB_2xSBLBdotNGR(m,i) + &
+                                                            FaceBS(i) * SolnNodesGradLgrangeBasis(m,i) )
                    tmpy = 0.d0
                    DO l = 1, Knod
-                     tmpy = tmpy + SolnAyy(i,l,el) * SNGLB_2xSBLBdotNGR(l,j) * SBLB_i0_NGR_j0(m,l)
+                     tmpy = tmpy + SolnAyy(i,l) * SNGLB_2xSBLBdotNGR(l,j) * SBLB_i0_NGR_j0(m,l)
                    ENDDO
-                   LaplacianCenter(im,ij,el) = LaplacianCenter(im,ij,el) - tmpy + 2.d0 * FaceAS(i,el) * &
+                   LaplacianCenter(im,ij,el) = LaplacianCenter(im,ij,el) - tmpy + 2.d0 * FaceAS(i) * &
                                                  ( SBGLB_SBLB_i0_NGR_j0(m,j) + gL * SBLB_i0_NGR_j0(m,j) )
-                   tmpx = SolnAxy(m,j,el) * SNGLB_2xSBLBdotNGR(m,i)
+                   tmpx = SolnAxy(m,j) * SNGLB_2xSBLBdotNGR(m,i)
                    DO l = 1, Knod
                      ml = (l-1) * Knod + m
                      LaplacianCenter(ml,ij,el) = LaplacianCenter(ml,ij,el) + tmpx * SBLB_i0_NGR_j0(l,j)
@@ -2426,9 +2359,9 @@ end interface
 
              DO j = 1, Knod
                DO i = 1, Knod
-                 NeuMatrix_Orig(i,j) = FaceBS(i,el) * SolnNodesGradLgrangeBasis(j,i)
+                 NeuMatrix_Orig(i,j) = FaceBS(i) * SolnNodesGradLgrangeBasis(j,i)
                ENDDO
-               NeuMatrix_Orig(j,j) = NeuMatrix_Orig(j,j) + 2.d0 * gL * FaceAS(j,el)
+               NeuMatrix_Orig(j,j) = NeuMatrix_Orig(j,j) + 2.d0 * gL * FaceAS(j)
              ENDDO
 
              NeuMatrix = inv(NeuMatrix_Orig)
@@ -2438,7 +2371,7 @@ end interface
                DO j = 1, Knod
                  ij = (j-1) * Knod + i
 !                 BndrySrc(ij,el) = BndrySrc(ij,el) + NodesGradRadau(j,0) * BC_Values(i,-elemID(1,el)) * NormAS(i,el)
-                 BndrySrc(i,ij,bel) = BndrySrc(i,ij,bel) + NodesGradRadau(j,0) * NormAS(i,el)
+                 BndrySrc(i,ij,bel) = BndrySrc(i,ij,bel) + NodesGradRadau(j,0) * NormAS(i)
                  DO m = 1, Knod
                    im = (m-1) * Knod + i
 
@@ -2449,39 +2382,39 @@ end interface
 !                     BndrySrc(ij,el) = BndrySrc(ij,el) + tmpy * NeuMatrix(m,l) * BC_Values(l,-elemID(1,el)) * NormAS(l,el)
 !                   ENDDO
 !                   BndrySrc(ij,el) = BndrySrc(ij,el) - tmpx * SolnAyy(i,m,el) * SNGLB_2xSBLBdotNGR(m,j) * NodesGradRadau(m,0)
-                   tmpx = SolnAyy(i,m,el) * SNGLB_2xSBLBdotNGR(m,j) * NodesGradRadau(m,0)
-                   tmpy = SolnAxy(m,j,el) * SNGLB_2xSBLBdotNGR(m,i) * NodesGradRadau(j,0)
+                   tmpx = SolnAyy(i,m) * SNGLB_2xSBLBdotNGR(m,j) * NodesGradRadau(m,0)
+                   tmpy = SolnAxy(m,j) * SNGLB_2xSBLBdotNGR(m,i) * NodesGradRadau(j,0)
                    DO l = 1, Knod
-                     BndrySrc(l,ij,bel) = BndrySrc(l,ij,bel) + (tmpy * NeuMatrix(m,l) - tmpx * NeuMatrix(i,l)) * NormAS(l,el)
+                     BndrySrc(l,ij,bel) = BndrySrc(l,ij,bel) + (tmpy * NeuMatrix(m,l) - tmpx * NeuMatrix(i,l)) * NormAS(l)
                    ENDDO
 
                    tmpx = 0.d0
                    DO l = 1, Knod
-                     tmpx = tmpx + SolnAyy(i,l,el) * SNGLB_2xSBLBdotNGR(l,j) * SBLB_i0_NGR_j0(m,l)
+                     tmpx = tmpx + SolnAyy(i,l) * SNGLB_2xSBLBdotNGR(l,j) * SBLB_i0_NGR_j0(m,l)
                    ENDDO
                    LaplacianCenter(im,ij,el) = LaplacianCenter(im,ij,el) - tmpx
 
                    tmpy =0.d0
                    DO l = 1, Knod
-                     tmpy = tmpy + SolnAxy(l,j,el) * SNGLB_2xSBLBdotNGR(l,i) * NeuMatrix(l,m)
+                     tmpy = tmpy + SolnAxy(l,j) * SNGLB_2xSBLBdotNGR(l,i) * NeuMatrix(l,m)
                    ENDDO
                    DO l = 1, Knod
                      ml = (l-1) * Knod + m
-                     LaplacianCenter(ml,ij,el) = LaplacianCenter(ml,ij,el) - 2.d0 * tmpy * FaceAS(m,el) * &
+                     LaplacianCenter(ml,ij,el) = LaplacianCenter(ml,ij,el) - 2.d0 * tmpy * FaceAS(m) * &
                                                                             (SBGLB_SBLB_i0_NGR_j0(l,j) + gL * SBLB_i0_NGR_j0(l,j))
                    ENDDO
 
                    DO l = 1, Knod
                      tmpx = 0.d0
                      DO p = 1, Knod
-                       tmpx = tmpx + SolnAyy(i,p,el) * SNGLB_2xSBLBdotNGR(p,j) * &
+                       tmpx = tmpx + SolnAyy(i,p) * SNGLB_2xSBLBdotNGR(p,j) * &
                                                                             (SBGLB_SBLB_i0_NGR_j0(l,p) + gL * SBLB_i0_NGR_j0(l,p))
                      ENDDO
                      ml = (l-1) * Knod + m
-                     LaplacianCenter(ml,ij,el) = LaplacianCenter(ml,ij,el) + 2.d0 * tmpx * FaceAS(m,el) * NeuMatrix(i,m)
+                     LaplacianCenter(ml,ij,el) = LaplacianCenter(ml,ij,el) + 2.d0 * tmpx * FaceAS(m) * NeuMatrix(i,m)
                    ENDDO
 
-                   tmpy = SolnAxy(m,j,el) * SNGLB_2xSBLBdotNGR(m,i)
+                   tmpy = SolnAxy(m,j) * SNGLB_2xSBLBdotNGR(m,i)
                    DO l = 1, Knod
                      ml = (l-1) * Knod + m
                      LaplacianCenter(ml,ij,el) = LaplacianCenter(ml,ij,el) + tmpy * SBLB_i0_NGR_j0(l,j)
@@ -2495,8 +2428,10 @@ end interface
          ELSE
 
            DO j = 1, Knod
-             Acoef(j) = FaceAN(j,elemID(1,el))
-             Bcoef(j) = 0.5d0 * (FaceBS(j,el) + FaceBN(j,elemID(1,el)))
+!             Acoef(j) = FaceAN(j,elemID(1,el))
+!             Bcoef(j) = 0.5d0 * (FaceBS(j,el) + FaceBN(j,elemID(1,el)))
+             Acoef(j) = Face_Acoef(j,1+2,elemID(1,el)) / Face_Jac(j,1+2,elemID(1,el))
+             Bcoef(j) = 0.5d0 * ( FaceBS(j) + Face_Bcoef(j,1+2,elemID(1,el)) / Face_Jac(j,1+2,elemID(1,el)) )
            ENDDO
 
            DO i = 1, Knod
@@ -2506,16 +2441,16 @@ end interface
                  im = (m-1) * Knod + i
                  tmpy = 0.d0
                  DO l = 1, Knod
-                   tmpy = tmpy + SolnAyy(i,l,el) * SNGLB_2xSBLBdotNGR(l,j) * SBLB_i1_NGR_j0(m,l)
+                   tmpy = tmpy + SolnAyy(i,l) * SNGLB_2xSBLBdotNGR(l,j) * SBLB_i1_NGR_j0(m,l)
                  ENDDO
                  LaplacianSouth(im,ij,el) = LaplacianSouth(im,ij,el) + tmpy + &
                                                Acoef(i) * SBGLB_SBLB_i1_NGR_j0(m,j) - &
-                                               gL * FaceAS(i,el) * SBLB_i1_NGR_j0(m,j)
+                                               gL * FaceAS(i) * SBLB_i1_NGR_j0(m,j)
                  LaplacianCenter(im,ij,el) = LaplacianCenter(im,ij,el) + ( &
-                                               FaceAS(i,el) * SBGLB_SBLB_i0_NGR_j0(m,j) + &
+                                               FaceAS(i) * SBGLB_SBLB_i0_NGR_j0(m,j) + &
                                                gL * Acoef(i) * SBLB_i0_NGR_j0(m,j) )
                  tmp = Bcoef(i) * SolnNodesGradLgrangeBasis(m,i)
-                 tmpx = tmp + SolnAxy(m,j,el) * SNGLB_2xSBLBdotNGR(m,i)
+                 tmpx = tmp + SolnAxy(m,j) * SNGLB_2xSBLBdotNGR(m,i)
                  DO l = 1, Knod
                    ml = (l-1) * Knod + m
                    LaplacianSouth(ml,ij,el) = LaplacianSouth(ml,ij,el) - tmpx * SBLB_i1_NGR_j0(l,j) 
@@ -2526,26 +2461,6 @@ end interface
            ENDDO
 
          ENDIF
-
-         DO j = 1, Knod
-           jm1 = (j-1) * Knod
-           DO i = 1, Knod
-             ij = jm1 + i
-!             BndrySrc(1:Knod,ij,el) = BndrySrc(1:Knod,ij,el) !* SolnJac(i,j,el)
-             SJacs(ij,el) = 1.d0 / SolnJac(i,j,el)
-             DO m = 1, Knod
-               mm1 = (m-1) * Knod
-               DO l = 1, Knod
-                 lm = mm1 + l
-                 LaplacianCenter(lm,ij,el) = LaplacianCenter(lm,ij,el) !* SolnJac(i,j,el)
-                 LaplacianEast(lm,ij,el) = LaplacianEast(lm,ij,el) !* SolnJac(i,j,el)
-                 LaplacianWest(lm,ij,el) = LaplacianWest(lm,ij,el) !* SolnJac(i,j,el)
-                 LaplacianNorth(lm,ij,el) = LaplacianNorth(lm,ij,el) !* SolnJac(i,j,el)
-                 LaplacianSouth(lm,ij,el) = LaplacianSouth(lm,ij,el) !* SolnJac(i,j,el)
-               ENDDO
-             ENDDO
-           ENDDO
-         ENDDO
 
        ENDDO
 
@@ -2733,8 +2648,8 @@ SUBROUTINE GetLaplacian(HuynhSolver_type, Vortin, psi, A_handle, P_handle, S_han
            jm1 = (j-1) * Knod
            DO i = 1, Knod
              ij = jm1 + i
-             residual = residual + wgt(i) *wgt(j) * Vortin(i,j,el) * SJacs(ij,el)
-             volume = volume + wgt(i) *wgt(j) * SJacs(ij,el)
+             residual = residual + wgt(i) *wgt(j) * Vortin(i,j,el) * Vol_Jac(i,j,el)
+             volume = volume + wgt(i) *wgt(j) * Vol_Jac(i,j,el)
            ENDDO
          ENDDO
        ENDDO
@@ -2751,12 +2666,12 @@ SUBROUTINE GetLaplacian(HuynhSolver_type, Vortin, psi, A_handle, P_handle, S_han
              ij = jm1 + i
              nrows = nrows + 1
 !             b(nrows) = - Vortin(i,j,el) - BndrySrc(ij,el)
-!             b(nrows) = - SJacs(ij,el) * Vortin(i,j,el) - BndrySrc(ij,el)
+!             b(nrows) = - Vol_Jac(i,j,el) * Vortin(i,j,el) - BndrySrc(ij,el)
             if(abs((1-residual)/volume) > .1) then
-              b(nrows) = - SJacs(ij,el) * Vortin(i,j,el) - temp(ij,el)
+              b(nrows) = - Vol_Jac(i,j,el) * Vortin(i,j,el) - temp(ij,el)
             else
-              b(nrows) = - SJacs(ij,el) * Vortin(i,j,el) - temp(ij,el)
-!              b(nrows) = - SJacs(ij,el) * (-(1+residual)/volume + Vortin(i,j,el)) - temp(ij,el)
+              b(nrows) = - Vol_Jac(i,j,el) * Vortin(i,j,el) - temp(ij,el)
+!              b(nrows) = - Vol_Jac(i,j,el) * (-(1+residual)/volume + Vortin(i,j,el)) - temp(ij,el)
             endif
            ENDDO
          ENDDO
@@ -2788,23 +2703,19 @@ SUBROUTINE GetLaplacGrads(HuynhSolver_type, uin, getCurl)
        integer HuynhSolver_type, getCurl
        real*8, dimension(Knod, Knod, Nel) :: uin
 
-       integer i, j, ip, jx, jy, lx, ly
+       integer j, jx, jy, el, eln, ijP
        real*8, dimension(Knod, 0:1, Nel) :: uBx,  uBy,  comx,  comy    ! u at the L/R (Bx) and S/N (By) boundaries of a mesh
                                                                        ! com(mon) values at the interface along x and y
        real*8, dimension(Knod, 0:1, Nel):: dxuBx, dyuBy                ! derivatives of uBx/uBy along x (dx) and y (dy) directions
        real*8, dimension(Knod, 0:1, Nel):: dcomx, dcomy                ! derivatives of common values
 
        real*8, dimension(Knod) :: crossDuB                             ! cross derivatives using common values com
-       real*8, dimension(Knod) :: Jac, dx_dxsi, dx_deta, dy_dxsi, dy_deta  ! coord transformation stuff
-       real*8, dimension(Knod, Knod) :: sdx_dxsi, sdx_deta, sdy_dxsi, sdy_deta, sJac, f_tilda, g_tilda
+       real*8, dimension(Knod, Knod) :: f_tilda, g_tilda
        real*8, dimension(Knod, 0:1) :: f_tildaB, g_tildaB
        real*8 NeuMatrix(Knod, Knod), NeuRHS(Knod), Acoef(Knod), Bcoef(Knod) ! small dense matrix to obtain comx (per element) for a given Neumann BC
-       real*8 gLprime, sdu_dxsi, sdu_deta
+       real*8 gLprime, du_dxsi, du_deta
 
        real*8 tmpx, tmpy
-       real*8, dimension(Lnod, Lnod) :: xloc, yloc
-
-       real*8 theta2,theta1,thetam,thetad,rad2,rad1,radm,radd
 
        comx=0.d0
        comy=0.d0
@@ -2816,908 +2727,300 @@ SUBROUTINE GetLaplacGrads(HuynhSolver_type, uin, getCurl)
        dyuby=0.d0
 
        ! Extrapolate the unknown, uin, and its derivative to the mesh boundaries using Lagrange polynomials of order Knod-1
-       DO i = 1, Nel
-         DO j = 1, Knod
-           uBx(j,0,i) = dot_product(uin(1:Knod,j,i), SolnBndryLgrangeBasis(1:Knod,0))            ! Left of mesh  - value
-           uBx(j,1,i) = dot_product(uin(1:Knod,j,i), SolnBndryLgrangeBasis(1:Knod,1))            ! Right of mesh - value
-           uBy(j,0,i) = dot_product(uin(j,1:Knod,i), SolnBndryLgrangeBasis(1:Knod,0))            ! South of mesh  - value
-           uBy(j,1,i) = dot_product(uin(j,1:Knod,i), SolnBndryLgrangeBasis(1:Knod,1))            ! North of mesh  - value
+       DO el = 1, Nel
+         DO ijP = 0, 1
+           DO j = 1, Knod
+             uBx(j,ijP,el) = dot_product(uin(1:Knod,j,el), SolnBndryLgrangeBasis(1:Knod,ijP))            ! Left/Right of mesh  - value
+             uBy(j,ijP,el) = dot_product(uin(j,1:Knod,el), SolnBndryLgrangeBasis(1:Knod,ijP))            ! South/North of mesh  - value
 
-           dxuBx(j,0,i) = dot_product(uin(1:Knod,j,i), SolnBndryGradLgrangeBasis(1:Knod,0))      ! Left of mesh  - derivative along x
-           dxuBx(j,1,i) = dot_product(uin(1:Knod,j,i), SolnBndryGradLgrangeBasis(1:Knod,1))      ! Right of mesh - derivative along x
-           dyuBy(j,0,i) = dot_product(uin(j,1:Knod,i), SolnBndryGradLgrangeBasis(1:Knod,0))      ! South of mesh  - derivative along y
-           dyuBy(j,1,i) = dot_product(uin(j,1:Knod,i), SolnBndryGradLgrangeBasis(1:Knod,1))      ! North of mesh - derivative along y
+             dxuBx(j,ijP,el) = dot_product(uin(1:Knod,j,el), SolnBndryGradLgrangeBasis(1:Knod,ijP))      ! Left/Right of mesh  - derivative along x
+             dyuBy(j,ijP,el) = dot_product(uin(j,1:Knod,el), SolnBndryGradLgrangeBasis(1:Knod,ijP))      ! South/North of mesh  - derivative along y
+           ENDDO
          ENDDO
        ENDDO
 
 !       IF (HuynhSolver_type .eq. 2) THEN
        IF (.true.) THEN
 
-         gLprime = 0.5d0*Knod*Knod
+!         gLprime = 0.5d0*Knod*Knod
+         gLprim(0) = -0.5d0*Knod*Knod
+         gLprim(1) =  0.5d0*Knod*knod
 !         gLprime = 0.5d0*Knod*(Knod+1)
+         gLprim(0) = -0.5d0*Knod*(Knod+1)
+         gLprim(1) =  0.5d0*Knod*(Knod+1)
 
          ! Get the common values of uin at the mesh interfaces (we use simple averaging in this case)
          ! We definitely need a more efficient strategy - right now we're saving com-s twice, and can probably save on d?uB? as well
          ! We probably can and should write a more compact method so that we don't repeat the same stuff for NEWS (which becomes messier for NEWSBT in 3D)
-         DO i = 1, Nel
+         DO el = 1, Nel
 
-           DO jy = 1, Lnod
-             DO jx = 1, Lnod
-               xloc(jx,jy) = xcoord(nodeID(t2f(jx,jy),i))
-               yloc(jx,jy) = ycoord(nodeID(t2f(jx,jy),i))
-             ENDDO
-           ENDDO
+           ! 1D tensor notation in the x-dir
+           DO ijP = 0, 1
+             ! mesh to the left of left face or right of right face
+             eln = elemID(i2f(ijP),el)
+             IF (eln .lt. 0) THEN
 
-           ! Right face
-           dx_dxsi = 0.d0
-           dx_deta = 0.d0
-           dy_dxsi = 0.d0
-           dy_deta = 0.d0
-           DO jy = 1, Lnod
-             DO jx = 1, Lnod
-               dx_dxsi(1:Knod) = dx_dxsi(1:Knod) + &
-                                 ! grad at x-dir                   no grad along y-dir                x/y-coord of geom
-                                 GeomBndryGradLgrangeBasis(jx,1) * GeomNodesLgrangeBasis(jy,1:Knod) * xloc(jx,jy)
-               dy_dxsi(1:Knod) = dy_dxsi(1:Knod) + &
-                                 GeomBndryGradLgrangeBasis(jx,1) * GeomNodesLgrangeBasis(jy,1:Knod) * yloc(jx,jy)
-               dx_deta(1:Knod) = dx_deta(1:Knod) + &
-                                 ! no grad at x-dir            grad along y-dir                       x/y-coord of geom
-                                 GeomBndryLgrangeBasis(jx,1) * GeomNodesGradLgrangeBasis(jy,1:Knod) * xloc(jx,jy)
-               dy_deta(1:Knod) = dy_deta(1:Knod) + &
-                                 GeomBndryLgrangeBasis(jx,1) * GeomNodesGradLgrangeBasis(jy,1:Knod) * yloc(jx,jy)
-             ENDDO
-           ENDDO
+               CALL GetDiffBndryComVals(el, eln, ijP, Face_Acoef(1:Knod,ijP,el), Face_Bcoef(1:Knod,ijP,el), &
+                                        Face_Norm(1:Knod,ijP,el), Face_Jac(1:Knod,ijP,el), uBx, dxuBx, comx(1:Knod,ijP,el), &
+                                        dcomx(1:Knod,ijP,el))
 
- if (exact) then
-             if (abs(yloc(Lnod,1)) < 1.d-12) yloc(Lnod,1) = 0.d0
-             if (abs(xloc(Lnod,1)) < 1.d-12) xloc(Lnod,1) = 0.d0
-             if (abs(yloc(1,1)) < 1.d-12) yloc(1,1) = 0.d0
-             if (abs(xloc(1,1)) < 1.d-12) xloc(1,1) = 0.d0
-             theta2 = atan2(yloc(Lnod,1),xloc(Lnod,1))
-             if (theta2 < 0.d0) theta2 = theta2 + 2.d0*pi
-             theta1 = atan2(yloc(1,1),xloc(1,1))
-             if (theta1 <= 0.d0) theta1 = theta1 + 2.d0*pi
-             thetam = 0.5d0 * (theta2 + theta1)
-             thetad = 0.5d0 * (theta2 - theta1)
-             rad2 = sqrt(xloc(1,Lnod)**2 + yloc(1,Lnod)**2)
-             rad1 = sqrt(xloc(1,1)**2 + yloc(1,1)**2)
-             radm = 0.5d0 * (rad2 + rad1)
-             radd = 0.5d0 * (rad2 - rad1)
+               IF (BC_Switch(-eln) .eq. DirichletBC) THEN
 
-             dx_dxsi(1:Knod) = -thetad * (radm + sps(1:Knod)*radd) * sin(theta2)
-             dy_dxsi(1:Knod) =  thetad * (radm + sps(1:Knod)*radd) * cos(theta2)
-             dx_deta(1:Knod) =  radd * cos(theta2)
-             dy_deta(1:Knod) =  radd * sin(theta2)
- endif
+                 VelocJump(1:Knod,-eln) = dcomx(1:Knod,ijP,el) / Face_Norm(1:Knod,ijP,el)
 
-           Jac(1:Knod) = dx_dxsi(1:Knod) * dy_deta(1:Knod) - dx_deta(1:Knod) * dy_dxsi(1:Knod)
+               ELSEIF (BC_Switch(-eln) .eq. NeumannBC) THEN
+!                 VelocJump(1:Knod,-eln) = comx(1:Knod,ijP,el)
+                 DO j = 1, Knod
+                   VelocJump(j,-eln) = dot_product(comx(1:Knod,ijP,el), SolnNodesGradLgrangeBasis(1:Knod,j)) / Face_Norm(j,ijP,el)
+                 ENDDO
 
-           IF (elemID(2,i) .gt. 0) THEN
+               ENDIF
 
-             ! Right Comx: Average of uBx(i,right) + uBx(i+1,left)
-             comx(1:Knod,1,i) = 0.5d0*(uBx(1:Knod,1,i) + uBx(1:Knod,0,elemID(2,i)))
+             ELSEIF (eln .gt. 0) THEN
 
-             ! Get the corrected values of grad(u) at the mesh interfaces;  Eq. (7.17) in Huynh w gLB'=gDG'=-gRB' (=-Knod^2/2)
-             dxuBx(1:Knod,1,i) = dxuBx(1:Knod,1,i) + (comx(1:Knod,1,i) - uBx(1:Knod,1,i))*gLprime   ! Right corrected derivative (7.17a) in paper
-
-             ! Get the corrected values of grad(u) along the mesh interface;
-             DO j = 1, Knod
-               crossDuB(j) = dot_product(comx(1:Knod,1,i), SolnNodesGradLgrangeBasis(1:Knod,j))
-             ENDDO
-
-             ! Get the interface f
-             dxuBx(1:Knod,1,i) = (dxuBx(1:Knod,1,i) * (dx_deta(1:Knod)*dx_deta(1:Knod) + dy_deta(1:Knod)*dy_deta(1:Knod)) -   &
-                                   crossDuB(1:Knod) * (dx_dxsi(1:Knod)*dx_deta(1:Knod) + dy_dxsi(1:Knod)*dy_deta(1:Knod))     &
-                                 ) / Jac(1:Knod)
-
-           ELSEIF (elemID(2,i) .lt. 0) THEN
-
-             IF (BC_Switch(-elemID(2,i)) .eq. DirichletBC) THEN
-
-               comx(1:Knod,1,i) = BC_Values(1:Knod,-elemID(2,i))
-
-               ! Get the corrected values of grad(u) at the mesh interfaces;  Eq. (7.17) in Huynh w gLB'=gDG'=-gRB' (=-Knod^2/2)
-               dxuBx(1:Knod,1,i) = dxuBx(1:Knod,1,i) + (comx(1:Knod,1,i) - uBx(1:Knod,1,i))*gLprime   ! Right corrected derivative (7.17a) in paper
-
-               ! Get the corrected values of grad(u) along the mesh interface;
-               DO j = 1, Knod
-                 crossDuB(j) = dot_product(comx(1:Knod,1,i), SolnNodesGradLgrangeBasis(1:Knod,j))
-               ENDDO
-
-               ! Get the interface f
-               dxuBx(1:Knod,1,i) = (dxuBx(1:Knod,1,i) * (dx_deta(1:Knod)*dx_deta(1:Knod) + dy_deta(1:Knod)*dy_deta(1:Knod)) -   &
-                                     crossDuB(1:Knod) * (dx_dxsi(1:Knod)*dx_deta(1:Knod) + dy_dxsi(1:Knod)*dy_deta(1:Knod))     &
-                                   ) / Jac(1:Knod)
-
-               dcomx(1:Knod,1,i) = dxuBx(1:Knod,1,i)
-
-               Acoef(1:Knod) = dx_deta(1:Knod)*dx_deta(1:Knod) + dy_deta(1:Knod)*dy_deta(1:Knod)
-               VelocJump(1:Knod,-elemID(2,i)) = dcomx(1:Knod,1,i) / Sqrt(Acoef(1:Knod))
-
-             ELSEIF (BC_Switch(-elemID(2,i)) .eq. NeumannBC) THEN
-
-               Acoef(1:Knod) = dx_deta(1:Knod)*dx_deta(1:Knod) + dy_deta(1:Knod)*dy_deta(1:Knod)
-               Bcoef(1:Knod) = dx_dxsi(1:Knod)*dx_deta(1:Knod) + dy_dxsi(1:Knod)*dy_deta(1:Knod)
-
-               dcomx(1:Knod,1,i) = BC_Values(1:Knod,-elemID(2,i)) * Sqrt(Acoef(1:Knod))
-
-               NeuRHS(1:Knod) = Jac(1:Knod)*dcomx(1:Knod,1,i) - Acoef(1:Knod)*(dxuBx(1:Knod,1,i) - uBx(1:Knod,1,i)*gLprime)
-               DO j = 1, Knod
-!                 NeuMatrix(j,1:Knod) = -Bcoef(1:Knod) * SolnNodesGradLgrangeBasis(1:Knod,j)
-                 NeuMatrix(j,1:Knod) = -Bcoef(j) * SolnNodesGradLgrangeBasis(1:Knod,j)
-                 NeuMatrix(j,j) = NeuMatrix(j,j) + Acoef(j)*gLprime
-               ENDDO
-
-               CALL Gauss_Solver(Knod, NeuMatrix, comx(1:Knod,1,i), NeuRHS)
-
-!               VelocJump(1:Knod,-elemID(2,i)) = comx(1:Knod,1,i)
-               DO j = 1, Knod
-                 VelocJump(j,-elemID(2,i)) = dot_product(comx(1:Knod,1,i), SolnNodesGradLgrangeBasis(1:Knod,j)) / Sqrt(Acoef(j))
-               ENDDO
+               CALL GetDiffIntrnComVals_Meth2(el, eln, ijP, Face_Acoef(1:Knod,ijP,el), Face_Bcoef(1:Knod,ijP,el), &
+                                              Face_Jac(1:Knod,ijP,el), uBx, dxuBx, comx(1:Knod,ijP,el))
 
              ENDIF
-
-           ENDIF
-
-           ! Left face
-           dx_dxsi = 0.d0
-           dx_deta = 0.d0
-           dy_dxsi = 0.d0
-           dy_deta = 0.d0
-           DO jy = 1, Lnod
-             DO jx = 1, Lnod
-               dx_dxsi(1:Knod) = dx_dxsi(1:Knod) + &
-                                 ! grad at x-dir                   no grad along y-dir                x/y-coord of geom
-                                 GeomBndryGradLgrangeBasis(jx,0) * GeomNodesLgrangeBasis(jy,1:Knod) * xloc(jx,jy)
-               dy_dxsi(1:Knod) = dy_dxsi(1:Knod) + &
-                                 GeomBndryGradLgrangeBasis(jx,0) * GeomNodesLgrangeBasis(jy,1:Knod) * yloc(jx,jy)
-               dx_deta(1:Knod) = dx_deta(1:Knod) + &
-                                 ! no grad at x-dir            grad along y-dir                       x/y-coord of geom
-                                 GeomBndryLgrangeBasis(jx,0) * GeomNodesGradLgrangeBasis(jy,1:Knod) * xloc(jx,jy)
-               dy_deta(1:Knod) = dy_deta(1:Knod) + &
-                                 GeomBndryLgrangeBasis(jx,0) * GeomNodesGradLgrangeBasis(jy,1:Knod) * yloc(jx,jy)
-             ENDDO
            ENDDO
 
- if (exact) then
-             if (abs(yloc(Lnod,1)) < 1.d-12) yloc(Lnod,1) = 0.d0
-             if (abs(xloc(Lnod,1)) < 1.d-12) xloc(Lnod,1) = 0.d0
-             if (abs(yloc(1,1)) < 1.d-12) yloc(1,1) = 0.d0
-             if (abs(xloc(1,1)) < 1.d-12) xloc(1,1) = 0.d0
-             theta2 = atan2(yloc(Lnod,1),xloc(Lnod,1))
-             if (theta2 < 0.d0) theta2 = theta2 + 2.d0*pi
-             theta1 = atan2(yloc(1,1),xloc(1,1))
-             if (theta1 <= 0.d0) theta1 = theta1 + 2.d0*pi
-             thetam = 0.5d0 * (theta2 + theta1)
-             thetad = 0.5d0 * (theta2 - theta1)
-             rad2 = sqrt(xloc(1,Lnod)**2 + yloc(1,Lnod)**2)
-             rad1 = sqrt(xloc(1,1)**2 + yloc(1,1)**2)
-             radm = 0.5d0 * (rad2 + rad1)
-             radd = 0.5d0 * (rad2 - rad1)
+           ! mesh to the north of north face
+           ! 1D tensor notation in the y-dir
+           DO ijP = 0, 1
+             ! mesh to the south of south face or the north of north face
+             eln = elemID(i2f(ijP+2),el)
+             IF (eln .lt. 0) THEN
 
-             dx_dxsi(1:Knod) = -thetad * (radm + sps(1:Knod)*radd) * sin(theta1)
-             dy_dxsi(1:Knod) =  thetad * (radm + sps(1:Knod)*radd) * cos(theta1)
-             dx_deta(1:Knod) =  radd * cos(theta1)
-             dy_deta(1:Knod) =  radd * sin(theta1)
- endif
+               CALL GetDiffBndryComVals(el, eln, ijP, Face_Acoef(1:Knod,ijP+2,el), Face_Bcoef(1:Knod,ijP+2,el), &
+                                        Face_Norm(1:Knod,ijP+2,el), Face_Jac(1:Knod,ijP+2,el), uBy, dyuBy, comy(1:Knod,ijP,el), &
+                                        dcomy(1:Knod,ijP,el))
 
-           Jac(1:Knod) = dx_dxsi(1:Knod) * dy_deta(1:Knod) - dx_deta(1:Knod) * dy_dxsi(1:Knod)
+               IF (BC_Switch(-eln) .eq. DirichletBC) THEN
 
-           IF (elemID(4,i) .gt. 0) THEN
+                 VelocJump(1:Knod,-eln) = dcomy(1:Knod,ijP,el) / Face_Norm(1:Knod,ijP+2,el)
 
-             ! Saving Left Comx is unnecessary ;I'm doing it here cuz it's easier to see the approach at this development stage
-             comx(1:Knod,0,i) = 0.5d0*(uBx(1:Knod,0,i) + uBx(1:Knod,1,elemID(4,i))) 
-             
-             dxuBx(1:Knod,0,i) = dxuBx(1:Knod,0,i) - (comx(1:Knod,0,i) - uBx(1:Knod,0,i))*gLprime   ! Left corrected derivative (7.17b) in paper
+               ELSEIF (BC_Switch(-eln) .eq. NeumannBC) THEN
+!                 VelocJump(1:Knod,-eln) = comy(1:Knod,ijP,el)
+                 DO j = 1, Knod
+                   VelocJump(j,-eln) = dot_product(comy(1:Knod,ijP,el), SolnNodesGradLgrangeBasis(1:Knod,j)) / Face_Norm(j,ijP+2,el)
+                   IF (getCurl .eq. 1) VelocJump(j,-eln) = - VelocJump(j,-eln)
+                 ENDDO
 
-             DO j = 1, Knod
-               crossDuB(j) = dot_product(comx(1:Knod,0,i), SolnNodesGradLgrangeBasis(1:Knod,j))
-             ENDDO
+               ENDIF
 
-             dxuBx(1:Knod,0,i) = (dxuBx(1:Knod,0,i) * (dx_deta(1:Knod)*dx_deta(1:Knod) + dy_deta(1:Knod)*dy_deta(1:Knod)) -   &
-                                   crossDuB(1:Knod) * (dx_dxsi(1:Knod)*dx_deta(1:Knod) + dy_dxsi(1:Knod)*dy_deta(1:Knod))     &
-                                 ) / Jac(1:Knod)       
-            
-           ELSEIF (elemID(4,i) .lt. 0) THEN
+             ELSEIF (eln .gt. 0) THEN
 
-             IF (BC_Switch(-elemID(4,i)) .eq. DirichletBC) THEN
-
-               comx(1:Knod,0,i) = BC_Values(1:Knod,-elemID(4,i))
-
-               ! Left corrected derivative (7.17b) in paper             
-               dxuBx(1:Knod,0,i) = dxuBx(1:Knod,0,i) - (comx(1:Knod,0,i) - uBx(1:Knod,0,i))*gLprime
-
-               DO j = 1, Knod
-                 crossDuB(j) = dot_product(comx(1:Knod,0,i), SolnNodesGradLgrangeBasis(1:Knod,j))
-               ENDDO
-
-               dxuBx(1:Knod,0,i) = (dxuBx(1:Knod,0,i) * (dx_deta(1:Knod)*dx_deta(1:Knod) + dy_deta(1:Knod)*dy_deta(1:Knod)) -   &
-                                     crossDuB(1:Knod) * (dx_dxsi(1:Knod)*dx_deta(1:Knod) + dy_dxsi(1:Knod)*dy_deta(1:Knod))     &
-                                   ) / Jac(1:Knod)       
-
-               dcomx(1:Knod,0,i) = dxuBx(1:Knod,0,i)
-
-               Acoef(1:Knod) = dx_deta(1:Knod)*dx_deta(1:Knod) + dy_deta(1:Knod)*dy_deta(1:Knod)
-               VelocJump(1:Knod,-elemID(4,i)) = dcomx(1:Knod,0,i) / Sqrt(Acoef(1:Knod))
-            
-             ELSEIF (BC_Switch(-elemID(4,i)) .eq. NeumannBC) THEN
-
-               Acoef(1:Knod) = dx_deta(1:Knod)*dx_deta(1:Knod) + dy_deta(1:Knod)*dy_deta(1:Knod)
-               Bcoef(1:Knod) = dx_dxsi(1:Knod)*dx_deta(1:Knod) + dy_dxsi(1:Knod)*dy_deta(1:Knod)
-
-               dcomx(1:Knod,0,i) = BC_Values(1:Knod,-elemID(4,i)) * Sqrt(Acoef(1:Knod))
-
-               NeuRHS(1:Knod) = Jac(1:Knod)*dcomx(1:Knod,0,i) - Acoef(1:Knod)*(dxuBx(1:Knod,0,i) + uBx(1:Knod,0,i)*gLprime)
-               DO j = 1, Knod
-!                 NeuMatrix(j,1:Knod) = -Bcoef(1:Knod) * SolnNodesGradLgrangeBasis(1:Knod,j)
-                 NeuMatrix(j,1:Knod) = -Bcoef(j) * SolnNodesGradLgrangeBasis(1:Knod,j)
-                 NeuMatrix(j,j) = NeuMatrix(j,j) - Acoef(j)*gLprime
-               ENDDO
-
-               CALL Gauss_Solver(Knod, NeuMatrix, comx(1:Knod,0,i), NeuRHS)
-
-!               VelocJump(1:Knod,-elemID(4,i)) = comx(1:Knod,0,i)
-               DO j = 1, Knod
-                 VelocJump(j,-elemID(4,i)) = dot_product(comx(1:Knod,0,i), SolnNodesGradLgrangeBasis(1:Knod,j)) / Sqrt(Acoef(j))
-               ENDDO
+               CALL GetDiffIntrnComVals_Meth2(el, eln, ijP, Face_Acoef(1:Knod,ijP+2,el), Face_Bcoef(1:Knod,ijP+2,el), &
+                                            Face_Jac(1:Knod,ijP+2,el), uBy, dyuBy, comy(1:Knod,ijP,el))
 
              ENDIF
-
-           ENDIF
-
-           ! North face
-           dx_dxsi = 0.d0
-           dx_deta = 0.d0
-           dy_dxsi = 0.d0
-           dy_deta = 0.d0
-           DO jy = 1, Lnod
-             DO jx = 1, Lnod
-               dx_deta(1:Knod) = dx_deta(1:Knod) + &
-                                 ! grad at y-dir                   no grad along x-dir                x/y-coord of geom
-                                 GeomBndryGradLgrangeBasis(jy,1) * GeomNodesLgrangeBasis(jx,1:Knod) * xloc(jx,jy)
-               dy_deta(1:Knod) = dy_deta(1:Knod) + &
-                                 GeomBndryGradLgrangeBasis(jy,1) * GeomNodesLgrangeBasis(jx,1:Knod) * yloc(jx,jy)
-               dx_dxsi(1:Knod) = dx_dxsi(1:Knod) + &
-                                 ! no grad at y-dir            grad along x-dir                       x/y-coord of geom
-                                 GeomBndryLgrangeBasis(jy,1) * GeomNodesGradLgrangeBasis(jx,1:Knod) * xloc(jx,jy)
-               dy_dxsi(1:Knod) = dy_dxsi(1:Knod) + &
-                                 GeomBndryLgrangeBasis(jy,1) * GeomNodesGradLgrangeBasis(jx,1:Knod) * yloc(jx,jy)
-             ENDDO
            ENDDO
-
- if (exact) then
-             if (abs(yloc(Lnod,1)) < 1.d-12) yloc(Lnod,1) = 0.d0
-             if (abs(xloc(Lnod,1)) < 1.d-12) xloc(Lnod,1) = 0.d0
-             if (abs(yloc(1,1)) < 1.d-12) yloc(1,1) = 0.d0
-             if (abs(xloc(1,1)) < 1.d-12) xloc(1,1) = 0.d0
-             theta2 = atan2(yloc(Lnod,1),xloc(Lnod,1))
-             if (theta2 < 0.d0) theta2 = theta2 + 2.d0*pi
-             theta1 = atan2(yloc(1,1),xloc(1,1))
-             if (theta1 <= 0.d0) theta1 = theta1 + 2.d0*pi
-             thetam = 0.5d0 * (theta2 + theta1)
-             thetad = 0.5d0 * (theta2 - theta1)
-             rad2 = sqrt(xloc(1,Lnod)**2 + yloc(1,Lnod)**2)
-             rad1 = sqrt(xloc(1,1)**2 + yloc(1,1)**2)
-             radm = 0.5d0 * (rad2 + rad1)
-             radd = 0.5d0 * (rad2 - rad1)
-
-             dx_dxsi(1:Knod) = -thetad * (rad2) * sin(thetam + sps(1:Knod)*thetad)
-             dy_dxsi(1:Knod) =  thetad * (rad2) * cos(thetam + sps(1:Knod)*thetad)
-             dx_deta(1:Knod) =  radd * cos(thetam + sps(1:Knod)*thetad)
-             dy_deta(1:Knod) =  radd * sin(thetam + sps(1:Knod)*thetad)
- endif
-
-           Jac(1:Knod) = dx_dxsi(1:Knod) * dy_deta(1:Knod) - dx_deta(1:Knod) * dy_dxsi(1:Knod)
-
-           IF (elemID(3,i) .gt. 0) THEN
-
-             ! North Comy: Average of uBy(i,north) + uBy(i+1,south)
-             comy(1:Knod,1,i) = 0.5d0*(uBy(1:Knod,1,i) + uBy(1:Knod,0,elemID(3,i)))
-             
-             ! North corrected derivative (7.17a) in paper
-             dyuBy(1:Knod,1,i) = dyuBy(1:Knod,1,i) + (comy(1:Knod,1,i) - uBy(1:Knod,1,i))*gLprime
-
-             DO j = 1, Knod
-               crossDuB(j) = dot_product(comy(1:Knod,1,i), SolnNodesGradLgrangeBasis(1:Knod,j))
-             ENDDO
-
-             dyuBy(1:Knod,1,i) = (dyuBy(1:Knod,1,i) * (dx_dxsi(1:Knod)*dx_dxsi(1:Knod) + dy_dxsi(1:Knod)*dy_dxsi(1:Knod)) -   &
-                                   crossDuB(1:Knod) * (dx_dxsi(1:Knod)*dx_deta(1:Knod) + dy_dxsi(1:Knod)*dy_deta(1:Knod))     &
-                                 ) / Jac(1:Knod)            
-
-           ELSEIF (elemID(3,i) .lt. 0) THEN
-
-             IF (BC_Switch(-elemID(3,i)) .eq. DirichletBC) THEN
-
-               comy(1:Knod,1,i) = BC_Values(1:Knod,-elemID(3,i))
-
-               ! North corrected derivative (7.17a) in paper             
-               dyuBy(1:Knod,1,i) = dyuBy(1:Knod,1,i) + (comy(1:Knod,1,i) - uBy(1:Knod,1,i))*gLprime
-
-               DO j = 1, Knod
-                 crossDuB(j) = dot_product(comy(1:Knod,1,i), SolnNodesGradLgrangeBasis(1:Knod,j))
-               ENDDO
-
-               dyuBy(1:Knod,1,i) = (dyuBy(1:Knod,1,i) * (dx_dxsi(1:Knod)*dx_dxsi(1:Knod) + dy_dxsi(1:Knod)*dy_dxsi(1:Knod)) -   &
-                                     crossDuB(1:Knod) * (dx_dxsi(1:Knod)*dx_deta(1:Knod) + dy_dxsi(1:Knod)*dy_deta(1:Knod))     &
-                                   ) / Jac(1:Knod)            
-
-               dcomy(1:Knod,1,i) = dyuBy(1:Knod,1,i)
-
-               Acoef(1:Knod) = dx_dxsi(1:Knod)*dx_dxsi(1:Knod) + dy_dxsi(1:Knod)*dy_dxsi(1:Knod)
-               VelocJump(1:Knod,-elemID(3,i)) = dcomy(1:Knod,1,i) / Sqrt(Acoef(1:Knod))
-
-             ELSEIF (BC_Switch(-elemID(3,i)) .eq. NeumannBC) THEN
-
-               Acoef(1:Knod) = dx_dxsi(1:Knod)*dx_dxsi(1:Knod) + dy_dxsi(1:Knod)*dy_dxsi(1:Knod)
-               Bcoef(1:Knod) = dx_dxsi(1:Knod)*dx_deta(1:Knod) + dy_dxsi(1:Knod)*dy_deta(1:Knod)
-
-               dcomy(1:Knod,1,i) = BC_Values(1:Knod,-elemID(3,i)) * Sqrt(Acoef(1:Knod))
-
-               NeuRHS(1:Knod) = Jac(1:Knod)*dcomy(1:Knod,1,i) - Acoef(1:Knod)*(dyuBy(1:Knod,1,i) - uBy(1:Knod,1,i)*gLprime)
-               DO j = 1, Knod
-                 NeuMatrix(j,1:Knod) = -Bcoef(j) * SolnNodesGradLgrangeBasis(1:Knod,j)
-                 NeuMatrix(j,j) = NeuMatrix(j,j) + Acoef(j)*gLprime
-               ENDDO
-
-               CALL Gauss_Solver(Knod, NeuMatrix, comy(1:Knod,1,i), NeuRHS)
-
-!               VelocJump(1:Knod,-elemID(3,i)) = comy(1:Knod,1,i)
-               DO j = 1, Knod
-                 VelocJump(j,-elemID(3,i)) = dot_product(comy(1:Knod,1,i), SolnNodesGradLgrangeBasis(1:Knod,j)) / Sqrt(Acoef(j))
-                 IF (getCurl .eq. 1) VelocJump(j,-elemID(3,i)) = - VelocJump(j,-elemID(3,i))
-               ENDDO
-
-             ENDIF
-
-           ENDIF
-
-           ! South face
-           dx_dxsi = 0.d0
-           dx_deta = 0.d0
-           dy_dxsi = 0.d0
-           dy_deta = 0.d0
-           DO jy = 1, Lnod
-             DO jx = 1, Lnod
-               dx_deta(1:Knod) = dx_deta(1:Knod) + &
-                                 ! grad at y-dir                   no grad along x-dir                x/y-coord of geom
-                                 GeomBndryGradLgrangeBasis(jy,0) * GeomNodesLgrangeBasis(jx,1:Knod) * xloc(jx,jy)
-               dy_deta(1:Knod) = dy_deta(1:Knod) + &
-                                 GeomBndryGradLgrangeBasis(jy,0) * GeomNodesLgrangeBasis(jx,1:Knod) * yloc(jx,jy)
-               dx_dxsi(1:Knod) = dx_dxsi(1:Knod) + &
-                                 ! no grad at y-dir            grad along x-dir                       x/y-coord of geom
-                                 GeomBndryLgrangeBasis(jy,0) * GeomNodesGradLgrangeBasis(jx,1:Knod) * xloc(jx,jy)
-               dy_dxsi(1:Knod) = dy_dxsi(1:Knod) + &
-                                 GeomBndryLgrangeBasis(jy,0) * GeomNodesGradLgrangeBasis(jx,1:Knod) * yloc(jx,jy)
-             ENDDO
-           ENDDO
-
- if (exact) then
-             if (abs(yloc(Lnod,1)) < 1.d-12) yloc(Lnod,1) = 0.d0
-             if (abs(xloc(Lnod,1)) < 1.d-12) xloc(Lnod,1) = 0.d0
-             if (abs(yloc(1,1)) < 1.d-12) yloc(1,1) = 0.d0
-             if (abs(xloc(1,1)) < 1.d-12) xloc(1,1) = 0.d0
-             theta2 = atan2(yloc(Lnod,1),xloc(Lnod,1))
-             if (theta2 < 0.d0) theta2 = theta2 + 2.d0*pi
-             theta1 = atan2(yloc(1,1),xloc(1,1))
-             if (theta1 <= 0.d0) theta1 = theta1 + 2.d0*pi
-             thetam = 0.5d0 * (theta2 + theta1)
-             thetad = 0.5d0 * (theta2 - theta1)
-             rad2 = sqrt(xloc(1,Lnod)**2 + yloc(1,Lnod)**2)
-             rad1 = sqrt(xloc(1,1)**2 + yloc(1,1)**2)
-             radm = 0.5d0 * (rad2 + rad1)
-             radd = 0.5d0 * (rad2 - rad1)
-
-             dx_dxsi(1:Knod) = -thetad * (rad1) * sin(thetam + sps(1:Knod)*thetad)
-             dy_dxsi(1:Knod) =  thetad * (rad1) * cos(thetam + sps(1:Knod)*thetad)
-             dx_deta(1:Knod) =  radd * cos(thetam + sps(1:Knod)*thetad)
-             dy_deta(1:Knod) =  radd * sin(thetam + sps(1:Knod)*thetad)
- endif
-
-           Jac(1:Knod) = dx_dxsi(1:Knod) * dy_deta(1:Knod) - dx_deta(1:Knod) * dy_dxsi(1:Knod)
-
-           IF (elemID(1,i) .gt. 0) THEN
-
-             ! Saving South Comy is unnecessary
-             comy(1:Knod,0,i) = 0.5d0*(uBy(1:Knod,0,i) + uBy(1:Knod,1,elemID(1,i)))
-
-             ! South corrected derivative (7.17b) in paper
-             dyuBy(1:Knod,0,i) = dyuBy(1:Knod,0,i) - (comy(1:Knod,0,i) - uBy(1:Knod,0,i))*gLprime
-
-             DO j = 1, Knod
-               crossDuB(j) = dot_product(comy(1:Knod,0,i), SolnNodesGradLgrangeBasis(1:Knod,j))
-             ENDDO
-
-             dyuBy(1:Knod,0,i) = (dyuBy(1:Knod,0,i) * (dx_dxsi(1:Knod)*dx_dxsi(1:Knod) + dy_dxsi(1:Knod)*dy_dxsi(1:Knod)) -   &
-                                   crossDuB(1:Knod) * (dx_dxsi(1:Knod)*dx_deta(1:Knod) + dy_dxsi(1:Knod)*dy_deta(1:Knod))     &
-                                 ) / Jac(1:Knod) 
-
-           ELSEIF (elemID(1,i) .lt. 0) THEN
-
-             IF (BC_Switch(-elemID(1,i)) .eq. DirichletBC) THEN
-
-               comy(1:Knod,0,i) = BC_Values(1:Knod,-elemID(1,i))
-
-               ! South corrected derivative (7.17b) in paper
-               dyuBy(1:Knod,0,i) = dyuBy(1:Knod,0,i) - (comy(1:Knod,0,i) - uBy(1:Knod,0,i))*gLprime
-
-               DO j = 1, Knod
-                 crossDuB(j) = dot_product(comy(1:Knod,0,i), SolnNodesGradLgrangeBasis(1:Knod,j))
-               ENDDO
-
-               dyuBy(1:Knod,0,i) = (dyuBy(1:Knod,0,i) * (dx_dxsi(1:Knod)*dx_dxsi(1:Knod) + dy_dxsi(1:Knod)*dy_dxsi(1:Knod)) -   &
-                                     crossDuB(1:Knod) * (dx_dxsi(1:Knod)*dx_deta(1:Knod) + dy_dxsi(1:Knod)*dy_deta(1:Knod))     &
-                                   ) / Jac(1:Knod) 
-
-               dcomy(1:Knod,0,i) = dyuBy(1:Knod,0,i)
-
-               Acoef(1:Knod) = dx_dxsi(1:Knod)*dx_dxsi(1:Knod) + dy_dxsi(1:Knod)*dy_dxsi(1:Knod)
-               VelocJump(1:Knod,-elemID(1,i)) = dcomy(1:Knod,0,i) / Sqrt(Acoef(1:Knod))
-
-             ELSEIF (BC_Switch(-elemID(1,i)) .eq. NeumannBC) THEN
-
-               Acoef(1:Knod) = dx_dxsi(1:Knod)*dx_dxsi(1:Knod) + dy_dxsi(1:Knod)*dy_dxsi(1:Knod)
-               Bcoef(1:Knod) = dx_dxsi(1:Knod)*dx_deta(1:Knod) + dy_dxsi(1:Knod)*dy_deta(1:Knod)
-
-               dcomy(1:Knod,0,i) = BC_Values(1:Knod,-elemID(1,i)) * Sqrt(Acoef(1:Knod))
-
-               NeuRHS(1:Knod) = Jac(1:Knod)*dcomy(1:Knod,0,i) - Acoef(1:Knod)*(dyuBy(1:Knod,0,i) + uBy(1:Knod,0,i)*gLprime)
-               DO j = 1, Knod
-                 NeuMatrix(j,1:Knod) = -Bcoef(j) * SolnNodesGradLgrangeBasis(1:Knod,j)
-                 NeuMatrix(j,j) = NeuMatrix(j,j) - Acoef(j)*gLprime
-               ENDDO
-
-               CALL Gauss_Solver(Knod, NeuMatrix, comy(1:Knod,0,i), NeuRHS)
-
-!               VelocJump(1:Knod,-elemID(1,i)) = comy(1:Knod,0,i)
-               DO j = 1, Knod
-                 VelocJump(j,-elemID(1,i)) = dot_product(comy(1:Knod,0,i), SolnNodesGradLgrangeBasis(1:Knod,j)) / Sqrt(Acoef(j))
-                 IF (getCurl .eq. 1) VelocJump(j,-elemID(1,i)) = - VelocJump(j,-elemID(1,i))
-               ENDDO
-
-             ENDIF
-
-           ENDIF
 
          ENDDO
 
-         DO i = 1, Nel
-           ! Right face
-           IF (elemID(2,i) .gt. 0) dcomx(1:Knod,1,i) = 0.5d0*(dxuBx(1:Knod,1,i) + dxuBx(1:Knod,0,elemID(2,i)))   ! Right dcomx: Average of dxuBx(i,right) + dxuBx(i+1,left)
-           ! Left face
-           IF (elemID(4,i) .gt. 0) dcomx(1:Knod,0,i) = 0.5d0*(dxuBx(1:Knod,0,i) + dxuBx(1:Knod,1,elemID(4,i)))   ! Left dcomx
-           ! North face
-           IF (elemID(3,i) .gt. 0) dcomy(1:Knod,1,i) = 0.5d0*(dyuBy(1:Knod,1,i) + dyuBy(1:Knod,0,elemID(3,i)))   ! North dcomy: Average of dyuBy(i,north) + dyuBy(i+1,south)
-           ! South face
-           IF (elemID(1,i) .gt. 0) dcomy(1:Knod,0,i) = 0.5d0*(dyuBy(1:Knod,0,i) + dyuBy(1:Knod,1,elemID(1,i)))   ! South dcomy
+         DO el = 1, Nel
+
+           DO ijP = 0, 1
+             eln = elemID(i2f(ijP),el)
+             ! Right dcomx: Average of dxuBx(i,right) + dxuBx(i+1,left); same works for Left dcoms
+             IF (eln .gt. 0) dcomx(1:Knod,ijP,el) = 0.5d0*(dxuBx(1:Knod,ijP,el) + dxuBx(1:Knod,1-ijP,eln))
+
+             eln = elemID(i2f(ijP+2),el)
+             ! North dcomy: Average of dyuBy(i,north) + dyuBy(i+1,south)
+             IF (eln .gt. 0) dcomy(1:Knod,ijP,el) = 0.5d0*(dyuBy(1:Knod,ijP,el) + dyuBy(1:Knod,1-ijP,eln))
+           ENDDO
+
          ENDDO
 
 !       ELSEIF (HuynhSolver_type .eq. 11) THEN
        ELSE
 
-         gLprime = 0.5*Knod*(Knod+1)
+!         gLprime = 0.5*Knod*(Knod+1)
+         gLprim(0) = -0.5d0*Knod*(Knod+1)
+         gLprim(1) =  0.5d0*Knod*(Knod+1)
 
-         DO i = 1, Nel
+         DO el = 1, Nel
 
-           DO jy = 1, Lnod
-             DO jx = 1, Lnod
-               xloc(jx,jy) = xcoord(nodeID(t2f(jx,jy),i))
-               yloc(jx,jy) = ycoord(nodeID(t2f(jx,jy),i))
-             ENDDO
-           ENDDO
-
-           ! Right Face
-           dx_dxsi = 0.d0
-           dx_deta = 0.d0
-           dy_dxsi = 0.d0
-           dy_deta = 0.d0
-           DO jy = 1, Lnod
-             DO jx = 1, Lnod
-               dx_dxsi(1:Knod) = dx_dxsi(1:Knod) + &
-                                 ! grad at x-dir                   no grad along y-dir                x/y-coord of geom
-                                 GeomBndryGradLgrangeBasis(jx,1) * GeomNodesLgrangeBasis(jy,1:Knod) * xloc(jx,jy)
-               dy_dxsi(1:Knod) = dy_dxsi(1:Knod) + &
-                                 GeomBndryGradLgrangeBasis(jx,1) * GeomNodesLgrangeBasis(jy,1:Knod) * yloc(jx,jy)
-               dx_deta(1:Knod) = dx_deta(1:Knod) + &
-                                 ! no grad at x-dir            grad along y-dir                       x/y-coord of geom
-                                 GeomBndryLgrangeBasis(jx,1) * GeomNodesGradLgrangeBasis(jy,1:Knod) * xloc(jx,jy)
-               dy_deta(1:Knod) = dy_deta(1:Knod) + &
-                                 GeomBndryLgrangeBasis(jx,1) * GeomNodesGradLgrangeBasis(jy,1:Knod) * yloc(jx,jy)
-             ENDDO
-           ENDDO
-           Jac(1:Knod) = dx_dxsi(1:Knod) * dy_deta(1:Knod) - dx_deta(1:Knod) * dy_dxsi(1:Knod)
-           Acoef(1:Knod) = dx_deta(1:Knod)*dx_deta(1:Knod) + dy_deta(1:Knod)*dy_deta(1:Knod)
-           Bcoef(1:Knod) = dx_dxsi(1:Knod)*dx_deta(1:Knod) + dy_dxsi(1:Knod)*dy_deta(1:Knod)
-
-           ! Boundary face
-           IF (elemID(2,i) .lt. 0) THEN
-             ! Dirichlet BC
-             IF (BC_Switch(-elemID(2,i)) .eq. DirichletBC) THEN
-               comx(1:Knod,1,i) = BC_Values(1:Knod,-elemID(2,i))
-
-               ! Get the corrected values of grad(u) at the mesh interfaces;  Eq. (7.17) in Huynh w gLB'=gDG'=-gRB' (=-Knod^2/2)
-               dxuBx(1:Knod,1,i) = dxuBx(1:Knod,1,i) + (comx(1:Knod,1,i) - uBx(1:Knod,1,i))*gLprime   ! Right corrected derivative (7.17a) in paper
-
-               ! Get the corrected values of grad(u) along the mesh interface;
-               DO j = 1, Knod
-                 crossDuB(j) = dot_product(comx(1:Knod,1,i), SolnNodesGradLgrangeBasis(1:Knod,j))
-               ENDDO
-
-               ! Get the interface f
-               dcomx(1:Knod,1,i) = (Acoef(1:Knod)*dxuBx(1:Knod,1,i) - Bcoef(1:Knod)*crossDuB(1:Knod)) / Jac(1:Knod)
-
-             ! Neumann BC
-             ELSEIF (BC_Switch(-elemID(2,i)) .eq. NeumannBC) THEN
-               dcomx(1:Knod,1,i) = BC_Values(1:Knod,-elemID(2,i)) * Sqrt(Acoef(1:Knod))
-
-               NeuRHS(1:Knod) = Jac(1:Knod)*dcomx(1:Knod,1,i) - Acoef(1:Knod)*(dxuBx(1:Knod,1,i) - uBx(1:Knod,1,i)*gLprime)
-               DO j = 1, Knod
-                 NeuMatrix(j,1:Knod) = -Bcoef(j) * SolnNodesGradLgrangeBasis(1:Knod,j)
-                 NeuMatrix(j,j) = NeuMatrix(j,j) + Acoef(j)*gLprime
-               ENDDO
-
-               CALL Gauss_Solver(Knod, NeuMatrix, comx(1:Knod,1,i), NeuRHS)
-
-             ENDIF
-           ! Internal right face commoned with the left face of its right neighbor
-           ELSE
+           ! Right face
+           ! 1D tensor index
+           ijP = 1
+           ! mesh to the right of right face
+           eln = elemID(i2f(ijP),el)
+           IF (eln .lt. 0) THEN
+             CALL GetDiffBndryComVals(el, eln, ijP, Face_Acoef(1:Knod,ijP,el), Face_Bcoef(1:Knod,ijP,el), &
+                                      Face_Norm(1:Knod,ijP,el), Face_Jac(1:Knod,ijP,el), uBx, dxuBx, comx(1:Knod,ijP,el), &
+                                      dcomx(1:Knod,ijP,el))
+!             VelocJump(1:Knod,-eln) = comx(1:Knod,ijP,el)
+           ELSEIF (eln .gt. 0) THEN
+             ! Internal right face commoned with the left face of its right neighbor
+!             CALL GetDiffIntrnComVals_Meth2(i, eln, ijP, Acoef, Bcoef, Jac, uBx, dxuBx, comx(1:Knod,ijP,i))
              ! Right Face Stuff
-             Acoef(1:Knod) = Acoef(1:Knod) / Jac(1:Knod)
-             Bcoef(1:Knod) = Bcoef(1:Knod) / Jac(1:Knod)
-             NeuRHS(1:Knod) = - Acoef(1:Knod) * (dxuBx(1:Knod,1,i) - uBx(1:Knod,1,i)*gLprime)
+             Acoef(1:Knod) = Face_Acoef(1:Knod,ijP,el) / Face_Jac(1:Knod,ijP,el)
+             Bcoef(1:Knod) = Face_Bcoef(1:Knod,ijP,el) / Face_Jac(1:Knod,ijP,el)
+             NeuRHS(1:Knod) = - Acoef(1:Knod) * (dxuBx(1:Knod,ijP,el) - uBx(1:Knod,ijP,el)*gLprim(ijP))
              DO j = 1, Knod
                NeuMatrix(j,1:Knod) = -Bcoef(j) * SolnNodesGradLgrangeBasis(1:Knod,j)
-               NeuMatrix(j,j) = NeuMatrix(j,j) + Acoef(j)*gLprime
+               NeuMatrix(j,j) = NeuMatrix(j,j) + Acoef(j)*gLprim(ijP)
              ENDDO
 
              ! Left Face Stuff from the Right neighbor
-             ip = elemID(2,i)
-             dx_dxsi = 0.d0
-             dx_deta = 0.d0
-             dy_dxsi = 0.d0
-             dy_deta = 0.d0
-             DO jy = 1, Lnod
-               DO jx = 1, Lnod
-                 dx_dxsi(1:Knod) = dx_dxsi(1:Knod) + &
-                                   ! grad at x-dir                   no grad along y-dir              x/y-coord of geom
-                                   GeomBndryGradLgrangeBasis(jx,0) * GeomNodesLgrangeBasis(jy,1:Knod)*xcoord(nodeID(t2f(jx,jy),ip))
-                 dy_dxsi(1:Knod) = dy_dxsi(1:Knod) + &
-                                   GeomBndryGradLgrangeBasis(jx,0) * GeomNodesLgrangeBasis(jy,1:Knod)*ycoord(nodeID(t2f(jx,jy),ip))
-                 dx_deta(1:Knod) = dx_deta(1:Knod) + &
-                                   ! no grad at x-dir            grad along y-dir                     x/y-coord of geom
-                                   GeomBndryLgrangeBasis(jx,0) * GeomNodesGradLgrangeBasis(jy,1:Knod)*xcoord(nodeID(t2f(jx,jy),ip))
-                 dy_deta(1:Knod) = dy_deta(1:Knod) + &
-                                   GeomBndryLgrangeBasis(jx,0) * GeomNodesGradLgrangeBasis(jy,1:Knod)*ycoord(nodeID(t2f(jx,jy),ip))
-               ENDDO
-             ENDDO
-             Jac(1:Knod) = dx_dxsi(1:Knod) * dy_deta(1:Knod) - dx_deta(1:Knod) * dy_dxsi(1:Knod)
-             Acoef(1:Knod) = (dx_deta(1:Knod)*dx_deta(1:Knod) + dy_deta(1:Knod)*dy_deta(1:Knod)) / Jac(1:Knod)
-             Bcoef(1:Knod) = (dx_dxsi(1:Knod)*dx_deta(1:Knod) + dy_dxsi(1:Knod)*dy_deta(1:Knod)) / Jac(1:Knod)
-
-             NeuRHS(1:Knod) =  NeuRHS(1:Knod) + Acoef(1:Knod)*(dxuBx(1:Knod,0,ip) + uBx(1:Knod,0,ip)*gLprime)
+             ! 1D tensor index
+             ijP = 0
+             Acoef(1:Knod) = Face_Acoef(1:Knod,ijP,eln) / Face_Jac(1:Knod,ijP,eln)
+             Bcoef(1:Knod) = Face_Bcoef(1:Knod,ijP,eln) / Face_Jac(1:Knod,ijP,eln)
+             NeuRHS(1:Knod) =  NeuRHS(1:Knod) + Acoef(1:Knod)*(dxuBx(1:Knod,ijP,eln) - uBx(1:Knod,ijP,eln)*gLprim(ijP))
              DO j = 1, Knod
                NeuMatrix(j,1:Knod) = NeuMatrix(j,1:Knod) + Bcoef(j) * SolnNodesGradLgrangeBasis(1:Knod,j)
-               NeuMatrix(j,j) = NeuMatrix(j,j) + Acoef(j)*gLprime
+               NeuMatrix(j,j) = NeuMatrix(j,j) - Acoef(j)*gLprim(ijP)
              ENDDO
 
              ! Get the common face value of the unknown
-             CALL Gauss_Solver(Knod, NeuMatrix, comx(1:Knod,1,i), NeuRHS)
-             comx(1:Knod,0,ip) = comx(1:Knod,1,i)
+             CALL Gauss_Solver(Knod, NeuMatrix, comx(1:Knod,ijP+1,el), NeuRHS)
+             comx(1:Knod,ijP,eln) = comx(1:Knod,ijP+1,el)
 
              ! Get the common f~ value at the face
              DO j = 1, Knod
-               crossDuB(j) = dot_product(comx(1:Knod,0,ip), SolnNodesGradLgrangeBasis(1:Knod,j))
+               crossDuB(j) = dot_product(comx(1:Knod,ijP,eln), SolnNodesGradLgrangeBasis(1:Knod,j))
              ENDDO
-             dcomx(1:Knod,0,ip) = Acoef(1:Knod) * (dxuBx(1:Knod,0,ip) - (comx(1:Knod,0,ip) - uBx(1:Knod,0,ip))*gLprime) -  &
-                                  Bcoef(1:Knod) * crossDuB(1:Knod)
-             dcomx(1:Knod,1,i) = dcomx(1:Knod,0,ip)
+             dcomx(1:Knod,ijP,eln) = Acoef(1:Knod) * (dxuBx(1:Knod,ijP,eln) + (comx(1:Knod,ijP,eln) - &
+                                                        uBx(1:Knod,ijP,eln))*gLprim(ijP)) -  &
+                                     Bcoef(1:Knod) * crossDuB(1:Knod)
+             dcomx(1:Knod,ijP+1,el) = dcomx(1:Knod,ijP,eln)
            ENDIF
 
-           ! Left Face
-           IF (elemID(4,i) .lt. 0) THEN
-             dx_dxsi = 0.d0
-             dx_deta = 0.d0
-             dy_dxsi = 0.d0
-             dy_deta = 0.d0
-             DO jy = 1, Lnod
-               DO jx = 1, Lnod
-                 dx_dxsi(1:Knod) = dx_dxsi(1:Knod) + &
-                                   ! grad at x-dir                   no grad along y-dir                x/y-coord of geom
-                                   GeomBndryGradLgrangeBasis(jx,0) * GeomNodesLgrangeBasis(jy,1:Knod) * xloc(jx,jy)
-                 dy_dxsi(1:Knod) = dy_dxsi(1:Knod) + &
-                                   GeomBndryGradLgrangeBasis(jx,0) * GeomNodesLgrangeBasis(jy,1:Knod) * yloc(jx,jy)
-                 dx_deta(1:Knod) = dx_deta(1:Knod) + &
-                                   ! no grad at x-dir            grad along y-dir                       x/y-coord of geom
-                                   GeomBndryLgrangeBasis(jx,0) * GeomNodesGradLgrangeBasis(jy,1:Knod) * xloc(jx,jy)
-                 dy_deta(1:Knod) = dy_deta(1:Knod) + &
-                                   GeomBndryLgrangeBasis(jx,0) * GeomNodesGradLgrangeBasis(jy,1:Knod) * yloc(jx,jy)
-               ENDDO
-             ENDDO
-             Jac(1:Knod) = dx_dxsi(1:Knod) * dy_deta(1:Knod) - dx_deta(1:Knod) * dy_dxsi(1:Knod)
-             Acoef(1:Knod) = dx_deta(1:Knod)*dx_deta(1:Knod) + dy_deta(1:Knod)*dy_deta(1:Knod)
-             Bcoef(1:Knod) = dx_dxsi(1:Knod)*dx_deta(1:Knod) + dy_dxsi(1:Knod)*dy_deta(1:Knod)
-
-             ! Dirichlet BC
-             IF (BC_Switch(-elemID(4,i)) .eq. DirichletBC) THEN
-               comx(1:Knod,0,i) = BC_Values(1:Knod,-elemID(4,i))
-             
-               dxuBx(1:Knod,0,i) = dxuBx(1:Knod,0,i) - (comx(1:Knod,0,i) - uBx(1:Knod,0,i))*gLprime   ! Left corrected derivative (7.17b) in paper
-               DO j = 1, Knod
-                 crossDuB(j) = dot_product(comx(1:Knod,0,i), SolnNodesGradLgrangeBasis(1:Knod,j))
-               ENDDO
-               dcomx(1:Knod,0,i) = (Acoef(1:Knod)*dxuBx(1:Knod,0,i) - Bcoef(1:Knod)*crossDuB(1:Knod)) / Jac(1:Knod)       
-
-             ! Neumann BC
-             ELSEIF (BC_Switch(-elemID(4,i)) .eq. NeumannBC) THEN
-               dcomx(1:Knod,0,i) = BC_Values(1:Knod,-elemID(4,i)) * Sqrt(Acoef(1:Knod))
-
-               NeuRHS(1:Knod) = Jac(1:Knod)*dcomx(1:Knod,0,i) - Acoef(1:Knod)*(dxuBx(1:Knod,0,i) + uBx(1:Knod,0,i)*gLprime)
-               DO j = 1, Knod
-                 NeuMatrix(j,1:Knod) = -Bcoef(j) * SolnNodesGradLgrangeBasis(1:Knod,j)
-                 NeuMatrix(j,j) = NeuMatrix(j,j) - Acoef(j)*gLprime
-               ENDDO
-
-               CALL Gauss_Solver(Knod, NeuMatrix, comx(1:Knod,0,i), NeuRHS)
-
-             ENDIF
+           ! Left face
+           ! 1D tensor index
+           ijP = 0
+           ! mesh to the left of left face
+           eln = elemID(i2f(ijP),el)
+           IF (eln .lt. 0) THEN
+             CALL GetDiffBndryComVals(el, eln, ijP, Face_Acoef(1:Knod,ijP,el), Face_Bcoef(1:Knod,ijP,el), &
+                                      Face_Norm(1:Knod,ijP,el), Face_Jac(1:Knod,ijP,el), uBx, dxuBx, comx(1:Knod,ijP,el), &
+                                      dcomx(1:Knod,ijP,el))
+!             VelocJump(1:Knod,-eln) = comx(1:Knod,ijP,el)
            ENDIF
 
-           ! North Face
-           dx_dxsi = 0.d0
-           dx_deta = 0.d0
-           dy_dxsi = 0.d0
-           dy_deta = 0.d0
-           DO jy = 1, Lnod
-             DO jx = 1, Lnod
-               dx_deta(1:Knod) = dx_deta(1:Knod) + &
-                                 ! grad at y-dir                   no grad along x-dir                x/y-coord of geom
-                                 GeomBndryGradLgrangeBasis(jy,1) * GeomNodesLgrangeBasis(jx,1:Knod) * xloc(jx,jy)
-               dy_deta(1:Knod) = dy_deta(1:Knod) + &
-                                 GeomBndryGradLgrangeBasis(jy,1) * GeomNodesLgrangeBasis(jx,1:Knod) * yloc(jx,jy)
-               dx_dxsi(1:Knod) = dx_dxsi(1:Knod) + &
-                                 ! no grad at y-dir            grad along x-dir                       x/y-coord of geom
-                                 GeomBndryLgrangeBasis(jy,1) * GeomNodesGradLgrangeBasis(jx,1:Knod) * xloc(jx,jy)
-               dy_dxsi(1:Knod) = dy_dxsi(1:Knod) + &
-                                 GeomBndryLgrangeBasis(jy,1) * GeomNodesGradLgrangeBasis(jx,1:Knod) * yloc(jx,jy)
-             ENDDO
-           ENDDO
-           Jac(1:Knod) = dx_dxsi(1:Knod) * dy_deta(1:Knod) - dx_deta(1:Knod) * dy_dxsi(1:Knod)
-           Acoef(1:Knod) = dx_dxsi(1:Knod)*dx_dxsi(1:Knod) + dy_dxsi(1:Knod)*dy_dxsi(1:Knod)
-           Bcoef(1:Knod) = dx_dxsi(1:Knod)*dx_deta(1:Knod) + dy_dxsi(1:Knod)*dy_deta(1:Knod)
-
-           ! Boundary face
-           IF (elemID(3,i) .lt. 0) THEN
-             ! Dirichlet BC
-             IF (BC_Switch(-elemID(3,i)) .eq. DirichletBC) THEN
-               comy(1:Knod,1,i) = BC_Values(1:Knod,-elemID(3,i))
-
-               ! Get the corrected values of grad(u) at the mesh interfaces;  Eq. (7.17) in Huynh w gLB'=gDG'=-gRB' (=-Knod^2/2)
-               dyuBy(1:Knod,1,i) = dyuBy(1:Knod,1,i) + (comy(1:Knod,1,i) - uBy(1:Knod,1,i))*gLprime   ! North corrected derivative (7.17a) in paper
-
-               ! Get the corrected values of grad(u) along the mesh interface;
-               DO j = 1, Knod
-                 crossDuB(j) = dot_product(comy(1:Knod,1,i), SolnNodesGradLgrangeBasis(1:Knod,j))
-               ENDDO
-
-               ! Get the interface g
-               dcomy(1:Knod,1,i) = (Acoef(1:Knod)*dyuBy(1:Knod,1,i) - Bcoef(1:Knod)*crossDuB(1:Knod)) / Jac(1:Knod)
-
-             ! Neumann BC
-             ELSEIF (BC_Switch(-elemID(3,i)) .eq. NeumannBC) THEN
-               dcomy(1:Knod,1,i) = BC_Values(1:Knod,-elemID(3,i)) * Sqrt(Acoef(1:Knod))
-
-               NeuRHS(1:Knod) = Jac(1:Knod)*dcomy(1:Knod,1,i) - Acoef(1:Knod)*(dyuBy(1:Knod,1,i) - uBy(1:Knod,1,i)*gLprime)
-               DO j = 1, Knod
-                 NeuMatrix(j,1:Knod) = -Bcoef(j) * SolnNodesGradLgrangeBasis(1:Knod,j)
-                 NeuMatrix(j,j) = NeuMatrix(j,j) + Acoef(j)*gLprime
-               ENDDO
-
-               CALL Gauss_Solver(Knod, NeuMatrix, comy(1:Knod,1,i), NeuRHS)
-
-             ENDIF
-           ! Internal north face commoned with the south face of its north neighbor
-           ELSE
+           ! North face
+           ! 1D tensor index
+           ijP = 1
+           ! mesh to the north of north face
+           eln = elemID(i2f(ijP+2),el)
+           IF (eln .lt. 0) THEN
+             CALL GetDiffBndryComVals(el, eln, ijP, Face_Acoef(1:Knod,ijP+2,el), Face_Bcoef(1:Knod,ijP+2,el), &
+                                      Face_Norm(1:Knod,ijP+2,el), Face_Jac(1:Knod,ijP+2,el), uBy, dyuBy, comy(1:Knod,ijP,el), &
+                                      dcomy(1:Knod,ijP,el))
+!             VelocJump(1:Knod,-eln) = comy(1:Knod,ijP,el)
+           ELSEIF (eln .gt. 0) THEN
+             ! Internal north face commoned with the south face of its north neighbor
+!             CALL GetDiffIntrnComVals_Meth2(el, eln, ijP, Acoef, Bcoef, Jac, uBy, dyuBy, comy(1:Knod,ijP,el))
              ! North Face Stuff
-             Acoef(1:Knod) = Acoef(1:Knod) / Jac(1:Knod)
-             Bcoef(1:Knod) = Bcoef(1:Knod) / Jac(1:Knod)
-             NeuRHS(1:Knod) = - Acoef(1:Knod)*(dyuBy(1:Knod,1,i) - uBy(1:Knod,1,i)*gLprime)
+             Acoef(1:Knod) = Face_Acoef(1:Knod,ijP+2,el) / Face_Jac(1:Knod,ijP+2,el)
+             Bcoef(1:Knod) = Face_Bcoef(1:Knod,ijP+2,el) / Face_Jac(1:Knod,ijP+2,el)
+             NeuRHS(1:Knod) = - Acoef(1:Knod)*(dyuBy(1:Knod,ijP,el) - uBy(1:Knod,ijP,el)*gLprim(ijP))
              DO j = 1, Knod
                NeuMatrix(j,1:Knod) = -Bcoef(j) * SolnNodesGradLgrangeBasis(1:Knod,j)
-               NeuMatrix(j,j) = NeuMatrix(j,j) + Acoef(j)*gLprime
+               NeuMatrix(j,j) = NeuMatrix(j,j) + Acoef(j)*gLprim(ijP)
              ENDDO
 
              ! South Face Stuff from the North neighbor
-             ip = elemID(3,i)
-             dx_dxsi = 0.d0
-             dx_deta = 0.d0
-             dy_dxsi = 0.d0
-             dy_deta = 0.d0
-             DO jy = 1, Lnod
-               DO jx = 1, Lnod
-                 dx_deta(1:Knod) = dx_deta(1:Knod) + &
-                                   ! grad at y-dir                   no grad along x-dir              x/y-coord of geom
-                                   GeomBndryGradLgrangeBasis(jy,0) * GeomNodesLgrangeBasis(jx,1:Knod)*xcoord(nodeID(t2f(jx,jy),ip))
-                 dy_deta(1:Knod) = dy_deta(1:Knod) + &
-                                   GeomBndryGradLgrangeBasis(jy,0) * GeomNodesLgrangeBasis(jx,1:Knod)*ycoord(nodeID(t2f(jx,jy),ip))
-                 dx_dxsi(1:Knod) = dx_dxsi(1:Knod) + &
-                                   ! no grad at y-dir            grad along x-dir                     x/y-coord of geom
-                                   GeomBndryLgrangeBasis(jy,0) * GeomNodesGradLgrangeBasis(jx,1:Knod)*xcoord(nodeID(t2f(jx,jy),ip))
-                 dy_dxsi(1:Knod) = dy_dxsi(1:Knod) + &
-                                   GeomBndryLgrangeBasis(jy,0) * GeomNodesGradLgrangeBasis(jx,1:Knod)*ycoord(nodeID(t2f(jx,jy),ip))
-               ENDDO
-             ENDDO
-             Jac(1:Knod) = dx_dxsi(1:Knod) * dy_deta(1:Knod) - dx_deta(1:Knod) * dy_dxsi(1:Knod)
-             Acoef(1:Knod) = (dx_dxsi(1:Knod)*dx_dxsi(1:Knod) + dy_dxsi(1:Knod)*dy_dxsi(1:Knod)) / Jac(1:Knod)
-             Bcoef(1:Knod) = (dx_dxsi(1:Knod)*dx_deta(1:Knod) + dy_dxsi(1:Knod)*dy_deta(1:Knod)) / Jac(1:Knod)
+             ! 1D tensor index
+             ijP = 0
+             Acoef(1:Knod) = Face_Acoef(1:Knod,ijP+2,eln) / Face_Jac(1:Knod,ijP+2,eln)
+             Bcoef(1:Knod) = Face_Bcoef(1:Knod,ijP+2,eln) / Face_Jac(1:Knod,ijP+2,eln)
 
-             NeuRHS(1:Knod) =  NeuRHS(1:Knod) + Acoef(1:Knod)*(dyuBy(1:Knod,0,ip) + uBy(1:Knod,0,ip)*gLprime)
+             NeuRHS(1:Knod) =  NeuRHS(1:Knod) + Acoef(1:Knod)*(dyuBy(1:Knod,ijP,eln) - uBy(1:Knod,ijP,eln)*gLprim(ijP))
              DO j = 1, Knod
                NeuMatrix(j,1:Knod) = NeuMatrix(j,1:Knod) + Bcoef(j) * SolnNodesGradLgrangeBasis(1:Knod,j)
-               NeuMatrix(j,j) = NeuMatrix(j,j) + Acoef(j)*gLprime
+               NeuMatrix(j,j) = NeuMatrix(j,j) - Acoef(j)*gLprim(ijP)
              ENDDO
 
              ! Get the common face value of the unknown
-             CALL Gauss_Solver(Knod, NeuMatrix, comy(1:Knod,1,i), NeuRHS)
-             comy(1:Knod,0,ip) = comy(1:Knod,1,i)
+             CALL Gauss_Solver(Knod, NeuMatrix, comy(1:Knod,ijP+1,el), NeuRHS)
+             comy(1:Knod,ijP,eln) = comy(1:Knod,ijP+1,el)
 
              ! Get the common g~ value at the face
              DO j = 1, Knod
-               crossDuB(j) = dot_product(comy(1:Knod,0,i), SolnNodesGradLgrangeBasis(1:Knod,j))
+               crossDuB(j) = dot_product(comy(1:Knod,ijP,el), SolnNodesGradLgrangeBasis(1:Knod,j))
              ENDDO
-             dcomy(1:Knod,0,ip) = Acoef(1:Knod) * (dyuBy(1:Knod,0,ip) - (comy(1:Knod,0,ip) - uBy(1:Knod,0,ip))*gLprime) -  &
-                                  Bcoef(1:Knod) * crossDuB(1:Knod)
-             dcomy(1:Knod,1,i) = dcomy(1:Knod,0,ip)
+             dcomy(1:Knod,ijP,eln) = Acoef(1:Knod) * (dyuBy(1:Knod,ijP,eln) + (comy(1:Knod,ijP,eln) - &
+                                                        uBy(1:Knod,ijP,eln))*gLprim(ijP)) -  &
+                                     Bcoef(1:Knod) * crossDuB(1:Knod)
+             dcomy(1:Knod,ijP+1,el) = dcomy(1:Knod,ijP,eln)
 
            ENDIF
 
            ! South Face
-           IF (elemID(1,i) .lt. 0) THEN
-             dx_dxsi = 0.d0
-             dx_deta = 0.d0
-             dy_dxsi = 0.d0
-             dy_deta = 0.d0
-             DO jy = 1, Lnod
-               DO jx = 1, Lnod
-                 dx_deta(1:Knod) = dx_deta(1:Knod) + &
-                                   ! grad at y-dir                   no grad along x-dir                x/y-coord of geom
-                                   GeomBndryGradLgrangeBasis(jy,0) * GeomNodesLgrangeBasis(jx,1:Knod) * xloc(jx,jy)
-                 dy_deta(1:Knod) = dy_deta(1:Knod) + &
-                                   GeomBndryGradLgrangeBasis(jy,0) * GeomNodesLgrangeBasis(jx,1:Knod) * yloc(jx,jy)
-                 dx_dxsi(1:Knod) = dx_dxsi(1:Knod) + &
-                                   ! no grad at y-dir            grad along x-dir                       x/y-coord of geom
-                                   GeomBndryLgrangeBasis(jy,0) * GeomNodesGradLgrangeBasis(jx,1:Knod) * xloc(jx,jy)
-                 dy_dxsi(1:Knod) = dy_dxsi(1:Knod) + &
-                                   GeomBndryLgrangeBasis(jy,0) * GeomNodesGradLgrangeBasis(jx,1:Knod) * yloc(jx,jy)
-               ENDDO
-             ENDDO
-             Jac(1:Knod) = dx_dxsi(1:Knod) * dy_deta(1:Knod) - dx_deta(1:Knod) * dy_dxsi(1:Knod)
-             Acoef(1:Knod) = dx_dxsi(1:Knod)*dx_dxsi(1:Knod) + dy_dxsi(1:Knod)*dy_dxsi(1:Knod)
-             Bcoef(1:Knod) = dx_dxsi(1:Knod)*dx_deta(1:Knod) + dy_dxsi(1:Knod)*dy_deta(1:Knod)
-
-             ! Dirichlet BC
-             IF (BC_Switch(-elemID(1,i)) .eq. DirichletBC) THEN
-               comy(1:Knod,0,i) = BC_Values(1:Knod,-elemID(1,i))
-
-               dyuBy(1:Knod,0,i) = dyuBy(1:Knod,0,i) - (comy(1:Knod,0,i) - uBy(1:Knod,0,i))*gLprime   ! South corrected derivative (7.17b) in paper
-               DO j = 1, Knod
-                 crossDuB(j) = dot_product(comy(1:Knod,0,i), SolnNodesGradLgrangeBasis(1:Knod,j))
-               ENDDO
-               dcomy(1:Knod,0,i) = (Acoef(1:Knod)*dyuBy(1:Knod,0,i) - Bcoef(1:Knod)*crossDuB(1:Knod)) / Jac(1:Knod) 
-
-             ! Neumann BC
-             ELSEIF (BC_Switch(-elemID(1,i)) .eq. NeumannBC) THEN
-               dcomy(1:Knod,0,i) = BC_Values(1:Knod,-elemID(1,i)) * Sqrt(Acoef(1:Knod))
-
-               NeuRHS(1:Knod) = Jac(1:Knod)*dcomy(1:Knod,0,i) - Acoef(1:Knod)*(dyuBy(1:Knod,0,i) + uBy(1:Knod,0,i)*gLprime)
-               DO j = 1, Knod
-                 NeuMatrix(j,1:Knod) = -Bcoef(j) * SolnNodesGradLgrangeBasis(1:Knod,j)
-                 NeuMatrix(j,j) = NeuMatrix(j,j) - Acoef(j)*gLprime
-               ENDDO
-
-               CALL Gauss_Solver(Knod, NeuMatrix, comy(1:Knod,0,i), NeuRHS)
-
-             ENDIF
+           ! 1D tensor index
+           ijP = 0
+           ! mesh to the south of south face
+           eln = elemID(i2f(ijP+2),el)
+           IF (eln .lt. 0) THEN
+             CALL GetDiffBndryComVals(el, eln, ijP, Face_Acoef(1:Knod,ijP+2,el), Face_Bcoef(1:Knod,ijP+2,el), &
+                                      Face_Norm(1:Knod,ijP+2,el), Face_Jac(1:Knod,ijP+2,el), uBy, dyuBy, comy(1:Knod,ijP,el), &
+                                      dcomy(1:Knod,ijP,el))
+!             VelocJump(1:Knod,-eln) = comy(1:Knod,ijP,el)
            ENDIF
+
          ENDDO
 
        ENDIF
 
-       DO i = 1, Nel
-
-         DO jy = 1, Lnod
-           DO jx = 1, Lnod
-             xloc(jx,jy) = xcoord(nodeID(t2f(jx,jy),i))
-             yloc(jx,jy) = ycoord(nodeID(t2f(jx,jy),i))
-           ENDDO
-         ENDDO
+       DO el = 1, Nel
 
          ! Get first derivatives of the variable
          DO jy = 1, Knod
            DO jx = 1, Knod
-             ! Get geometry stuff at all solution nodes (per element)
-             sdx_dxsi(jx,jy) = 0.d0
-             sdx_deta(jx,jy) = 0.d0
-             sdy_dxsi(jx,jy) = 0.d0
-             sdy_deta(jx,jy) = 0.d0
-             DO ly = 1, Lnod
-               DO lx = 1, Lnod
-                 sdx_dxsi(jx,jy) = sdx_dxsi(jx,jy) + &
-                            ! grad at x-dir                    no grad at y-dir               x/y-coord of geom
-                            GeomNodesGradLgrangeBasis(lx,jx) * GeomNodesLgrangeBasis(ly,jy) * xloc(lx,ly)
-                 sdy_dxsi(jx,jy) = sdy_dxsi(jx,jy) + &
-                            GeomNodesGradLgrangeBasis(lx,jx) * GeomNodesLgrangeBasis(ly,jy) * yloc(lx,ly)
-                 sdx_deta(jx,jy) = sdx_deta(jx,jy) + &
-                            ! no grad at x-dir             grad at y-dir                      x/y-coord of geom
-                            GeomNodesLgrangeBasis(lx,jx) * GeomNodesGradLgrangeBasis(ly,jy) * xloc(lx,ly)
-                 sdy_deta(jx,jy) = sdy_deta(jx,jy) + &
-                            GeomNodesLgrangeBasis(lx,jx) * GeomNodesGradLgrangeBasis(ly,jy) * yloc(lx,ly)
-               ENDDO
-             ENDDO
 
- if (exact) then
-             if (abs(yloc(Lnod,1)) < 1.d-12) yloc(Lnod,1) = 0.d0
-             if (abs(xloc(Lnod,1)) < 1.d-12) xloc(Lnod,1) = 0.d0
-             if (abs(yloc(1,1)) < 1.d-12) yloc(1,1) = 0.d0
-             if (abs(xloc(1,1)) < 1.d-12) xloc(1,1) = 0.d0
-             theta2 = atan2(yloc(Lnod,1),xloc(Lnod,1))
-             if (theta2 < 0.d0) theta2 = theta2 + 2.d0*pi
-             theta1 = atan2(yloc(1,1),xloc(1,1))
-             if (theta1 <= 0.d0) theta1 = theta1 + 2.d0*pi
-             thetam = 0.5d0 * (theta2 + theta1)
-             thetad = 0.5d0 * (theta2 - theta1)
-             rad2 = sqrt(xloc(1,Lnod)**2 + yloc(1,Lnod)**2)
-             rad1 = sqrt(xloc(1,1)**2 + yloc(1,1)**2)
-             radm = 0.5d0 * (rad2 + rad1)
-             radd = 0.5d0 * (rad2 - rad1)
-
-             sdx_dxsi(jx,jy) = -thetad * (radm + sps(jy)*radd) * sin(thetam + sps(jx)*thetad)
-             sdy_dxsi(jx,jy) =  thetad * (radm + sps(jy)*radd) * cos(thetam + sps(jx)*thetad)
-             sdx_deta(jx,jy) =  radd * cos(thetam + sps(jx)*thetad)
-             sdy_deta(jx,jy) =  radd * sin(thetam + sps(jx)*thetad)
- endif
-
-             sJac(jx,jy) = sdx_dxsi(jx,jy) * sdy_deta(jx,jy) - sdx_deta(jx,jy) * sdy_dxsi(jx,jy)
-
-             ! Get grads of unknown uin along xsi (for eta=const) and along eta (for xsi=const
-             sdu_dxsi = dot_product(uin(1:Knod,jy,i), SolnNodesGradLgrangeBasis(1:Knod,jx)) + &
-                        dot_product(comx(jy,0:1,i) - uBx(jy,0:1,i), NodesGradRadau(jx,0:1))
-             sdu_deta = dot_product(uin(jx,1:Knod,i), SolnNodesGradLgrangeBasis(1:Knod,jy)) + &
-                        dot_product(comy(jx,0:1,i) - uBy(jx,0:1,i), NodesGradRadau(jy,0:1))
+             ! Get grads of unknown uin along xsi (for eta=const) and along eta (for xsi=const)
+             du_dxsi = dot_product(uin(1:Knod,jy,el), SolnNodesGradLgrangeBasis(1:Knod,jx)) + &
+                       dot_product(comx(jy,0:1,el) - uBx(jy,0:1,el), NodesGradRadau(jx,0:1))
+             du_deta = dot_product(uin(jx,1:Knod,el), SolnNodesGradLgrangeBasis(1:Knod,jy)) + &
+                       dot_product(comy(jx,0:1,el) - uBy(jx,0:1,el), NodesGradRadau(jy,0:1))
 
              ! Get f~ and g~ as per Huynh's paper
-             f_tilda(jx,jy) = (sdu_dxsi * (sdx_deta(jx,jy)*sdx_deta(jx,jy) + sdy_deta(jx,jy)*sdy_deta(jx,jy)) - &
-                               sdu_deta * (sdx_dxsi(jx,jy)*sdx_deta(jx,jy) + sdy_dxsi(jx,jy)*sdy_deta(jx,jy))) / sJac(jx,jy)
-             g_tilda(jx,jy) = (sdu_deta * (sdx_dxsi(jx,jy)*sdx_dxsi(jx,jy) + sdy_dxsi(jx,jy)*sdy_dxsi(jx,jy)) - &
-                               sdu_dxsi * (sdx_dxsi(jx,jy)*sdx_deta(jx,jy) + sdy_dxsi(jx,jy)*sdy_deta(jx,jy))) / sJac(jx,jy)
+             f_tilda(jx,jy) = (du_dxsi * ( Vol_Dx_iDxsi_j(jx,jy,1,2,el) * Vol_Dx_iDxsi_j(jx,jy,1,2,el) + &
+                                           Vol_Dx_iDxsi_j(jx,jy,2,2,el) * Vol_Dx_iDxsi_j(jx,jy,2,2,el) ) - &
+                               du_deta * ( Vol_Dx_iDxsi_j(jx,jy,1,1,el) * Vol_Dx_iDxsi_j(jx,jy,1,2,el) + &
+                                           Vol_Dx_iDxsi_j(jx,jy,2,1,el) * Vol_Dx_iDxsi_j(jx,jy,2,2,el) ) ) / Vol_Jac(jx,jy,el)
+
+             g_tilda(jx,jy) = (du_deta * ( Vol_Dx_iDxsi_j(jx,jy,1,1,el) * Vol_Dx_iDxsi_j(jx,jy,1,1,el) + &
+                                           Vol_Dx_iDxsi_j(jx,jy,2,1,el) * Vol_Dx_iDxsi_j(jx,jy,2,1,el) ) - &
+                               du_dxsi * ( Vol_Dx_iDxsi_j(jx,jy,1,1,el) * Vol_Dx_iDxsi_j(jx,jy,1,2,el) + &
+                                           Vol_Dx_iDxsi_j(jx,jy,2,1,el) * Vol_Dx_iDxsi_j(jx,jy,2,2,el) ) ) / Vol_Jac(jx,jy,el)
+
            ENDDO
          ENDDO
 
          ! Get ?_tildas at the mesh boundaries
-         DO j = 1, Knod
-           f_tildaB(j,0) = dot_product(f_tilda(1:Knod,j), SolnBndryLgrangeBasis(1:Knod,0))      ! Left of mesh - derivative
-           f_tildaB(j,1) = dot_product(f_tilda(1:Knod,j), SolnBndryLgrangeBasis(1:Knod,1))      ! Right of mesh - derivative
-           g_tildaB(j,0) = dot_product(g_tilda(j,1:Knod), SolnBndryLgrangeBasis(1:Knod,0))      ! South of mesh - derivative
-           g_tildaB(j,1) = dot_product(g_tilda(j,1:Knod), SolnBndryLgrangeBasis(1:Knod,1))      ! North of mesh - derivative
+         DO ijP = 0, 1
+           DO j = 1, Knod
+             f_tildaB(j,ijP) = dot_product(f_tilda(1:Knod,j), SolnBndryLgrangeBasis(1:Knod,ijP))      ! Left of mesh - derivative
+             g_tildaB(j,ijP) = dot_product(g_tilda(j,1:Knod), SolnBndryLgrangeBasis(1:Knod,ijP))      ! South of mesh - derivative
+           ENDDO
          ENDDO
 
          ! Get potential velocity
          IF (getCurl .eq. 0) THEN
            DO jy = 1, Knod
              DO jx = 1, Knod
-               tmpx = f_tilda(jx,jy) + dot_product(dcomx(jy,0:1,i) - f_tildaB(jy,0:1), NodesRadau(jx,0:1))
-               tmpy = g_tilda(jx,jy) + dot_product(dcomy(jx,0:1,i) - g_tildaB(jx,0:1), NodesRadau(jy,0:1))
-               Uvel(jx,jy,i) = Uvel(jx,jy,i) + (tmpx*sdx_dxsi(jx,jy) + tmpy*sdx_deta(jx,jy)) / sJac(jx,jy)
-               Vvel(jx,jy,i) = Vvel(jx,jy,i) + (tmpx*sdy_dxsi(jx,jy) + tmpy*sdy_deta(jx,jy)) / sJac(jx,jy)
+               tmpx = f_tilda(jx,jy) + dot_product(dcomx(jy,0:1,el) - f_tildaB(jy,0:1), NodesRadau(jx,0:1))
+               tmpy = g_tilda(jx,jy) + dot_product(dcomy(jx,0:1,el) - g_tildaB(jx,0:1), NodesRadau(jy,0:1))
+               Uvel(jx,jy,el) = Uvel(jx,jy,el) + ( tmpx * Vol_Dx_iDxsi_j(jx,jy,1,1,el) + tmpy * Vol_Dx_iDxsi_j(jx,jy,1,2,el) ) / &
+                                                   Vol_Jac(jx,jy,el)
+               Vvel(jx,jy,el) = Vvel(jx,jy,el) + ( tmpx * Vol_Dx_iDxsi_j(jx,jy,2,1,el) + tmpy * Vol_Dx_iDxsi_j(jx,jy,2,2,el) ) / &
+                                                   Vol_Jac(jx,jy,el)
              ENDDO
            ENDDO
          ! Get vortical velocity
          ELSEIF (getCurl .eq. 1) THEN
            DO jy = 1, Knod
              DO jx = 1, Knod
-               tmpx = f_tilda(jx,jy) + dot_product(dcomx(jy,0:1,i) - f_tildaB(jy,0:1), NodesRadau(jx,0:1))
-               tmpy = g_tilda(jx,jy) + dot_product(dcomy(jx,0:1,i) - g_tildaB(jx,0:1), NodesRadau(jy,0:1))
-               Uvel(jx,jy,i) =  (tmpx*sdy_dxsi(jx,jy) + tmpy*sdy_deta(jx,jy)) / sJac(jx,jy)
-               Vvel(jx,jy,i) = -(tmpx*sdx_dxsi(jx,jy) + tmpy*sdx_deta(jx,jy)) / sJac(jx,jy)
+               tmpx = f_tilda(jx,jy) + dot_product(dcomx(jy,0:1,el) - f_tildaB(jy,0:1), NodesRadau(jx,0:1))
+               tmpy = g_tilda(jx,jy) + dot_product(dcomy(jx,0:1,el) - g_tildaB(jx,0:1), NodesRadau(jy,0:1))
+               Uvel(jx,jy,el) =  ( tmpx * Vol_Dx_iDxsi_j(jx,jy,2,1,el) + tmpy * Vol_Dx_iDxsi_j(jx,jy,2,2,el) ) / &
+                                                   Vol_Jac(jx,jy,el)
+               Vvel(jx,jy,el) = -( tmpx * Vol_Dx_iDxsi_j(jx,jy,1,1,el) + tmpy * Vol_Dx_iDxsi_j(jx,jy,1,2,el) ) / &
+                                                   Vol_Jac(jx,jy,el)
              ENDDO
            ENDDO
          ELSE
@@ -3729,43 +3032,6 @@ SUBROUTINE GetLaplacGrads(HuynhSolver_type, uin, getCurl)
 END SUBROUTINE GetLaplacGrads
 
 
-SUBROUTINE GetLaplacianP(HuynhSolver_type, uin, ddu)
-       USE params
-       USE variables
-
-       implicit NONE
-       integer HuynhSolver_type
-       real*8, dimension(Knod, Knod, Nel) :: uin, ddu
-
-       integer el, i, j, l, m, ij, lm, jm1, mm1
-
-       ddu = 0.d0
-
-       DO el = 1, Nel
-         DO j = 1, Knod
-           jm1 = (j-1) * Knod
-           DO i = 1, Knod
-             ij = jm1 + i
-!!!!             ddu(i,j,el) = ddu(i,j,el) + BndrySrc(ij,el)
-             DO m = 1, Knod
-               mm1 = (m-1) * Knod
-               DO l = 1, Knod
-                 lm = mm1 + l
-! The Laplacian* variables need to be modified to use matrix A  (this is for diffusion solver)
-!                 ddu(i,j,el) = ddu(i,j,el) + LaplacianCenter(lm,ij,el) * uin(l,m,el)
-!                 IF (elemID(2,el) > 0) ddu(i,j,el) = ddu(i,j,el) + LaplacianEast(lm,ij,el) * uin(l,m,elemID(2,el))
-!                 IF (elemID(4,el) > 0) ddu(i,j,el) = ddu(i,j,el) + LaplacianWest(lm,ij,el) * uin(l,m,elemID(4,el))
-!                 IF (elemID(3,el) > 0) ddu(i,j,el) = ddu(i,j,el) + LaplacianNorth(lm,ij,el) * uin(l,m,elemID(3,el))
-!                 IF (elemID(1,el) > 0) ddu(i,j,el) = ddu(i,j,el) + LaplacianSouth(lm,ij,el) * uin(l,m,elemID(1,el))
-               ENDDO
-             ENDDO
-           ENDDO
-         ENDDO
-       ENDDO
-
-END SUBROUTINE GetLaplacianP
-
-
 SUBROUTINE GetDiffusedFlux(HuynhSolver_type, uin, ddu)
        USE params
        USE variables
@@ -3775,20 +3041,17 @@ SUBROUTINE GetDiffusedFlux(HuynhSolver_type, uin, ddu)
        integer HuynhSolver_type
        real*8, dimension(Knod, Knod, Nel) :: uin, ddu
 
-       integer i, j, ip, jx, jy, lx, ly
+       integer j, jx, jy, el, eln, ijP
        real*8, dimension(Knod, 0:1, Nel) :: uBx,  uBy,  comx,  comy    ! u at the L/R (Bx) and S/N (By) boundaries of a mesh
                                                                        ! com(mon) values at the interface along x and y
        real*8, dimension(Knod, 0:1, Nel):: dxuBx, dyuBy                ! derivatives of uBx/uBy along x (dx) and y (dy) directions
        real*8, dimension(Knod, 0:1, Nel):: dcomx, dcomy                ! derivatives of common values
 
        real*8, dimension(Knod) :: crossDuB                             ! cross derivatives using common values com
-       real*8, dimension(Knod) :: Jac, dx_dxsi, dx_deta, dy_dxsi, dy_deta  ! coord transformation stuff
-       real*8, dimension(Knod, Knod) :: sJac, f_tilda, g_tilda
+       real*8, dimension(Knod, Knod) :: f_tilda, g_tilda
        real*8, dimension(Knod, 0:1) :: f_tildaB, g_tildaB
-       real*8 gLprime, sdx_dxsi, sdx_deta, sdy_dxsi, sdy_deta, sdu_dxsi, sdu_deta
+       real*8 gLprime, du_dxsi, du_deta
        real*8 NeuMatrix(Knod, Knod), NeuRHS(Knod), Acoef(Knod), Bcoef(Knod) ! small dense matrix to obtain comx (per element) for a given Neumann BC
-
-       real*8, dimension(Lnod, Lnod) :: xloc, yloc
 
        comx=0.d0
        comy=0.d0
@@ -3800,751 +3063,255 @@ SUBROUTINE GetDiffusedFlux(HuynhSolver_type, uin, ddu)
        dyuby=0.d0
 
        ! Extrapolate the unknown, uin, and its derivative to the mesh boundaries using Lagrange polynomials of order Knod-1
-       DO i = 1, Nel
-         DO j = 1, Knod
-           uBx(j,0,i) = dot_product(uin(1:Knod,j,i), SolnBndryLgrangeBasis(1:Knod,0))            ! Left of mesh  - value
-           uBx(j,1,i) = dot_product(uin(1:Knod,j,i), SolnBndryLgrangeBasis(1:Knod,1))            ! Right of mesh - value
-           uBy(j,0,i) = dot_product(uin(j,1:Knod,i), SolnBndryLgrangeBasis(1:Knod,0))            ! South of mesh  - value
-           uBy(j,1,i) = dot_product(uin(j,1:Knod,i), SolnBndryLgrangeBasis(1:Knod,1))            ! North of mesh  - value
+       DO el = 1, Nel
+         DO ijP = 0, 1
+           DO j = 1, Knod
+             uBx(j,ijP,el) = dot_product(uin(1:Knod,j,el), SolnBndryLgrangeBasis(1:Knod,ijP))            ! Left/Right of mesh  - value
+             uBy(j,ijP,el) = dot_product(uin(j,1:Knod,el), SolnBndryLgrangeBasis(1:Knod,ijP))            ! South/North of mesh  - value
 
-           dxuBx(j,0,i) = dot_product(uin(1:Knod,j,i), SolnBndryGradLgrangeBasis(1:Knod,0))      ! Left of mesh  - derivative along x
-           dxuBx(j,1,i) = dot_product(uin(1:Knod,j,i), SolnBndryGradLgrangeBasis(1:Knod,1))      ! Right of mesh - derivative along x
-           dyuBy(j,0,i) = dot_product(uin(j,1:Knod,i), SolnBndryGradLgrangeBasis(1:Knod,0))      ! South of mesh  - derivative along y
-           dyuBy(j,1,i) = dot_product(uin(j,1:Knod,i), SolnBndryGradLgrangeBasis(1:Knod,1))      ! North of mesh - derivative along y
+             dxuBx(j,ijP,el) = dot_product(uin(1:Knod,j,el), SolnBndryGradLgrangeBasis(1:Knod,ijP))      ! Left/Right of mesh  - derivative along x
+             dyuBy(j,ijP,el) = dot_product(uin(j,1:Knod,el), SolnBndryGradLgrangeBasis(1:Knod,ijP))      ! South/North of mesh  - derivative along y
+           ENDDO
          ENDDO
        ENDDO
 
        IF (HuynhSolver_type .eq. 2) THEN
 
-         gLprime = 0.5d0*Knod*Knod
+         gLprim(0) = -0.5d0*Knod*Knod
+         gLprim(1) =  0.5d0*Knod*knod
+         gLprim(0) = -0.5d0*Knod*(Knod+1)
+         gLprim(1) =  0.5d0*Knod*(Knod+1)
 
          ! Get the common values of uin at the mesh interfaces (we use simple averaging in this case)
          ! We definitely need a more efficient strategy - right now we're saving com-s twice, and can probably save on d?uB? as well
          ! We probably can and should write a more compact method so that we don't repeat the same stuff for NEWS (which becomes messier for NEWSBT in 3D)
-         DO i = 1, Nel
+         DO el = 1, Nel
 
-           DO jy = 1, Lnod
-             DO jx = 1, Lnod
-               xloc(jx,jy) = xcoord(nodeID(t2f(jx,jy),i))
-               yloc(jx,jy) = ycoord(nodeID(t2f(jx,jy),i))
-             ENDDO
-           ENDDO
+           ! 1D tensor notation in the x-dir
+           DO ijP = 0, 1
+             ! mesh to the left of left face or right of right face
+             eln = elemID(i2f(ijP),el)
+             IF (eln .lt. 0) THEN
 
-           ! Right face
-           dx_dxsi = 0.d0
-           dx_deta = 0.d0
-           dy_dxsi = 0.d0
-           dy_deta = 0.d0
-           DO jy = 1, Lnod
-             DO jx = 1, Lnod
-               dx_dxsi(1:Knod) = dx_dxsi(1:Knod) + &
-                                 ! grad at x-dir                   no grad along y-dir                x/y-coord of geom
-                                 GeomBndryGradLgrangeBasis(jx,1) * GeomNodesLgrangeBasis(jy,1:Knod) * xloc(jx,jy)
-               dy_dxsi(1:Knod) = dy_dxsi(1:Knod) + &
-                                 GeomBndryGradLgrangeBasis(jx,1) * GeomNodesLgrangeBasis(jy,1:Knod) * yloc(jx,jy)
-               dx_deta(1:Knod) = dx_deta(1:Knod) + &
-                                 ! no grad at x-dir            grad along y-dir                       x/y-coord of geom
-                                 GeomBndryLgrangeBasis(jx,1) * GeomNodesGradLgrangeBasis(jy,1:Knod) * xloc(jx,jy)
-               dy_deta(1:Knod) = dy_deta(1:Knod) + &
-                                 GeomBndryLgrangeBasis(jx,1) * GeomNodesGradLgrangeBasis(jy,1:Knod) * yloc(jx,jy)
-             ENDDO
-           ENDDO
-           Jac(1:Knod) = dx_dxsi(1:Knod) * dy_deta(1:Knod) - dx_deta(1:Knod) * dy_dxsi(1:Knod)
+               CALL GetDiffBndryComVals(el, eln, ijP, Face_Acoef(1:Knod,ijP,el), Face_Bcoef(1:Knod,ijP,el), &
+                                        Face_Norm(1:Knod,ijP,el), Face_Jac(1:Knod,ijP,el), uBx, dxuBx, comx(1:Knod,ijP,el), &
+                                        dcomx(1:Knod,ijP,el))
 
-           IF (elemID(2,i) .gt. 0) THEN
+             ELSEIF (eln .gt. 0) THEN
 
-             ! Right Comx: Average of uBx(i,right) + uBx(i+1,left)
-             comx(1:Knod,1,i) = 0.5d0*(uBx(1:Knod,1,i) + uBx(1:Knod,0,elemID(2,i)))
-
-             ! Get the corrected values of grad(u) at the mesh interfaces;  Eq. (7.17) in Huynh w gLB'=gDG'=-gRB' (=-Knod^2/2)
-             dxuBx(1:Knod,1,i) = dxuBx(1:Knod,1,i) + (comx(1:Knod,1,i) - uBx(1:Knod,1,i))*gLprime   ! Right corrected derivative (7.17a) in paper
-
-             ! Get the corrected values of grad(u) along the mesh interface;
-             DO j = 1, Knod
-               crossDuB(j) = dot_product(comx(1:Knod,1,i), SolnNodesGradLgrangeBasis(1:Knod,j))
-             ENDDO
-
-             ! Get the interface f
-             dxuBx(1:Knod,1,i) = (dxuBx(1:Knod,1,i) * (dx_deta(1:Knod)*dx_deta(1:Knod) + dy_deta(1:Knod)*dy_deta(1:Knod)) -   &
-                                   crossDuB(1:Knod) * (dx_dxsi(1:Knod)*dx_deta(1:Knod) + dy_dxsi(1:Knod)*dy_deta(1:Knod))     &
-                                 ) / Jac(1:Knod)
-
-           ELSEIF (elemID(2,i) .lt. 0) THEN
-
-             IF (BC_Switch(-elemID(2,i)) .eq. DirichletBC) THEN
-
-               comx(1:Knod,1,i) = BC_Values(1:Knod,-elemID(2,i))
-
-               ! Get the corrected values of grad(u) at the mesh interfaces;  Eq. (7.17) in Huynh w gLB'=gDG'=-gRB' (=-Knod^2/2)
-               dxuBx(1:Knod,1,i) = dxuBx(1:Knod,1,i) + (comx(1:Knod,1,i) - uBx(1:Knod,1,i))*gLprime   ! Right corrected derivative (7.17a) in paper
-
-               ! Get the corrected values of grad(u) along the mesh interface;
-               DO j = 1, Knod
-                 crossDuB(j) = dot_product(comx(1:Knod,1,i), SolnNodesGradLgrangeBasis(1:Knod,j))
-               ENDDO
-
-               ! Get the interface f
-               dxuBx(1:Knod,1,i) = (dxuBx(1:Knod,1,i) * (dx_deta(1:Knod)*dx_deta(1:Knod) + dy_deta(1:Knod)*dy_deta(1:Knod)) -   &
-                                     crossDuB(1:Knod) * (dx_dxsi(1:Knod)*dx_deta(1:Knod) + dy_dxsi(1:Knod)*dy_deta(1:Knod))     &
-                                   ) / Jac(1:Knod)
-
-               dcomx(1:Knod,1,i) = dxuBx(1:Knod,1,i)
-
-             ELSEIF (BC_Switch(-elemID(2,i)) .eq. NeumannBC) THEN
-
-               Acoef(1:Knod) = dx_deta(1:Knod)*dx_deta(1:Knod) + dy_deta(1:Knod)*dy_deta(1:Knod)
-               Bcoef(1:Knod) = dx_dxsi(1:Knod)*dx_deta(1:Knod) + dy_dxsi(1:Knod)*dy_deta(1:Knod)
-
-               dcomx(1:Knod,1,i) = BC_Values(1:Knod,-elemID(2,i)) * Sqrt(Acoef(1:Knod))
-
-               NeuRHS(1:Knod) = Jac(1:Knod)*dcomx(1:Knod,1,i) - Acoef(1:Knod)*(dxuBx(1:Knod,1,i) - uBx(1:Knod,1,i)*gLprime)
-               DO j = 1, Knod
-                 NeuMatrix(j,1:Knod) = -Bcoef(j) * SolnNodesGradLgrangeBasis(1:Knod,j)
-                 NeuMatrix(j,j) = NeuMatrix(j,j) + Acoef(j)*gLprime
-               ENDDO
-
-               CALL Gauss_Solver(Knod, NeuMatrix, comx(1:Knod,1,i), NeuRHS)
+               CALL GetDiffIntrnComVals_Meth2(el, eln, ijP, Face_Acoef(1:Knod,ijP,el), Face_Bcoef(1:Knod,ijP,el), &
+                                              Face_Jac(1:Knod,ijP,el), uBx, dxuBx, comx(1:Knod,ijP,el))
 
              ENDIF
-
-           ENDIF
-
-           ! Left face
-           dx_dxsi = 0.d0
-           dx_deta = 0.d0
-           dy_dxsi = 0.d0
-           dy_deta = 0.d0
-           DO jy = 1, Lnod
-             DO jx = 1, Lnod
-               dx_dxsi(1:Knod) = dx_dxsi(1:Knod) + &
-                                 ! grad at x-dir                   no grad along y-dir                x/y-coord of geom
-                                 GeomBndryGradLgrangeBasis(jx,0) * GeomNodesLgrangeBasis(jy,1:Knod) * xloc(jx,jy)
-               dy_dxsi(1:Knod) = dy_dxsi(1:Knod) + &
-                                 GeomBndryGradLgrangeBasis(jx,0) * GeomNodesLgrangeBasis(jy,1:Knod) * yloc(jx,jy)
-               dx_deta(1:Knod) = dx_deta(1:Knod) + &
-                                 ! no grad at x-dir            grad along y-dir                       x/y-coord of geom
-                                 GeomBndryLgrangeBasis(jx,0) * GeomNodesGradLgrangeBasis(jy,1:Knod) * xloc(jx,jy)
-               dy_deta(1:Knod) = dy_deta(1:Knod) + &
-                                 GeomBndryLgrangeBasis(jx,0) * GeomNodesGradLgrangeBasis(jy,1:Knod) * yloc(jx,jy)
-             ENDDO
            ENDDO
-           Jac(1:Knod) = dx_dxsi(1:Knod) * dy_deta(1:Knod) - dx_deta(1:Knod) * dy_dxsi(1:Knod)
 
-           IF (elemID(4,i) .gt. 0) THEN
+           ! mesh to the north of north face
+           ! 1D tensor notation in the y-dir
+           DO ijP = 0, 1
+             ! mesh to the south of south face or the north of north face
+             eln = elemID(i2f(ijP+2),el)
+             IF (eln .lt. 0) THEN
 
-             ! Saving Left Comx is unnecessary ;I'm doing it here cuz it's easier to see the approach at this development stage
-             comx(1:Knod,0,i) = 0.5d0*(uBx(1:Knod,0,i) + uBx(1:Knod,1,elemID(4,i))) 
+               CALL GetDiffBndryComVals(el, eln, ijP, Face_Acoef(1:Knod,ijP+2,el), Face_Bcoef(1:Knod,ijP+2,el), &
+                                        Face_Norm(1:Knod,ijP+2,el), Face_Jac(1:Knod,ijP+2,el), uBy, dyuBy, comy(1:Knod,ijP,el), &
+                                        dcomy(1:Knod,ijP,el))
 
-             ! Left corrected derivative (7.17b) in paper             
-             dxuBx(1:Knod,0,i) = dxuBx(1:Knod,0,i) - (comx(1:Knod,0,i) - uBx(1:Knod,0,i))*gLprime
+             ELSEIF (eln .gt. 0) THEN
 
-             DO j = 1, Knod
-               crossDuB(j) = dot_product(comx(1:Knod,0,i), SolnNodesGradLgrangeBasis(1:Knod,j))
-             ENDDO
-
-             dxuBx(1:Knod,0,i) = (dxuBx(1:Knod,0,i) * (dx_deta(1:Knod)*dx_deta(1:Knod) + dy_deta(1:Knod)*dy_deta(1:Knod)) -   &
-                                   crossDuB(1:Knod) * (dx_dxsi(1:Knod)*dx_deta(1:Knod) + dy_dxsi(1:Knod)*dy_deta(1:Knod))     &
-                                 ) / Jac(1:Knod)       
-
-           ELSEIF (elemID(4,i) .lt. 0) THEN
-
-             IF (BC_Switch(-elemID(4,i)) .eq. DirichletBC) THEN
-
-               comx(1:Knod,0,i) = BC_Values(1:Knod,-elemID(4,i))
-
-               ! Left corrected derivative (7.17b) in paper             
-               dxuBx(1:Knod,0,i) = dxuBx(1:Knod,0,i) - (comx(1:Knod,0,i) - uBx(1:Knod,0,i))*gLprime
-
-               DO j = 1, Knod
-                 crossDuB(j) = dot_product(comx(1:Knod,0,i), SolnNodesGradLgrangeBasis(1:Knod,j))
-               ENDDO
-
-               dxuBx(1:Knod,0,i) = (dxuBx(1:Knod,0,i) * (dx_deta(1:Knod)*dx_deta(1:Knod) + dy_deta(1:Knod)*dy_deta(1:Knod)) -   &
-                                     crossDuB(1:Knod) * (dx_dxsi(1:Knod)*dx_deta(1:Knod) + dy_dxsi(1:Knod)*dy_deta(1:Knod))     &
-                                   ) / Jac(1:Knod)       
-
-               dcomx(1:Knod,0,i) = dxuBx(1:Knod,0,i)
-
-             ELSEIF (BC_Switch(-elemID(4,i)) .eq. NeumannBC) THEN
-
-               Acoef(1:Knod) = dx_deta(1:Knod)*dx_deta(1:Knod) + dy_deta(1:Knod)*dy_deta(1:Knod)
-               Bcoef(1:Knod) = dx_dxsi(1:Knod)*dx_deta(1:Knod) + dy_dxsi(1:Knod)*dy_deta(1:Knod)
-
-               dcomx(1:Knod,0,i) = BC_Values(1:Knod,-elemID(4,i)) * Sqrt(Acoef(1:Knod))
-
-               NeuRHS(1:Knod) = Jac(1:Knod)*dcomx(1:Knod,0,i) - Acoef(1:Knod)*(dxuBx(1:Knod,0,i) + uBx(1:Knod,0,i)*gLprime)
-               DO j = 1, Knod
-                 NeuMatrix(j,1:Knod) = -Bcoef(j) * SolnNodesGradLgrangeBasis(1:Knod,j)
-                 NeuMatrix(j,j) = NeuMatrix(j,j) - Acoef(j)*gLprime
-               ENDDO
-
-               CALL Gauss_Solver(Knod, NeuMatrix, comx(1:Knod,0,i), NeuRHS)
+               CALL GetDiffIntrnComVals_Meth2(el, eln, ijP, Face_Acoef(1:Knod,ijP+2,el), Face_Bcoef(1:Knod,ijP+2,el), &
+                                              Face_Jac(1:Knod,ijP+2,el), uBy, dyuBy, comy(1:Knod,ijP,el))
 
              ENDIF
-
-           ENDIF
-
-           ! North face
-           dx_dxsi = 0.d0
-           dx_deta = 0.d0
-           dy_dxsi = 0.d0
-           dy_deta = 0.d0
-           DO jy = 1, Lnod
-             DO jx = 1, Lnod
-               dx_deta(1:Knod) = dx_deta(1:Knod) + &
-                                 ! grad at y-dir                   no grad along x-dir                x/y-coord of geom
-                                 GeomBndryGradLgrangeBasis(jy,1) * GeomNodesLgrangeBasis(jx,1:Knod) * xloc(jx,jy)
-               dy_deta(1:Knod) = dy_deta(1:Knod) + &
-                                 GeomBndryGradLgrangeBasis(jy,1) * GeomNodesLgrangeBasis(jx,1:Knod) * yloc(jx,jy)
-               dx_dxsi(1:Knod) = dx_dxsi(1:Knod) + &
-                                 ! no grad at y-dir            grad along x-dir                       x/y-coord of geom
-                                 GeomBndryLgrangeBasis(jy,1) * GeomNodesGradLgrangeBasis(jx,1:Knod) * xloc(jx,jy)
-               dy_dxsi(1:Knod) = dy_dxsi(1:Knod) + &
-                                 GeomBndryLgrangeBasis(jy,1) * GeomNodesGradLgrangeBasis(jx,1:Knod) * yloc(jx,jy)
-             ENDDO
            ENDDO
-           Jac(1:Knod) = dx_dxsi(1:Knod) * dy_deta(1:Knod) - dx_deta(1:Knod) * dy_dxsi(1:Knod)
-
-           IF (elemID(3,i) .gt. 0) THEN
-
-             ! North Comy: Average of uBy(i,north) + uBy(i+1,south)
-             comy(1:Knod,1,i) = 0.5d0*(uBy(1:Knod,1,i) + uBy(1:Knod,0,elemID(3,i)))
-
-             ! North corrected derivative (7.17a) in paper             
-             dyuBy(1:Knod,1,i) = dyuBy(1:Knod,1,i) + (comy(1:Knod,1,i) - uBy(1:Knod,1,i))*gLprime
-
-             DO j = 1, Knod
-               crossDuB(j) = dot_product(comy(1:Knod,1,i), SolnNodesGradLgrangeBasis(1:Knod,j))
-             ENDDO
-
-             dyuBy(1:Knod,1,i) = (dyuBy(1:Knod,1,i) * (dx_dxsi(1:Knod)*dx_dxsi(1:Knod) + dy_dxsi(1:Knod)*dy_dxsi(1:Knod)) -   &
-                                   crossDuB(1:Knod) * (dx_dxsi(1:Knod)*dx_deta(1:Knod) + dy_dxsi(1:Knod)*dy_deta(1:Knod))     &
-                                 ) / Jac(1:Knod)            
-
-           ELSEIF (elemID(3,i) .lt. 0) THEN
-
-             IF (BC_Switch(-elemID(3,i)) .eq. DirichletBC) THEN
-
-               comy(1:Knod,1,i) = BC_Values(1:Knod,-elemID(3,i))
-             
-               ! North corrected derivative (7.17a) in paper
-               dyuBy(1:Knod,1,i) = dyuBy(1:Knod,1,i) + (comy(1:Knod,1,i) - uBy(1:Knod,1,i))*gLprime
-
-               DO j = 1, Knod
-                 crossDuB(j) = dot_product(comy(1:Knod,1,i), SolnNodesGradLgrangeBasis(1:Knod,j))
-               ENDDO
-
-               dyuBy(1:Knod,1,i) = (dyuBy(1:Knod,1,i) * (dx_dxsi(1:Knod)*dx_dxsi(1:Knod) + dy_dxsi(1:Knod)*dy_dxsi(1:Knod)) -   &
-                                     crossDuB(1:Knod) * (dx_dxsi(1:Knod)*dx_deta(1:Knod) + dy_dxsi(1:Knod)*dy_deta(1:Knod))     &
-                                   ) / Jac(1:Knod)            
-
-               dcomy(1:Knod,1,i) = dyuBy(1:Knod,1,i)
-
-             ELSEIF (BC_Switch(-elemID(3,i)) .eq. NeumannBC) THEN
-
-               Acoef(1:Knod) = dx_dxsi(1:Knod)*dx_dxsi(1:Knod) + dy_dxsi(1:Knod)*dy_dxsi(1:Knod)
-               Bcoef(1:Knod) = dx_dxsi(1:Knod)*dx_deta(1:Knod) + dy_dxsi(1:Knod)*dy_deta(1:Knod)
-
-               dcomy(1:Knod,1,i) = BC_Values(1:Knod,-elemID(3,i)) * Sqrt(Acoef(1:Knod))
-
-               NeuRHS(1:Knod) = Jac(1:Knod)*dcomy(1:Knod,1,i) - Acoef(1:Knod)*(dyuBy(1:Knod,1,i) - uBy(1:Knod,1,i)*gLprime)
-               DO j = 1, Knod
-                 NeuMatrix(j,1:Knod) = -Bcoef(j) * SolnNodesGradLgrangeBasis(1:Knod,j)
-                 NeuMatrix(j,j) = NeuMatrix(j,j) + Acoef(j)*gLprime
-               ENDDO
-
-               CALL Gauss_Solver(Knod, NeuMatrix, comy(1:Knod,1,i), NeuRHS)
-
-             ENDIF
-
-           ENDIF
-
-           ! South face
-           dx_dxsi = 0.d0
-           dx_deta = 0.d0
-           dy_dxsi = 0.d0
-           dy_deta = 0.d0
-           DO jy = 1, Lnod
-             DO jx = 1, Lnod
-               dx_deta(1:Knod) = dx_deta(1:Knod) + &
-                                 ! grad at y-dir                   no grad along x-dir                x/y-coord of geom
-                                 GeomBndryGradLgrangeBasis(jy,0) * GeomNodesLgrangeBasis(jx,1:Knod) * xloc(jx,jy)
-               dy_deta(1:Knod) = dy_deta(1:Knod) + &
-                                 GeomBndryGradLgrangeBasis(jy,0) * GeomNodesLgrangeBasis(jx,1:Knod) * yloc(jx,jy)
-               dx_dxsi(1:Knod) = dx_dxsi(1:Knod) + &
-                                 ! no grad at y-dir            grad along x-dir                       x/y-coord of geom
-                                 GeomBndryLgrangeBasis(jy,0) * GeomNodesGradLgrangeBasis(jx,1:Knod) * xloc(jx,jy)
-               dy_dxsi(1:Knod) = dy_dxsi(1:Knod) + &
-                                 GeomBndryLgrangeBasis(jy,0) * GeomNodesGradLgrangeBasis(jx,1:Knod) * yloc(jx,jy)
-             ENDDO
-           ENDDO
-           Jac(1:Knod) = dx_dxsi(1:Knod) * dy_deta(1:Knod) - dx_deta(1:Knod) * dy_dxsi(1:Knod)
-
-           IF (elemID(1,i) .gt. 0) THEN
-
-             ! Saving South Comy is unnecessary
-             comy(1:Knod,0,i) = 0.5d0*(uBy(1:Knod,0,i) + uBy(1:Knod,1,elemID(1,i)))
-
-             ! South corrected derivative (7.17b) in paper
-             dyuBy(1:Knod,0,i) = dyuBy(1:Knod,0,i) - (comy(1:Knod,0,i) - uBy(1:Knod,0,i))*gLprime
-
-             DO j = 1, Knod
-               crossDuB(j) = dot_product(comy(1:Knod,0,i), SolnNodesGradLgrangeBasis(1:Knod,j))
-             ENDDO
-
-             dyuBy(1:Knod,0,i) = (dyuBy(1:Knod,0,i) * (dx_dxsi(1:Knod)*dx_dxsi(1:Knod) + dy_dxsi(1:Knod)*dy_dxsi(1:Knod)) -   &
-                                   crossDuB(1:Knod) * (dx_dxsi(1:Knod)*dx_deta(1:Knod) + dy_dxsi(1:Knod)*dy_deta(1:Knod))     &
-                                 ) / Jac(1:Knod) 
-
-           ELSEIF (elemID(1,i) .lt. 0) THEN
-
-             IF (BC_Switch(-elemID(1,i)) .eq. DirichletBC) THEN
-
-               comy(1:Knod,0,i) = BC_Values(1:Knod,-elemID(1,i))
-
-               ! South corrected derivative (7.17b) in paper
-               dyuBy(1:Knod,0,i) = dyuBy(1:Knod,0,i) - (comy(1:Knod,0,i) - uBy(1:Knod,0,i))*gLprime
-
-               DO j = 1, Knod
-                 crossDuB(j) = dot_product(comy(1:Knod,0,i), SolnNodesGradLgrangeBasis(1:Knod,j))
-               ENDDO
-
-               dyuBy(1:Knod,0,i) = (dyuBy(1:Knod,0,i) * (dx_dxsi(1:Knod)*dx_dxsi(1:Knod) + dy_dxsi(1:Knod)*dy_dxsi(1:Knod)) -   &
-                                     crossDuB(1:Knod) * (dx_dxsi(1:Knod)*dx_deta(1:Knod) + dy_dxsi(1:Knod)*dy_deta(1:Knod))     &
-                                   ) / Jac(1:Knod) 
-
-               dcomy(1:Knod,0,i) = dyuBy(1:Knod,0,i)
-
-             ELSEIF (BC_Switch(-elemID(1,i)) .eq. NeumannBC) THEN
-
-               Acoef(1:Knod) = dx_dxsi(1:Knod)*dx_dxsi(1:Knod) + dy_dxsi(1:Knod)*dy_dxsi(1:Knod)
-               Bcoef(1:Knod) = dx_dxsi(1:Knod)*dx_deta(1:Knod) + dy_dxsi(1:Knod)*dy_deta(1:Knod)
-
-               dcomy(1:Knod,0,i) = BC_Values(1:Knod,-elemID(1,i)) * Sqrt(Acoef(1:Knod))
-
-               NeuRHS(1:Knod) = Jac(1:Knod)*dcomy(1:Knod,0,i) - Acoef(1:Knod)*(dyuBy(1:Knod,0,i) + uBy(1:Knod,0,i)*gLprime)
-               DO j = 1, Knod
-                 NeuMatrix(j,1:Knod) = -Bcoef(j) * SolnNodesGradLgrangeBasis(1:Knod,j)
-                 NeuMatrix(j,j) = NeuMatrix(j,j) - Acoef(j)*gLprime
-               ENDDO
-
-               CALL Gauss_Solver(Knod, NeuMatrix, comy(1:Knod,0,i), NeuRHS)
-
-             ENDIF
-
-           ENDIF
 
          ENDDO
 
-         DO i = 1, Nel
-           ! Right face
-           IF (elemID(2,i) .gt. 0) dcomx(1:Knod,1,i) = 0.5d0*(dxuBx(1:Knod,1,i) + dxuBx(1:Knod,0,elemID(2,i)))   ! Right dcomx: Average of dxuBx(i,right) + dxuBx(i+1,left)
-           ! Left face
-           IF (elemID(4,i) .gt. 0) dcomx(1:Knod,0,i) = 0.5d0*(dxuBx(1:Knod,0,i) + dxuBx(1:Knod,1,elemID(4,i)))   ! Left dcomx
-           ! North face
-           IF (elemID(3,i) .gt. 0) dcomy(1:Knod,1,i) = 0.5d0*(dyuBy(1:Knod,1,i) + dyuBy(1:Knod,0,elemID(3,i)))   ! North dcomy: Average of dyuBy(i,north) + dyuBy(i+1,south)
-           ! South face
-           IF (elemID(1,i) .gt. 0) dcomy(1:Knod,0,i) = 0.5d0*(dyuBy(1:Knod,0,i) + dyuBy(1:Knod,1,elemID(1,i)))   ! South dcomy
+         DO el = 1, Nel
+
+           DO ijP = 0, 1
+             eln = elemID(i2f(ijP),el)
+             ! Right dcomx: Average of dxuBx(i,right) + dxuBx(i+1,left); same works for Left dcoms
+             IF (eln .gt. 0) dcomx(1:Knod,ijP,el) = 0.5d0*(dxuBx(1:Knod,ijP,el) + dxuBx(1:Knod,1-ijP,eln))
+
+             eln = elemID(i2f(ijP+2),el)
+             ! North dcomy: Average of dyuBy(i,north) + dyuBy(i+1,south)
+             IF (eln .gt. 0) dcomy(1:Knod,ijP,el) = 0.5d0*(dyuBy(1:Knod,ijP,el) + dyuBy(1:Knod,1-ijP,eln))
+           ENDDO
+
          ENDDO
 
        ELSEIF (HuynhSolver_type .eq. 11) THEN
 
-         gLprime = 0.5*Knod*(Knod+1)
+         gLprim(0) = -0.5d0*Knod*(Knod+1)
+         gLprim(1) =  0.5d0*Knod*(Knod+1)
 
-         DO i = 1, Nel
+         DO el = 1, Nel
 
-           DO jy = 1, Lnod
-             DO jx = 1, Lnod
-               xloc(jx,jy) = xcoord(nodeID(t2f(jx,jy),i))
-               yloc(jx,jy) = ycoord(nodeID(t2f(jx,jy),i))
-             ENDDO
-           ENDDO
-
-           ! Right Face
-           dx_dxsi = 0.d0
-           dx_deta = 0.d0
-           dy_dxsi = 0.d0
-           dy_deta = 0.d0
-           DO jy = 1, Lnod
-             DO jx = 1, Lnod
-               dx_dxsi(1:Knod) = dx_dxsi(1:Knod) + &
-                                 ! grad at x-dir                   no grad along y-dir                x/y-coord of geom
-                                 GeomBndryGradLgrangeBasis(jx,1) * GeomNodesLgrangeBasis(jy,1:Knod) * xloc(jx,jy)
-               dy_dxsi(1:Knod) = dy_dxsi(1:Knod) + &
-                                 GeomBndryGradLgrangeBasis(jx,1) * GeomNodesLgrangeBasis(jy,1:Knod) * yloc(jx,jy)
-               dx_deta(1:Knod) = dx_deta(1:Knod) + &
-                                 ! no grad at x-dir            grad along y-dir                       x/y-coord of geom
-                                 GeomBndryLgrangeBasis(jx,1) * GeomNodesGradLgrangeBasis(jy,1:Knod) * xloc(jx,jy)
-               dy_deta(1:Knod) = dy_deta(1:Knod) + &
-                                 GeomBndryLgrangeBasis(jx,1) * GeomNodesGradLgrangeBasis(jy,1:Knod) * yloc(jx,jy)
-             ENDDO
-           ENDDO
-           Jac(1:Knod) = dx_dxsi(1:Knod) * dy_deta(1:Knod) - dx_deta(1:Knod) * dy_dxsi(1:Knod)
-           Acoef(1:Knod) = dx_deta(1:Knod)*dx_deta(1:Knod) + dy_deta(1:Knod)*dy_deta(1:Knod)
-           Bcoef(1:Knod) = dx_dxsi(1:Knod)*dx_deta(1:Knod) + dy_dxsi(1:Knod)*dy_deta(1:Knod)
-
-           ! Boundary face
-           IF (elemID(2,i) .lt. 0) THEN
-             ! Dirichlet BC
-             IF (BC_Switch(-elemID(2,i)) .eq. DirichletBC) THEN
-               comx(1:Knod,1,i) = BC_Values(1:Knod,-elemID(2,i))
-
-               ! Get the corrected values of grad(u) at the mesh interfaces;  Eq. (7.17) in Huynh w gLB'=gDG'=-gRB' (=-Knod^2/2)
-               dxuBx(1:Knod,1,i) = dxuBx(1:Knod,1,i) + (comx(1:Knod,1,i) - uBx(1:Knod,1,i))*gLprime   ! Right corrected derivative (7.17a) in paper
-
-               ! Get the corrected values of grad(u) along the mesh interface;
-               DO j = 1, Knod
-                 crossDuB(j) = dot_product(comx(1:Knod,1,i), SolnNodesGradLgrangeBasis(1:Knod,j))
-               ENDDO
-
-               ! Get the interface f
-               dcomx(1:Knod,1,i) = (Acoef(1:Knod)*dxuBx(1:Knod,1,i) - Bcoef(1:Knod)*crossDuB(1:Knod)) / Jac(1:Knod)
-
-             ! Neumann BC
-             ELSEIF (BC_Switch(-elemID(2,i)) .eq. NeumannBC) THEN
-               dcomx(1:Knod,1,i) = BC_Values(1:Knod,-elemID(2,i)) * Sqrt(Acoef(1:Knod))
-
-               NeuRHS(1:Knod) = Jac(1:Knod)*dcomx(1:Knod,1,i) - Acoef(1:Knod)*(dxuBx(1:Knod,1,i) - uBx(1:Knod,1,i)*gLprime)
-               DO j = 1, Knod
-                 NeuMatrix(j,1:Knod) = -Bcoef(j) * SolnNodesGradLgrangeBasis(1:Knod,j)
-                 NeuMatrix(j,j) = NeuMatrix(j,j) + Acoef(j)*gLprime
-               ENDDO
-
-               CALL Gauss_Solver(Knod, NeuMatrix, comx(1:Knod,1,i), NeuRHS)
-
-               VelocJump(1:Knod,-elemID(2,i)) = comx(1:Knod,1,i)
-
-             ENDIF
-           ! Internal right face commoned with the left face of its right neighbor
-           ELSE
+           ! Right face
+           ! 1D tensor index
+           ijP = 1
+           ! mesh to the right of right face
+           eln = elemID(i2f(ijP),el)
+           IF (eln .lt. 0) THEN
+             CALL GetDiffBndryComVals(el, eln, ijP, Face_Acoef(1:Knod,ijP,el), Face_Bcoef(1:Knod,ijP,el), &
+                                      Face_Norm(1:Knod,ijP,el), Face_Jac(1:Knod,ijP,el), uBx, dxuBx, comx(1:Knod,ijP,el), &
+                                      dcomx(1:Knod,ijP,el))
+             VelocJump(1:Knod,-eln) = comx(1:Knod,ijP,el)
+           ELSEIF (eln .gt. 0) THEN
+             ! Internal right face commoned with the left face of its right neighbor
+!             CALL GetDiffIntrnComVals_Meth2(i, eln, ijP, Acoef, Bcoef, Jac, uBx, dxuBx, comx(1:Knod,ijP,i))
              ! Right Face Stuff
-             Acoef(1:Knod) = Acoef(1:Knod) / Jac(1:Knod)
-             Bcoef(1:Knod) = Bcoef(1:Knod) / Jac(1:Knod)
-             NeuRHS(1:Knod) = - Acoef(1:Knod) * (dxuBx(1:Knod,1,i) - uBx(1:Knod,1,i)*gLprime)
+             Acoef(1:Knod) = Face_Acoef(1:Knod,ijP,el) / Face_Jac(1:Knod,ijP,el)
+             Bcoef(1:Knod) = Face_Bcoef(1:Knod,ijP,el) / Face_Jac(1:Knod,ijP,el)
+             NeuRHS(1:Knod) = - Acoef(1:Knod) * (dxuBx(1:Knod,ijP,el) - uBx(1:Knod,ijP,el)*gLprim(ijP))
              DO j = 1, Knod
                NeuMatrix(j,1:Knod) = -Bcoef(j) * SolnNodesGradLgrangeBasis(1:Knod,j)
-               NeuMatrix(j,j) = NeuMatrix(j,j) + Acoef(j)*gLprime
+               NeuMatrix(j,j) = NeuMatrix(j,j) + Acoef(j)*gLprim(ijP)
              ENDDO
 
              ! Left Face Stuff from the Right neighbor
-             ip = elemID(2,i)
-             dx_dxsi = 0.d0
-             dx_deta = 0.d0
-             dy_dxsi = 0.d0
-             dy_deta = 0.d0
-             DO jy = 1, Lnod
-               DO jx = 1, Lnod
-                 dx_dxsi(1:Knod) = dx_dxsi(1:Knod) + &
-                                   ! grad at x-dir                   no grad along y-dir              x/y-coord of geom
-                                   GeomBndryGradLgrangeBasis(jx,0) * GeomNodesLgrangeBasis(jy,1:Knod)*xcoord(nodeID(t2f(jx,jy),ip))
-                 dy_dxsi(1:Knod) = dy_dxsi(1:Knod) + &
-                                   GeomBndryGradLgrangeBasis(jx,0) * GeomNodesLgrangeBasis(jy,1:Knod)*ycoord(nodeID(t2f(jx,jy),ip))
-                 dx_deta(1:Knod) = dx_deta(1:Knod) + &
-                                   ! no grad at x-dir            grad along y-dir                     x/y-coord of geom
-                                   GeomBndryLgrangeBasis(jx,0) * GeomNodesGradLgrangeBasis(jy,1:Knod)*xcoord(nodeID(t2f(jx,jy),ip))
-                 dy_deta(1:Knod) = dy_deta(1:Knod) + &
-                                   GeomBndryLgrangeBasis(jx,0) * GeomNodesGradLgrangeBasis(jy,1:Knod)*ycoord(nodeID(t2f(jx,jy),ip))
-               ENDDO
-             ENDDO
-             Jac(1:Knod) = dx_dxsi(1:Knod) * dy_deta(1:Knod) - dx_deta(1:Knod) * dy_dxsi(1:Knod)
-             Acoef(1:Knod) = (dx_deta(1:Knod)*dx_deta(1:Knod) + dy_deta(1:Knod)*dy_deta(1:Knod)) / Jac(1:Knod)
-             Bcoef(1:Knod) = (dx_dxsi(1:Knod)*dx_deta(1:Knod) + dy_dxsi(1:Knod)*dy_deta(1:Knod)) / Jac(1:Knod)
-
-             NeuRHS(1:Knod) =  NeuRHS(1:Knod) + Acoef(1:Knod)*(dxuBx(1:Knod,0,ip) + uBx(1:Knod,0,ip)*gLprime)
+             ! 1D tensor index
+             ijP = 0
+             Acoef(1:Knod) = Face_Acoef(1:Knod,ijP,eln) / Face_Jac(1:Knod,ijP,eln)
+             Bcoef(1:Knod) = Face_Bcoef(1:Knod,ijP,eln) / Face_Jac(1:Knod,ijP,eln)
+             NeuRHS(1:Knod) =  NeuRHS(1:Knod) + Acoef(1:Knod)*(dxuBx(1:Knod,ijP,eln) - uBx(1:Knod,ijP,eln)*gLprim(ijP))
              DO j = 1, Knod
                NeuMatrix(j,1:Knod) = NeuMatrix(j,1:Knod) + Bcoef(j) * SolnNodesGradLgrangeBasis(1:Knod,j)
-               NeuMatrix(j,j) = NeuMatrix(j,j) + Acoef(j)*gLprime
+               NeuMatrix(j,j) = NeuMatrix(j,j) - Acoef(j)*gLprim(ijP)
              ENDDO
 
              ! Get the common face value of the unknown
-             CALL Gauss_Solver(Knod, NeuMatrix, comx(1:Knod,1,i), NeuRHS)
-             comx(1:Knod,0,ip) = comx(1:Knod,1,i)
+             CALL Gauss_Solver(Knod, NeuMatrix, comx(1:Knod,ijP+1,el), NeuRHS)
+             comx(1:Knod,ijP,eln) = comx(1:Knod,ijP+1,el)
 
              ! Get the common f~ value at the face
              DO j = 1, Knod
-               crossDuB(j) = dot_product(comx(1:Knod,0,ip), SolnNodesGradLgrangeBasis(1:Knod,j))
+               crossDuB(j) = dot_product(comx(1:Knod,ijP,eln), SolnNodesGradLgrangeBasis(1:Knod,j))
              ENDDO
-             dcomx(1:Knod,0,ip) = Acoef(1:Knod) * (dxuBx(1:Knod,0,ip) - (comx(1:Knod,0,ip) - uBx(1:Knod,0,ip))*gLprime) -  &
-                                  Bcoef(1:Knod) * crossDuB(1:Knod)
-             dcomx(1:Knod,1,i) = dcomx(1:Knod,0,ip)
+             dcomx(1:Knod,ijP,eln) = Acoef(1:Knod) * (dxuBx(1:Knod,ijP,eln) + (comx(1:Knod,ijP,eln) - &
+                                                        uBx(1:Knod,ijP,eln))*gLprim(ijP)) -  &
+                                     Bcoef(1:Knod) * crossDuB(1:Knod)
+             dcomx(1:Knod,ijP+1,el) = dcomx(1:Knod,ijP,eln)
            ENDIF
 
-           ! Left Face
-           IF (elemID(4,i) .lt. 0) THEN
-             dx_dxsi = 0.d0
-             dx_deta = 0.d0
-             dy_dxsi = 0.d0
-             dy_deta = 0.d0
-             DO jy = 1, Lnod
-               DO jx = 1, Lnod
-                 dx_dxsi(1:Knod) = dx_dxsi(1:Knod) + &
-                                   ! grad at x-dir                   no grad along y-dir                x/y-coord of geom
-                                   GeomBndryGradLgrangeBasis(jx,0) * GeomNodesLgrangeBasis(jy,1:Knod) * xloc(jx,jy)
-                 dy_dxsi(1:Knod) = dy_dxsi(1:Knod) + &
-                                   GeomBndryGradLgrangeBasis(jx,0) * GeomNodesLgrangeBasis(jy,1:Knod) * yloc(jx,jy)
-                 dx_deta(1:Knod) = dx_deta(1:Knod) + &
-                                   ! no grad at x-dir            grad along y-dir                       x/y-coord of geom
-                                   GeomBndryLgrangeBasis(jx,0) * GeomNodesGradLgrangeBasis(jy,1:Knod) * xloc(jx,jy)
-                 dy_deta(1:Knod) = dy_deta(1:Knod) + &
-                                   GeomBndryLgrangeBasis(jx,0) * GeomNodesGradLgrangeBasis(jy,1:Knod) * yloc(jx,jy)
-               ENDDO
-             ENDDO
-             Jac(1:Knod) = dx_dxsi(1:Knod) * dy_deta(1:Knod) - dx_deta(1:Knod) * dy_dxsi(1:Knod)
-             Acoef(1:Knod) = dx_deta(1:Knod)*dx_deta(1:Knod) + dy_deta(1:Knod)*dy_deta(1:Knod)
-             Bcoef(1:Knod) = dx_dxsi(1:Knod)*dx_deta(1:Knod) + dy_dxsi(1:Knod)*dy_deta(1:Knod)
-
-             ! Dirichlet BC
-             IF (BC_Switch(-elemID(4,i)) .eq. DirichletBC) THEN
-               comx(1:Knod,0,i) = BC_Values(1:Knod,-elemID(4,i))
-             
-               dxuBx(1:Knod,0,i) = dxuBx(1:Knod,0,i) - (comx(1:Knod,0,i) - uBx(1:Knod,0,i))*gLprime   ! Left corrected derivative (7.17b) in paper
-               DO j = 1, Knod
-                 crossDuB(j) = dot_product(comx(1:Knod,0,i), SolnNodesGradLgrangeBasis(1:Knod,j))
-               ENDDO
-               dcomx(1:Knod,0,i) = (Acoef(1:Knod)*dxuBx(1:Knod,0,i) - Bcoef(1:Knod)*crossDuB(1:Knod)) / Jac(1:Knod)       
-
-             ! Neumann BC
-             ELSEIF (BC_Switch(-elemID(4,i)) .eq. NeumannBC) THEN
-               dcomx(1:Knod,0,i) = BC_Values(1:Knod,-elemID(4,i)) * Sqrt(Acoef(1:Knod))
-
-               NeuRHS(1:Knod) = Jac(1:Knod)*dcomx(1:Knod,0,i) - Acoef(1:Knod)*(dxuBx(1:Knod,0,i) + uBx(1:Knod,0,i)*gLprime)
-               DO j = 1, Knod
-                 NeuMatrix(j,1:Knod) = -Bcoef(j) * SolnNodesGradLgrangeBasis(1:Knod,j)
-                 NeuMatrix(j,j) = NeuMatrix(j,j) - Acoef(j)*gLprime
-               ENDDO
-
-               CALL Gauss_Solver(Knod, NeuMatrix, comx(1:Knod,0,i), NeuRHS)
-
-               VelocJump(1:Knod,-elemID(4,i)) = comx(1:Knod,0,i)
-
-             ENDIF
+           ! Left face
+           ! 1D tensor index
+           ijP = 0
+           ! mesh to the left of left face
+           eln = elemID(i2f(ijP),el)
+           IF (eln .lt. 0) THEN
+             CALL GetDiffBndryComVals(el, eln, ijP, Face_Acoef(1:Knod,ijP,el), Face_Bcoef(1:Knod,ijP,el), &
+                                      Face_Norm(1:Knod,ijP,el), Face_Jac(1:Knod,ijP,el), uBx, dxuBx, comx(1:Knod,ijP,el), &
+                                      dcomx(1:Knod,ijP,el))
+             VelocJump(1:Knod,-eln) = comx(1:Knod,ijP,el)
            ENDIF
 
-           ! North Face
-           dx_dxsi = 0.d0
-           dx_deta = 0.d0
-           dy_dxsi = 0.d0
-           dy_deta = 0.d0
-           DO jy = 1, Lnod
-             DO jx = 1, Lnod
-               dx_deta(1:Knod) = dx_deta(1:Knod) + &
-                                 ! grad at y-dir                   no grad along x-dir                x/y-coord of geom
-                                 GeomBndryGradLgrangeBasis(jy,1) * GeomNodesLgrangeBasis(jx,1:Knod) * xloc(jx,jy)
-               dy_deta(1:Knod) = dy_deta(1:Knod) + &
-                                 GeomBndryGradLgrangeBasis(jy,1) * GeomNodesLgrangeBasis(jx,1:Knod) * yloc(jx,jy)
-               dx_dxsi(1:Knod) = dx_dxsi(1:Knod) + &
-                                 ! no grad at y-dir            grad along x-dir                       x/y-coord of geom
-                                 GeomBndryLgrangeBasis(jy,1) * GeomNodesGradLgrangeBasis(jx,1:Knod) * xloc(jx,jy)
-               dy_dxsi(1:Knod) = dy_dxsi(1:Knod) + &
-                                 GeomBndryLgrangeBasis(jy,1) * GeomNodesGradLgrangeBasis(jx,1:Knod) * yloc(jx,jy)
-             ENDDO
-           ENDDO
-           Jac(1:Knod) = dx_dxsi(1:Knod) * dy_deta(1:Knod) - dx_deta(1:Knod) * dy_dxsi(1:Knod)
-           Acoef(1:Knod) = dx_dxsi(1:Knod)*dx_dxsi(1:Knod) + dy_dxsi(1:Knod)*dy_dxsi(1:Knod)
-           Bcoef(1:Knod) = dx_dxsi(1:Knod)*dx_deta(1:Knod) + dy_dxsi(1:Knod)*dy_deta(1:Knod)
-
-           ! Boundary face
-           IF (elemID(3,i) .lt. 0) THEN
-             ! Dirichlet BC
-             IF (BC_Switch(-elemID(3,i)) .eq. DirichletBC) THEN
-               comy(1:Knod,1,i) = BC_Values(1:Knod,-elemID(3,i))
-
-               ! Get the corrected values of grad(u) at the mesh interfaces;  Eq. (7.17) in Huynh w gLB'=gDG'=-gRB' (=-Knod^2/2)
-               dyuBy(1:Knod,1,i) = dyuBy(1:Knod,1,i) + (comy(1:Knod,1,i) - uBy(1:Knod,1,i))*gLprime   ! North corrected derivative (7.17a) in paper
-
-               ! Get the corrected values of grad(u) along the mesh interface;
-               DO j = 1, Knod
-                 crossDuB(j) = dot_product(comy(1:Knod,1,i), SolnNodesGradLgrangeBasis(1:Knod,j))
-               ENDDO
-
-               ! Get the interface g
-               dcomy(1:Knod,1,i) = (Acoef(1:Knod)*dyuBy(1:Knod,1,i) - Bcoef(1:Knod)*crossDuB(1:Knod)) / Jac(1:Knod)
-
-             ! Neumann BC
-             ELSEIF (BC_Switch(-elemID(3,i)) .eq. NeumannBC) THEN
-               dcomy(1:Knod,1,i) = BC_Values(1:Knod,-elemID(3,i)) * Sqrt(Acoef(1:Knod))
-
-               NeuRHS(1:Knod) = Jac(1:Knod)*dcomy(1:Knod,1,i) - Acoef(1:Knod)*(dyuBy(1:Knod,1,i) - uBy(1:Knod,1,i)*gLprime)
-               DO j = 1, Knod
-                 NeuMatrix(j,1:Knod) = -Bcoef(j) * SolnNodesGradLgrangeBasis(1:Knod,j)
-                 NeuMatrix(j,j) = NeuMatrix(j,j) + Acoef(j)*gLprime
-               ENDDO
-
-               CALL Gauss_Solver(Knod, NeuMatrix, comy(1:Knod,1,i), NeuRHS)
-
-               VelocJump(1:Knod,-elemID(3,i)) = comy(1:Knod,1,i)
-
-             ENDIF
-           ! Internal north face commoned with the south face of its north neighbor
-           ELSE
+           ! North face
+           ! 1D tensor index
+           ijP = 1
+           ! mesh to the north of north face
+           eln = elemID(i2f(ijP+2),el)
+           IF (eln .lt. 0) THEN
+             CALL GetDiffBndryComVals(el, eln, ijP, Face_Acoef(1:Knod,ijP+2,el), Face_Bcoef(1:Knod,ijP+2,el), &
+                                      Face_Norm(1:Knod,ijP+2,el), Face_Jac(1:Knod,ijP+2,el), uBy, dyuBy, comy(1:Knod,ijP,el), &
+                                      dcomy(1:Knod,ijP,el))
+             VelocJump(1:Knod,-eln) = comy(1:Knod,ijP,el)
+           ELSEIF (eln .gt. 0) THEN
+             ! Internal north face commoned with the south face of its north neighbor
+!             CALL GetDiffIntrnComVals_Meth2(i, eln, ijP, Acoef, Bcoef, Jac, uBy, dyuBy, comy(1:Knod,ijP,i))
              ! North Face Stuff
-             Acoef(1:Knod) = Acoef(1:Knod) / Jac(1:Knod)
-             Bcoef(1:Knod) = Bcoef(1:Knod) / Jac(1:Knod)
-             NeuRHS(1:Knod) = - Acoef(1:Knod)*(dyuBy(1:Knod,1,i) - uBy(1:Knod,1,i)*gLprime)
+             Acoef(1:Knod) = Face_Acoef(1:Knod,ijP+2,el) / Face_Jac(1:Knod,ijP+2,el)
+             Bcoef(1:Knod) = Face_Bcoef(1:Knod,ijP+2,el) / Face_Jac(1:Knod,ijP+2,el)
+             NeuRHS(1:Knod) = - Acoef(1:Knod)*(dyuBy(1:Knod,ijP,el) - uBy(1:Knod,ijP,el)*gLprim(ijP))
              DO j = 1, Knod
                NeuMatrix(j,1:Knod) = -Bcoef(j) * SolnNodesGradLgrangeBasis(1:Knod,j)
-               NeuMatrix(j,j) = NeuMatrix(j,j) + Acoef(j)*gLprime
+               NeuMatrix(j,j) = NeuMatrix(j,j) + Acoef(j)*gLprim(ijP)
              ENDDO
 
              ! South Face Stuff from the North neighbor
-             ip = elemID(3,i)
-             dx_dxsi = 0.d0
-             dx_deta = 0.d0
-             dy_dxsi = 0.d0
-             dy_deta = 0.d0
-             DO jy = 1, Lnod
-               DO jx = 1, Lnod
-                 dx_deta(1:Knod) = dx_deta(1:Knod) + &
-                                   ! grad at y-dir                   no grad along x-dir              x/y-coord of geom
-                                   GeomBndryGradLgrangeBasis(jy,0) * GeomNodesLgrangeBasis(jx,1:Knod)*xcoord(nodeID(t2f(jx,jy),ip))
-                 dy_deta(1:Knod) = dy_deta(1:Knod) + &
-                                   GeomBndryGradLgrangeBasis(jy,0) * GeomNodesLgrangeBasis(jx,1:Knod)*ycoord(nodeID(t2f(jx,jy),ip))
-                 dx_dxsi(1:Knod) = dx_dxsi(1:Knod) + &
-                                   ! no grad at y-dir            grad along x-dir                     x/y-coord of geom
-                                   GeomBndryLgrangeBasis(jy,0) * GeomNodesGradLgrangeBasis(jx,1:Knod)*xcoord(nodeID(t2f(jx,jy),ip))
-                 dy_dxsi(1:Knod) = dy_dxsi(1:Knod) + &
-                                   GeomBndryLgrangeBasis(jy,0) * GeomNodesGradLgrangeBasis(jx,1:Knod)*ycoord(nodeID(t2f(jx,jy),ip))
-               ENDDO
-             ENDDO
-             Jac(1:Knod) = dx_dxsi(1:Knod) * dy_deta(1:Knod) - dx_deta(1:Knod) * dy_dxsi(1:Knod)
-             Acoef(1:Knod) = (dx_dxsi(1:Knod)*dx_dxsi(1:Knod) + dy_dxsi(1:Knod)*dy_dxsi(1:Knod)) / Jac(1:Knod)
-             Bcoef(1:Knod) = (dx_dxsi(1:Knod)*dx_deta(1:Knod) + dy_dxsi(1:Knod)*dy_deta(1:Knod)) / Jac(1:Knod)
+             ! 1D tensor index
+             ijP = 0
+             Acoef(1:Knod) = Face_Acoef(1:Knod,ijP+2,eln) / Face_Jac(1:Knod,ijP+2,eln)
+             Bcoef(1:Knod) = Face_Bcoef(1:Knod,ijP+2,eln) / Face_Jac(1:Knod,ijP+2,eln)
 
-             NeuRHS(1:Knod) =  NeuRHS(1:Knod) + Acoef(1:Knod)*(dyuBy(1:Knod,0,ip) + uBy(1:Knod,0,ip)*gLprime)
+             NeuRHS(1:Knod) =  NeuRHS(1:Knod) + Acoef(1:Knod)*(dyuBy(1:Knod,ijP,eln) - uBy(1:Knod,ijP,eln)*gLprim(ijP))
              DO j = 1, Knod
                NeuMatrix(j,1:Knod) = NeuMatrix(j,1:Knod) + Bcoef(j) * SolnNodesGradLgrangeBasis(1:Knod,j)
-               NeuMatrix(j,j) = NeuMatrix(j,j) + Acoef(j)*gLprime
+               NeuMatrix(j,j) = NeuMatrix(j,j) - Acoef(j)*gLprim(ijP)
              ENDDO
 
              ! Get the common face value of the unknown
-             CALL Gauss_Solver(Knod, NeuMatrix, comy(1:Knod,1,i), NeuRHS)
-             comy(1:Knod,0,ip) = comy(1:Knod,1,i)
+             CALL Gauss_Solver(Knod, NeuMatrix, comy(1:Knod,ijP+1,el), NeuRHS)
+             comy(1:Knod,ijP,eln) = comy(1:Knod,ijP+1,el)
 
              ! Get the common g~ value at the face
              DO j = 1, Knod
-               crossDuB(j) = dot_product(comy(1:Knod,0,i), SolnNodesGradLgrangeBasis(1:Knod,j))
+               crossDuB(j) = dot_product(comy(1:Knod,ijP,el), SolnNodesGradLgrangeBasis(1:Knod,j))
              ENDDO
-             dcomy(1:Knod,0,ip) = Acoef(1:Knod) * (dyuBy(1:Knod,0,ip) - (comy(1:Knod,0,ip) - uBy(1:Knod,0,ip))*gLprime) -  &
-                                  Bcoef(1:Knod) * crossDuB(1:Knod)
-             dcomy(1:Knod,1,i) = dcomy(1:Knod,0,ip)
+             dcomy(1:Knod,ijP,eln) = Acoef(1:Knod) * (dyuBy(1:Knod,ijP,eln) + (comy(1:Knod,ijP,eln) - &
+                                                        uBy(1:Knod,ijP,eln))*gLprim(ijP)) -  &
+                                     Bcoef(1:Knod) * crossDuB(1:Knod)
+             dcomy(1:Knod,ijP+1,el) = dcomy(1:Knod,ijP,eln)
 
            ENDIF
 
            ! South Face
-           IF (elemID(1,i) .lt. 0) THEN
-             dx_dxsi = 0.d0
-             dx_deta = 0.d0
-             dy_dxsi = 0.d0
-             dy_deta = 0.d0
-             DO jy = 1, Lnod
-               DO jx = 1, Lnod
-                 dx_deta(1:Knod) = dx_deta(1:Knod) + &
-                                   ! grad at y-dir                   no grad along x-dir                x/y-coord of geom
-                                   GeomBndryGradLgrangeBasis(jy,0) * GeomNodesLgrangeBasis(jx,1:Knod) * xloc(jx,jy)
-                 dy_deta(1:Knod) = dy_deta(1:Knod) + &
-                                   GeomBndryGradLgrangeBasis(jy,0) * GeomNodesLgrangeBasis(jx,1:Knod) * yloc(jx,jy)
-                 dx_dxsi(1:Knod) = dx_dxsi(1:Knod) + &
-                                   ! no grad at y-dir            grad along x-dir                       x/y-coord of geom
-                                   GeomBndryLgrangeBasis(jy,0) * GeomNodesGradLgrangeBasis(jx,1:Knod) * xloc(jx,jy)
-                 dy_dxsi(1:Knod) = dy_dxsi(1:Knod) + &
-                                   GeomBndryLgrangeBasis(jy,0) * GeomNodesGradLgrangeBasis(jx,1:Knod) * yloc(jx,jy)
-               ENDDO
-             ENDDO
-             Jac(1:Knod) = dx_dxsi(1:Knod) * dy_deta(1:Knod) - dx_deta(1:Knod) * dy_dxsi(1:Knod)
-             Acoef(1:Knod) = dx_dxsi(1:Knod)*dx_dxsi(1:Knod) + dy_dxsi(1:Knod)*dy_dxsi(1:Knod)
-             Bcoef(1:Knod) = dx_dxsi(1:Knod)*dx_deta(1:Knod) + dy_dxsi(1:Knod)*dy_deta(1:Knod)
-
-             ! Dirichlet BC
-             IF (BC_Switch(-elemID(1,i)) .eq. DirichletBC) THEN
-               comy(1:Knod,0,i) = BC_Values(1:Knod,-elemID(1,i))
-
-               dyuBy(1:Knod,0,i) = dyuBy(1:Knod,0,i) - (comy(1:Knod,0,i) - uBy(1:Knod,0,i))*gLprime   ! South corrected derivative (7.17b) in paper
-               DO j = 1, Knod
-                 crossDuB(j) = dot_product(comy(1:Knod,0,i), SolnNodesGradLgrangeBasis(1:Knod,j))
-               ENDDO
-               dcomy(1:Knod,0,i) = (Acoef(1:Knod)*dyuBy(1:Knod,0,i) - Bcoef(1:Knod)*crossDuB(1:Knod)) / Jac(1:Knod) 
-
-             ! Neumann BC
-             ELSEIF (BC_Switch(-elemID(1,i)) .eq. NeumannBC) THEN
-               dcomy(1:Knod,0,i) = BC_Values(1:Knod,-elemID(1,i)) * Sqrt(Acoef(1:Knod))
-
-               NeuRHS(1:Knod) = Jac(1:Knod)*dcomy(1:Knod,0,i) - Acoef(1:Knod)*(dyuBy(1:Knod,0,i) + uBy(1:Knod,0,i)*gLprime)
-               DO j = 1, Knod
-                 NeuMatrix(j,1:Knod) = -Bcoef(j) * SolnNodesGradLgrangeBasis(1:Knod,j)
-                 NeuMatrix(j,j) = NeuMatrix(j,j) - Acoef(j)*gLprime
-               ENDDO
-
-               CALL Gauss_Solver(Knod, NeuMatrix, comy(1:Knod,0,i), NeuRHS)
-
-               VelocJump(1:Knod,-elemID(1,i)) = comy(1:Knod,0,i)
-
-             ENDIF
+           ! mesh to the south of south face
+           eln = elemID(1,el)
+           ! 1D tensor index
+           ijP = 0
+           IF (eln .lt. 0) THEN
+             CALL GetDiffBndryComVals(el, eln, ijP, Face_Acoef(1:Knod,ijP+2,el), Face_Bcoef(1:Knod,ijP+2,el), &
+                                      Face_Norm(1:Knod,ijP+2,el), Face_Jac(1:Knod,ijP+2,el), uBy, dyuBy, comy(1:Knod,ijP,el), &
+                                      dcomy(1:Knod,ijP,el))
+             VelocJump(1:Knod,-eln) = comy(1:Knod,ijP,el)
            ENDIF
+
          ENDDO
+
        ENDIF
 
-       DO i = 1, Nel
-
-         DO jy = 1, Lnod
-           DO jx = 1, Lnod
-             xloc(jx,jy) = xcoord(nodeID(t2f(jx,jy),i))
-             yloc(jx,jy) = ycoord(nodeID(t2f(jx,jy),i))
-           ENDDO
-         ENDDO
+       DO el = 1, Nel
 
          ! Get first derivatives of the variable
          DO jy = 1, Knod
            DO jx = 1, Knod
-             ! Get geometry stuff at all solution nodes (per element)
-             sdx_dxsi = 0.d0
-             sdx_deta = 0.d0
-             sdy_dxsi = 0.d0
-             sdy_deta = 0.d0
-             DO ly = 1, Lnod
-               DO lx = 1, Lnod
-                 sdx_dxsi = sdx_dxsi + &
-                            ! grad at x-dir                    no grad at y-dir               x/y-coord of geom
-                            GeomNodesGradLgrangeBasis(lx,jx) * GeomNodesLgrangeBasis(ly,jy) * xloc(lx,ly)
-                 sdy_dxsi = sdy_dxsi + &
-                            GeomNodesGradLgrangeBasis(lx,jx) * GeomNodesLgrangeBasis(ly,jy) * yloc(lx,ly)
-                 sdx_deta = sdx_deta + &
-                            ! no grad at x-dir             grad at y-dir                      x/y-coord of geom
-                            GeomNodesLgrangeBasis(lx,jx) * GeomNodesGradLgrangeBasis(ly,jy) * xloc(lx,ly)
-                 sdy_deta = sdy_deta + &
-                            GeomNodesLgrangeBasis(lx,jx) * GeomNodesGradLgrangeBasis(ly,jy) * yloc(lx,ly)
-               ENDDO
-             ENDDO
-             sJac(jx,jy) = sdx_dxsi * sdy_deta - sdx_deta * sdy_dxsi
 
              ! Get grads of unknown uin along xsi (for eta=const) and along eta (for xsi=const
-             sdu_dxsi = dot_product(uin(1:Knod,jy,i), SolnNodesGradLgrangeBasis(1:Knod,jx)) + &
-                        dot_product(comx(jy,0:1,i) - uBx(jy,0:1,i), NodesGradRadau(jx,0:1))
-             sdu_deta = dot_product(uin(jx,1:Knod,i), SolnNodesGradLgrangeBasis(1:Knod,jy)) + &
-                        dot_product(comy(jx,0:1,i) - uBy(jx,0:1,i), NodesGradRadau(jy,0:1))
+             du_dxsi = dot_product(uin(1:Knod,jy,el), SolnNodesGradLgrangeBasis(1:Knod,jx)) + &
+                       dot_product(comx(jy,0:1,el) - uBx(jy,0:1,el), NodesGradRadau(jx,0:1))
+             du_deta = dot_product(uin(jx,1:Knod,el), SolnNodesGradLgrangeBasis(1:Knod,jy)) + &
+                       dot_product(comy(jx,0:1,el) - uBy(jx,0:1,el), NodesGradRadau(jy,0:1))
 
              ! Get f~ and g~ as per Huynh's paper
-             f_tilda(jx,jy) = (sdu_dxsi * (sdx_deta*sdx_deta + sdy_deta*sdy_deta) - &
-                               sdu_deta * (sdx_dxsi*sdx_deta + sdy_dxsi*sdy_deta)) / sJac(jx,jy)
-             g_tilda(jx,jy) = (sdu_deta * (sdx_dxsi*sdx_dxsi + sdy_dxsi*sdy_dxsi) - &
-                               sdu_dxsi * (sdx_dxsi*sdx_deta + sdy_dxsi*sdy_deta)) / sJac(jx,jy)
+             f_tilda(jx,jy) = (du_dxsi * ( Vol_Dx_iDxsi_j(jx,jy,1,2,el) * Vol_Dx_iDxsi_j(jx,jy,1,2,el) + &
+                                           Vol_Dx_iDxsi_j(jx,jy,2,2,el) * Vol_Dx_iDxsi_j(jx,jy,2,2,el) ) - &
+                               du_deta * ( Vol_Dx_iDxsi_j(jx,jy,1,1,el) * Vol_Dx_iDxsi_j(jx,jy,1,2,el) + &
+                                           Vol_Dx_iDxsi_j(jx,jy,2,1,el) * Vol_Dx_iDxsi_j(jx,jy,2,2,el) ) ) / Vol_Jac(jx,jy,el)
+
+             g_tilda(jx,jy) = (du_deta * ( Vol_Dx_iDxsi_j(jx,jy,1,1,el) * Vol_Dx_iDxsi_j(jx,jy,1,1,el) + &
+                                           Vol_Dx_iDxsi_j(jx,jy,2,1,el) * Vol_Dx_iDxsi_j(jx,jy,2,1,el) ) - &
+                               du_dxsi * ( Vol_Dx_iDxsi_j(jx,jy,1,1,el) * Vol_Dx_iDxsi_j(jx,jy,1,2,el) + &
+                                           Vol_Dx_iDxsi_j(jx,jy,2,1,el) * Vol_Dx_iDxsi_j(jx,jy,2,2,el) ) ) / Vol_Jac(jx,jy,el)
+
            ENDDO
          ENDDO
 
          ! Get ?_tildas at the mesh boundaries
-         DO j = 1, Knod
-           f_tildaB(j,0) = dot_product(f_tilda(1:Knod,j), SolnBndryLgrangeBasis(1:Knod,0))      ! Left of mesh - derivative
-           f_tildaB(j,1) = dot_product(f_tilda(1:Knod,j), SolnBndryLgrangeBasis(1:Knod,1))      ! Right of mesh - derivative
-           g_tildaB(j,0) = dot_product(g_tilda(j,1:Knod), SolnBndryLgrangeBasis(1:Knod,0))      ! South of mesh - derivative
-           g_tildaB(j,1) = dot_product(g_tilda(j,1:Knod), SolnBndryLgrangeBasis(1:Knod,1))      ! North of mesh - derivative
+         DO ijP = 0, 1
+           DO j = 1, Knod
+             f_tildaB(j,ijP) = dot_product(f_tilda(1:Knod,j), SolnBndryLgrangeBasis(1:Knod,ijP))      ! Left of mesh - derivative
+             g_tildaB(j,ijP) = dot_product(g_tilda(j,1:Knod), SolnBndryLgrangeBasis(1:Knod,ijP))      ! South of mesh - derivative
+           ENDDO
          ENDDO
 
          ! Now get the Laplacian
          DO jy = 1, Knod
            DO jx = 1, Knod
-             ddu(jx,jy,i) = (dot_product(f_tilda(1:Knod,jy), SolnNodesGradLgrangeBasis(1:Knod,jx))   + &
-                             dot_product(dcomx(jy,0:1,i) - f_tildaB(jy,0:1), NodesGradRadau(jx,0:1)) + &
-                             dot_product(g_tilda(jx,1:Knod), SolnNodesGradLgrangeBasis(1:Knod,jy))   + &
-                             dot_product(dcomy(jx,0:1,i) - g_tildaB(jx,0:1), NodesGradRadau(jy,0:1))) / sJac(jx,jy)
+             ddu(jx,jy,el) = (dot_product(f_tilda(1:Knod,jy), SolnNodesGradLgrangeBasis(1:Knod,jx))   + &
+                              dot_product(dcomx(jy,0:1,el) - f_tildaB(jy,0:1), NodesGradRadau(jx,0:1)) + &
+                              dot_product(g_tilda(jx,1:Knod), SolnNodesGradLgrangeBasis(1:Knod,jy))   + &
+                              dot_product(dcomy(jx,0:1,el) - g_tildaB(jx,0:1), NodesGradRadau(jy,0:1))) / Vol_Jac(jx,jy,el)
            ENDDO
          ENDDO
 
@@ -4553,7 +3320,234 @@ SUBROUTINE GetDiffusedFlux(HuynhSolver_type, uin, ddu)
 END SUBROUTINE GetDiffusedFlux
 
 
-SUBROUTINE GetConvectedFlux(HuynhSolver_type, uin, du)
+SUBROUTINE GetDiffBndryComVals(el, eln, ijPos, Acoef, Bcoef, Anorm, Jac, bndrPhi, bndrDPhi, comPhi, comDPhi)
+       USE params
+       USE variables
+
+       implicit NONE
+       integer el, eln, ijPos
+       ! boundary metric stuff
+       real*8, dimension(Knod) :: Acoef, BCoef, Anorm, Jac
+       ! common interface values of Phi and its grad
+       ! dimension of calling routine is comPhi(1:Knod,ijPos,el) and comDPhi(1:Knod,ijPos,el)
+       real*8, dimension(Knod) :: comPhi, comDPhi
+       ! extrapolated boundary values (per mesh) of Phi and its grad
+       real*8, dimension(Knod, 0:1, Nel):: bndrPhi, bndrDPhi
+
+       integer j
+       ! cross derivatives using common values comPhi
+       real*8, dimension(Knod) :: crossDPhi
+       ! small dense matrix to obtain comPhi (per element) for a given Neumann BC
+       real*8 NeuMatrix(Knod, Knod), NeuRHS(Knod)
+
+
+       IF (BC_Switch(-eln) .eq. DirichletBC) THEN
+
+         comPhi(1:Knod) = BC_Values(1:Knod,-eln)
+
+         ! Get the corrected values of grad(Phi) at the mesh interfaces;  Eq. (7.17) in Huynh w gLB'=gDG'=-gRB' (=-Knod^2/2)
+         bndrDPhi(1:Knod,ijPos,el) = bndrDPhi(1:Knod,ijPos,el) + (comPhi(1:Knod) - bndrPhi(1:Knod,ijPos,el))*gLprim(ijPos) 
+
+         ! Get the corrected values of grad(Phi) along the mesh interface;
+         DO j = 1, Knod
+           crossDPhi(j) = dot_product(comPhi(1:Knod), SolnNodesGradLgrangeBasis(1:Knod,j))
+         ENDDO
+
+         ! Get the interface f
+         comDPhi(1:Knod) = (Acoef(1:Knod)*bndrDPhi(1:Knod,ijPos,el) - Bcoef(1:Knod)*crossDPhi(1:Knod)) / Jac(1:Knod)
+
+       ELSEIF (BC_Switch(-eln) .eq. NeumannBC) THEN
+
+         comDPhi(1:Knod) = BC_Values(1:Knod,-eln) * Anorm(1:Knod)
+
+         NeuRHS(1:Knod) = Jac(1:Knod)*comDPhi(1:Knod) - Acoef(1:Knod)* &
+                                                        (bndrDPhi(1:Knod,ijPos,el) - bndrPhi(1:Knod,ijPos,el)*gLprim(ijPos))
+         DO j = 1, Knod
+           NeuMatrix(j,1:Knod) = -Bcoef(j) * SolnNodesGradLgrangeBasis(1:Knod,j)
+           NeuMatrix(j,j) = NeuMatrix(j,j) + Acoef(j)*gLprim(ijPos)
+         ENDDO
+
+         CALL Gauss_Solver(Knod, NeuMatrix, comPhi(1:Knod), NeuRHS)
+
+       ENDIF
+
+END SUBROUTINE GetDiffBndryComVals
+
+
+SUBROUTINE GetDiffIntrnComVals_Meth2(el, eln, ijPos, Acoef, Bcoef, Jac, bndrPhi, bndrDPhi, comPhi)
+       USE params
+       USE variables
+
+       implicit NONE
+       integer el, eln, ijPos
+       ! boundary metric stuff
+       real*8, dimension(Knod) :: Acoef, BCoef, Jac
+       ! common interface values of Phi and its grad
+       ! dimension of calling routine is comPhi(1:Knod,ijPos,el) and comDPhi(1:Knod,ijPos,el)
+       real*8, dimension(Knod) :: comPhi
+       ! extrapolated boundary values (per mesh) of Phi and its grad
+       real*8, dimension(Knod, 0:1, Nel):: bndrPhi, bndrDPhi
+
+       integer j
+       ! cross derivatives using common values comPhi
+       real*8, dimension(Knod) :: crossDPhi
+
+
+       ! ComPhi: Average of PhiBndry(el,right) + PhiBndy(el+1,left)
+       comPhi(1:Knod) = 0.5d0*(bndrPhi(1:Knod,ijPos,el) + bndrPhi(1:Knod,1-ijPos,eln))
+
+       ! Get the corrected values of grad(Phi) at the mesh interfaces;  Eq. (7.17) in Huynh w gLB'=gDG'=-gRB' (=-Knod^2/2)
+       bndrDPhi(1:Knod,ijPos,el) = bndrDPhi(1:Knod,ijPos,el) + (comPhi(1:Knod) - bndrPhi(1:Knod,ijPos,el))*gLprim(ijPos)
+
+       ! Get the corrected values of grad(Phi) along the mesh interface;
+       DO j = 1, Knod
+         crossDPhi(j) = dot_product(comPhi(1:Knod), SolnNodesGradLgrangeBasis(1:Knod,j))
+       ENDDO
+
+       ! Get the interface f
+       bndrDPhi(1:Knod,ijPos,el) = (bndrDPhi(1:Knod,ijPos,el) * Acoef(1:Knod) - crossDPhi(1:Knod) * Bcoef(1:Knod)) / Jac(1:Knod)
+
+END SUBROUTINE GetDiffIntrnComVals_Meth2
+
+
+SUBROUTINE GetConvectedFlux(HuynhSolver_type, Phi, dPhi)
+       USE params
+       USE variables
+       USE CnvrtTensor2FemIndices
+
+       implicit NONE
+       integer HuynhSolver_type
+       real*8, dimension(Knod, Knod, Nel) :: Phi, dPhi
+
+       integer, parameter, dimension(0:3) :: sgn = (/-1, 1, -1, 1/), nbr = (/1, 0, 3, 2/)
+       integer i, j, jx, jy, el, eln, ijP, ijPm, idir, ibnd
+       real*8 bndrVel
+       real*8, dimension(Knod, 2) :: loclPhi, loclVel
+       real*8, dimension(Knod, Knod, 2, Nel) :: discFlx            ! nodal values of Discontinous Fluxes in X and Y dirs
+       real*8, dimension(Knod, 0:3, Nel) :: bndrPhi                  ! u at the L/R (Bx) and S/N (By) boundaries of a mesh
+                                                                       ! com(mon) values at the interface along x and y
+       real*8, dimension(Knod, 0:3, Nel):: bndrFlx                   ! Flux at the interfaces along x and y directions
+       real*8, dimension(Knod, 0:3, Nel):: upwndFlx              ! Flux jumps at the interfaces along x and y directions
+
+       real*8, dimension(Knod, 0:3) :: bndrDiscFlx
+
+       bndrPhi = 0.d0
+       bndrFlx = 0.d0
+       discFlx = 0.d0
+       upwndFlx = 0.d0
+
+       ! Extrapolate the unknown, Phi and the Flux to the mesh boundaries using Lagrange polynomials of order Knod-1
+       DO el = 1, Nel
+
+         DO j = 1, Knod
+
+         !!! Local 1D tensor notation in the x (=1) and y (=2) directions
+           !! IMPORTANT: the indices (i,j) have been flipped for the y direction because they will be used
+           !!            more efficiently in the dot-product operation (also allows for streamlining)
+           DO i = 1, Knod
+             ! Phi and Velocity in local coordinates (along horizontal (1:Knod,j) solution points)
+             loclPhi(i,1) =  Phi(i,j,el)
+             loclVel(i,1) =  Vol_Dx_iDxsi_j(i,j,2,2,el) * Uvel(i,j,el) - Vol_Dx_iDxsi_j(i,j,1,2,el) * Vvel(i,j,el)
+             ! Phi and Velocity in local coordinates (along vertical (j,1:Knod) solution points)
+             loclPhi(i,2) =  Phi(j,i,el)
+             loclVel(i,2) = -Vol_Dx_iDxsi_j(j,i,2,1,el) * Uvel(j,i,el) + Vol_Dx_iDxsi_j(j,i,1,1,el) * Vvel(j,i,el)
+           ENDDO
+
+           ijP = 0
+           ! Extrapolation operations in x (=1) and y (=2) directions
+           DO idir = 1, 2
+
+             ! Extraploated boundary values of Phi and Velocity*Phi to left/south (=0) and right/north (=1)
+             DO ibnd = 0, 1
+               bndrPhi(j,ijP,el) = dot_product(loclPhi(1:Knod,idir), SolnBndryLgrangeBasis(1:Knod,ibnd))
+
+               ! mesh to the left of left face or right of right face
+               eln = elemID(i2f(ijP),el)
+               IF (eln .lt. 0) THEN
+!           IF (BC_Switch(-eln) .eq. DirichletBC) THEN
+                 bndrFlx(j,ijP,el) = bndrPhi(j,ijP,el) * BC_Values(j,-eln)
+!           ELSEIF (BC_Switch(-eln) .eq. NeumannBC) THEN
+!           ENDIF
+               ELSE
+                 bndrFlx(j,ijP,el) = bndrPhi(j,ijP,el) * dot_product(loclVel(1:Knod,idir), SolnBndryLgrangeBasis(1:Knod,ibnd))
+               ENDIF
+               ijP = ijP + 1
+             ENDDO
+
+             ! Discontinuous flux values on (1:Knod,j) solution points for horizontal direction
+             ! and on (j,1:Knod) solution points for vertical direction
+             DO i = 1, Knod
+               discFlx(i,j,idir,el) = loclVel(i,idir) * loclPhi(i,idir)
+             ENDDO
+
+           ENDDO
+
+         ENDDO
+
+       ENDDO
+
+
+       DO el = 1, Nel
+
+         DO ijP = 0, 3
+           ijPm = nbr(ijP)
+           ! mesh to the left/south of left/south face or right/north of right/north face
+           eln = elemID(i2f(ijP),el)
+           IF (eln .gt. 0) THEN
+             DO j = 1, Knod
+               IF (Abs(bndrPhi(j,ijP,el) - bndrPhi(j,ijPm,eln)) .gt. 1.0d-6) THEN
+                 bndrVel = (bndrFlx(j,ijP,el) - bndrFlx(j,ijPm,eln)) / (bndrPhi(j,ijP,el) - bndrPhi(j,ijPm,eln))
+                 upwndFlx(j,ijP,el) = 0.5d0*( bndrFlx(j,ijP,el) + bndrFlx(j,ijPm,eln) + &
+                                              sgn(ijP) * Abs(bndrVel) * ( bndrPhi(j,ijP,el) - bndrPhi(j,ijPm,eln) ) )
+               ELSE
+                 upwndFlx(j,ijP,el) = 0.5d0*( bndrFlx(j,ijP,el) + bndrFlx(j,ijPm,eln) )
+               ENDIF
+             ENDDO
+           ELSEIF (eln .lt. 0) THEN
+           ! Dirichlet BC
+!           IF (BC_Switch(-eln) .eq. DirichletBC) THEN
+             DO j = 1, Knod
+               upwndFlx(j,ijP,el) = bndrFlx(j,ijP,el)
+             ENDDO
+           ! Neumann BC
+!           ELSEIF (BC_Switch(-eln) .eq. NeumannBC) THEN
+!           ENDIF
+           ENDIF
+         ENDDO
+
+       ENDDO
+
+
+       DO el = 1, Nel
+
+         ijP = 0
+         DO idir = 1, 2
+           DO ibnd = 0, 1
+             DO j = 1, Knod
+               bndrDiscFlx(j,ijP) = upwndFlx(j,ijP,el) - dot_product(discFlx(1:Knod,j,idir,el), SolnBndryLgrangeBasis(1:Knod,ibnd))
+             ENDDO
+             ijP = ijP + 1
+           ENDDO
+         ENDDO
+
+         ! Now get the convection
+         DO jy = 1, Knod
+           DO jx = 1, Knod
+!             dPhi(jx,jy,el) = dPhi(jx,jy,el) -  &
+             dPhi(jx,jy,el) = - &
+                             (dot_product(discFlx(1:Knod,jy,1,el), SolnNodesGradLgrangeBasis(1:Knod,jx))   + &
+                              dot_product(bndrDiscFlx(jy,0:1), NodesGradRadau(jx,0:1)) + &
+                              dot_product(discFlx(1:Knod,jx,2,el), SolnNodesGradLgrangeBasis(1:Knod,jy))   + &
+                              dot_product(bndrDiscFlx(jx,2:3), NodesGradRadau(jy,0:1))) / Vol_Jac(jx,jy,el)
+           ENDDO
+         ENDDO
+
+       ENDDO
+  
+END SUBROUTINE GetConvectedFlux
+
+
+SUBROUTINE GetConvectedFluxP(HuynhSolver_type, uin, du)
        USE params
        USE variables
        USE CnvrtTensor2FemIndices
@@ -4562,394 +3556,201 @@ SUBROUTINE GetConvectedFlux(HuynhSolver_type, uin, du)
        integer HuynhSolver_type
        real*8, dimension(Knod, Knod, Nel) :: uin, du
 
-       integer i, j, ip, jx, jy, lx, ly
+       integer, parameter, dimension(0:3) :: sgn = (/-1, 1, -1, 1/)
+       integer j, jx, jy, el, eln, ijP, ijPm
+       real*8 conv
        real*8, dimension(Knod, Knod, Nel) :: DFluxX, DFluxY            ! nodal values of Discontinous Fluxes in X and Y dirs
        real*8, dimension(Knod, 0:1, Nel) :: uBx,  uBy                  ! u at the L/R (Bx) and S/N (By) boundaries of a mesh
                                                                        ! com(mon) values at the interface along x and y
-       real*8, dimension(Knod, 0:1, Nel):: FlxUBx, FlxUBy, FlxVBx, FlxVBy      ! Flux at the interfaces along x and y directions
+!       real*8, dimension(Knod, 0:1, Nel):: FlxUBx, FlxUBy, FlxVBx, FlxVBy      ! Flux at the interfaces along x and y directions
+       real*8, dimension(Knod, 0:1, Nel):: FlxUBx, FlxVBy      ! Flux at the interfaces along x and y directions
        real*8, dimension(Knod, 0:1, Nel):: jFlxBx, jFlxBy              ! Flux jumps at the interfaces along x and y directions
 
-       real*8, dimension(Knod) :: Jac, dx_dxsi, dx_deta, dy_dxsi, dy_deta  ! coord transformation stuff
-       real*8, dimension(Knod, Knod) :: sJac, f_tilda, g_tilda
+       real*8, dimension(Knod, Knod) :: f_tilda, g_tilda
        real*8, dimension(Knod, 0:1) :: f_tildaB, g_tildaB
 
-       real*8, dimension(Lnod, Lnod) :: xloc, yloc
-
-       real*8 sdx_dxsi, sdx_deta, sdy_dxsi, sdy_deta, sdu_dxsi, sdu_deta
-       real*8 au, av, upwind, conv
        real*8 tmp(Knod)
-
 
        uBx = 0.d0
        uBy = 0.d0
        DFluxX = 0.d0
        DFluxY = 0.d0
        FlxUBx = 0.d0
-       FlxUBy = 0.d0
-       FlxVBx = 0.d0
+!       FlxUBy = 0.d0
+!       FlxVBx = 0.d0
        FlxVBy = 0.d0
        jFlxBx = 0.d0
        jFlxBy = 0.d0
 
-       DO i = 1, Nel
+       ! Extrapolate the unknown, uin, and its derivative to the mesh boundaries using Lagrange polynomials of order Knod-1
+       DO el = 1, Nel
 
-         DO jy = 1, Lnod
-           DO jx = 1, Lnod
-             xloc(jx,jy) = xcoord(nodeID(t2f(jx,jy),i))
-             yloc(jx,jy) = ycoord(nodeID(t2f(jx,jy),i))
-           ENDDO
-         ENDDO
-
-         ! Get first derivatives of the variable
          DO jy = 1, Knod
            DO jx = 1, Knod
-             ! Get geometry stuff at all solution nodes (per element)
-             sdx_dxsi = 0.d0
-             sdx_deta = 0.d0
-             sdy_dxsi = 0.d0
-             sdy_deta = 0.d0
-             DO ly = 1, Lnod
-               DO lx = 1, Lnod
-                 sdx_dxsi = sdx_dxsi + &
-                            ! grad at x-dir                    no grad at y-dir               x/y-coord of geom
-                            GeomNodesGradLgrangeBasis(lx,jx) * GeomNodesLgrangeBasis(ly,jy) * xloc(lx,ly)
-                 sdy_dxsi = sdy_dxsi + &
-                            GeomNodesGradLgrangeBasis(lx,jx) * GeomNodesLgrangeBasis(ly,jy) * yloc(lx,ly)
-                 sdx_deta = sdx_deta + &
-                            ! no grad at x-dir             grad at y-dir                      x/y-coord of geom
-                            GeomNodesLgrangeBasis(lx,jx) * GeomNodesGradLgrangeBasis(ly,jy) * xloc(lx,ly)
-                 sdy_deta = sdy_deta + &
-                            GeomNodesLgrangeBasis(lx,jx) * GeomNodesGradLgrangeBasis(ly,jy) * yloc(lx,ly)
-               ENDDO
-             ENDDO
-
              ! Get f~ and g~ as per Huynh's paper
-             DFluxX(jx,jy,i) =  sdy_deta * Uvel(jx,jy,i) - sdx_deta * Vvel(jx,jy,i)
-             DFluxY(jx,jy,i) = -sdy_dxsi * Uvel(jx,jy,i) + sdx_dxsi * Vvel(jx,jy,i)
+             DFluxX(jx,jy,el) =  Vol_Dx_iDxsi_j(jx,jy,2,2,el) * Uvel(jx,jy,el) - Vol_Dx_iDxsi_j(jx,jy,1,2,el) * Vvel(jx,jy,el)
+             DFluxY(jx,jy,el) = -Vol_Dx_iDxsi_j(jx,jy,2,1,el) * Uvel(jx,jy,el) + Vol_Dx_iDxsi_j(jx,jy,1,1,el) * Vvel(jx,jy,el)
            ENDDO
          ENDDO
 
-       ENDDO
-
-       ! Extrapolate the unknown, uin, and its derivative to the mesh boundaries using Lagrange polynomials of order Knod-1
-       DO i = 1, Nel
          DO j = 1, Knod
-           uBx(j,0,i) = dot_product(uin(1:Knod,j,i), SolnBndryLgrangeBasis(1:Knod,0))            ! Left of mesh  - value
-           uBx(j,1,i) = dot_product(uin(1:Knod,j,i), SolnBndryLgrangeBasis(1:Knod,1))            ! Right of mesh - value
-           uBy(j,0,i) = dot_product(uin(j,1:Knod,i), SolnBndryLgrangeBasis(1:Knod,0))            ! South of mesh  - value
-           uBy(j,1,i) = dot_product(uin(j,1:Knod,i), SolnBndryLgrangeBasis(1:Knod,1))            ! North of mesh  - value
+           DO ijP = 0, 1
+             uBx(j,ijP,el) = dot_product(uin(1:Knod,j,el), SolnBndryLgrangeBasis(1:Knod,ijP))            ! Left/Right of mesh  - value
+             uBy(j,ijP,el) = dot_product(uin(j,1:Knod,el), SolnBndryLgrangeBasis(1:Knod,ijP))            ! South/North of mesh  - value
 
-           FlxUBx(j,0,i) = dot_product(DFluxX(1:Knod,j,i), SolnBndryLgrangeBasis(1:Knod,0))    ! Left of mesh  - Flux
-           FlxUBx(j,1,i) = dot_product(DFluxX(1:Knod,j,i), SolnBndryLgrangeBasis(1:Knod,1))    ! Left of mesh  - Flux
-           FlxVBx(j,0,i) = dot_product(DFluxY(1:Knod,j,i), SolnBndryLgrangeBasis(1:Knod,0))    ! Left of mesh  - Flux
-           FlxVBx(j,1,i) = dot_product(DFluxY(1:Knod,j,i), SolnBndryLgrangeBasis(1:Knod,1))    ! Left of mesh  - Flux
-           FlxUBy(j,0,i) = dot_product(DFluxX(j,1:Knod,i), SolnBndryLgrangeBasis(1:Knod,0))    ! Left of mesh  - Flux
-           FlxUBy(j,1,i) = dot_product(DFluxX(j,1:Knod,i), SolnBndryLgrangeBasis(1:Knod,1))    ! Left of mesh  - Flux
-           FlxVBy(j,0,i) = dot_product(DFluxY(j,1:Knod,i), SolnBndryLgrangeBasis(1:Knod,0))    ! Left of mesh  - Flux
-           FlxVBy(j,1,i) = dot_product(DFluxY(j,1:Knod,i), SolnBndryLgrangeBasis(1:Knod,1))    ! Left of mesh  - Flux
+             FlxUBx(j,ijP,el) = dot_product(DFluxX(1:Knod,j,el), SolnBndryLgrangeBasis(1:Knod,ijP))            ! Left/Right of mesh  - Flux
+!             FlxVBx(j,ijP,el) = dot_product(DFluxY(1:Knod,j,el), SolnBndryLgrangeBasis(1:Knod,ijP))            ! Left/Right of mesh  - Flux
+!             FlxUBy(j,ijP,el) = dot_product(DFluxX(j,1:Knod,el), SolnBndryLgrangeBasis(1:Knod,ijP))            ! South/North of mesh  - Flux
+             FlxVBy(j,ijP,el) = dot_product(DFluxY(j,1:Knod,el), SolnBndryLgrangeBasis(1:Knod,ijP))            ! South/North of mesh  - Flux
+           ENDDO
+           ENDDO
 
-           DFluxX(j,1:Knod,i) = DFluxX(j,1:Knod,i) * uin(j,1:Knod,i)                                       ! Left-to-Right nodal fluxes
-           DFluxY(j,1:Knod,i) = DFluxY(j,1:Knod,i) * uin(j,1:Knod,i)                                       ! South-to-North nodal fluxes
+         DO j = 1, Knod
+           DFluxX(j,1:Knod,el) = DFluxX(j,1:Knod,el) * uin(j,1:Knod,el)                                       ! Left-to-Right nodal fluxes
+           DFluxY(j,1:Knod,el) = DFluxY(j,1:Knod,el) * uin(j,1:Knod,el)                                       ! South-to-North nodal fluxes
          ENDDO
+
        ENDDO
 
 
        ! Get the common values of uin at the mesh interfaces (we use simple averaging in this case)
        ! We definitely need a more efficient strategy - right now we're saving com-s twice, and can probably save on d?uB? as well
        ! We probably can and should write a more compact method so that we don't repeat the same stuff for NEWS (which becomes messier for NEWSBT in 3D)
-       DO i = 1, Nel
+       DO el = 1, Nel
 
-         DO jy = 1, Lnod
-           DO jx = 1, Lnod
-             xloc(jx,jy) = xcoord(nodeID(t2f(jx,jy),i))
-             yloc(jx,jy) = ycoord(nodeID(t2f(jx,jy),i))
-           ENDDO
-         ENDDO
-
-         ! Right face
-         dx_dxsi = 0.d0
-         dx_deta = 0.d0
-         dy_dxsi = 0.d0
-         dy_deta = 0.d0
-         DO jy = 1, Lnod
-           DO jx = 1, Lnod
-             dx_dxsi(1:Knod) = dx_dxsi(1:Knod) + &
-                               ! grad at x-dir                   no grad along y-dir                x/y-coord of geom
-                               GeomBndryGradLgrangeBasis(jx,1) * GeomNodesLgrangeBasis(jy,1:Knod) * xloc(jx,jy)
-             dy_dxsi(1:Knod) = dy_dxsi(1:Knod) + &
-                               GeomBndryGradLgrangeBasis(jx,1) * GeomNodesLgrangeBasis(jy,1:Knod) * yloc(jx,jy)
-             dx_deta(1:Knod) = dx_deta(1:Knod) + &
-                               ! no grad at x-dir            grad along y-dir                       x/y-coord of geom
-                               GeomBndryLgrangeBasis(jx,1) * GeomNodesGradLgrangeBasis(jy,1:Knod) * xloc(jx,jy)
-             dy_deta(1:Knod) = dy_deta(1:Knod) + &
-                               GeomBndryLgrangeBasis(jx,1) * GeomNodesGradLgrangeBasis(jy,1:Knod) * yloc(jx,jy)
-           ENDDO
-         ENDDO
-
-         IF (elemID(2,i) .lt. 0) THEN
-!           IF (BC_Switch(-elemID(2,i)) .eq. DirichletBC) THEN
+         ! 1D tensor notation in the x-dir
+         DO ijP = 0, 1
+           ! mesh to the left of left face or right of right face
+           eln = elemID(i2f(ijP),el)
+           IF (eln .lt. 0) THEN
+!           IF (BC_Switch(-eln) .eq. DirichletBC) THEN
 !!!! **** Later on this has to be changed into local coordinates similar to Uvel and Vvel - right now, this is zero so it doesn't
 !matter
-             tmp(1:Knod) = BC_Values(1:Knod,-elemID(2,i))
-!           ELSEIF (BC_Switch(-elemID(2,i)) .eq. NeumannBC) THEN
+             tmp(1:Knod) = BC_Values(1:Knod,-eln)
+!           ELSEIF (BC_Switch(-eln) .eq. NeumannBC) THEN
 !           ENDIF
-         ELSE
-           tmp(1:Knod) = FlxUBx(1:Knod,1,i)
-         ENDIF
-         FlxUBx(1:Knod,1,i) = tmp(1:Knod) * uBx(1:Knod,1,i)
-         FlxVBx(1:Knod,1,i) = tmp(1:Knod)
-
-
-         ! Left face
-         dx_dxsi = 0.d0
-         dx_deta = 0.d0
-         dy_dxsi = 0.d0
-         dy_deta = 0.d0
-         DO jy = 1, Lnod
-           DO jx = 1, Lnod
-             dx_dxsi(1:Knod) = dx_dxsi(1:Knod) + &
-                               ! grad at x-dir                   no grad along y-dir                x/y-coord of geom
-                               GeomBndryGradLgrangeBasis(jx,0) * GeomNodesLgrangeBasis(jy,1:Knod) * xloc(jx,jy)
-             dy_dxsi(1:Knod) = dy_dxsi(1:Knod) + &
-                               GeomBndryGradLgrangeBasis(jx,0) * GeomNodesLgrangeBasis(jy,1:Knod) * yloc(jx,jy)
-             dx_deta(1:Knod) = dx_deta(1:Knod) + &
-                               ! no grad at x-dir            grad along y-dir                       x/y-coord of geom
-                               GeomBndryLgrangeBasis(jx,0) * GeomNodesGradLgrangeBasis(jy,1:Knod) * xloc(jx,jy)
-             dy_deta(1:Knod) = dy_deta(1:Knod) + &
-                               GeomBndryLgrangeBasis(jx,0) * GeomNodesGradLgrangeBasis(jy,1:Knod) * yloc(jx,jy)
-           ENDDO
+           ELSE
+             tmp(1:Knod) = FlxUBx(1:Knod,ijP,el)
+           ENDIF
+           FlxUBx(1:Knod,ijP,el) = tmp(1:Knod) * uBx(1:Knod,ijP,el)
+!           FlxVBx(1:Knod,ijP,el) = tmp(1:Knod)
          ENDDO
 
-         IF (elemID(4,i) .lt. 0) THEN
-!           IF (BC_Switch(-elemID(4,i)) .eq. DirichletBC) THEN
-             tmp(1:Knod) = BC_Values(1:Knod,-elemID(4,i))
-!           ELSEIF (BC_Switch(-elemID(4,i)) .eq. NeumannBC) THEN
+         ! 1D tensor notation in the x-dir
+         DO ijP = 0, 1
+           ! mesh to the left of left face or right of right face
+           eln = elemID(i2f(ijP+2),el)
+           IF (eln .lt. 0) THEN
+!           IF (BC_Switch(-eln) .eq. DirichletBC) THEN
+             tmp(1:Knod) = BC_Values(1:Knod,-eln)
+!           ELSEIF (BC_Switch(-eln) .eq. NeumannBC) THEN
 !           ENDIF
-         ELSE
-           tmp(1:Knod) = FlxUBx(1:Knod,0,i)
-         ENDIF
-         FlxUBx(1:Knod,0,i) = tmp(1:Knod) * uBx(1:Knod,0,i)
-         FlxVBx(1:Knod,0,i) = tmp(1:Knod)
-
-
-         ! North face
-         dx_dxsi = 0.d0
-         dx_deta = 0.d0
-         dy_dxsi = 0.d0
-         dy_deta = 0.d0
-         DO jy = 1, Lnod
-           DO jx = 1, Lnod
-             dx_deta(1:Knod) = dx_deta(1:Knod) + &
-                               ! grad at y-dir                   no grad along x-dir                x/y-coord of geom
-                               GeomBndryGradLgrangeBasis(jy,1) * GeomNodesLgrangeBasis(jx,1:Knod) * xloc(jx,jy)
-             dy_deta(1:Knod) = dy_deta(1:Knod) + &
-                               GeomBndryGradLgrangeBasis(jy,1) * GeomNodesLgrangeBasis(jx,1:Knod) * yloc(jx,jy)
-             dx_dxsi(1:Knod) = dx_dxsi(1:Knod) + &
-                               ! no grad at y-dir            grad along x-dir                       x/y-coord of geom
-                               GeomBndryLgrangeBasis(jy,1) * GeomNodesGradLgrangeBasis(jx,1:Knod) * xloc(jx,jy)
-             dy_dxsi(1:Knod) = dy_dxsi(1:Knod) + &
-                               GeomBndryLgrangeBasis(jy,1) * GeomNodesGradLgrangeBasis(jx,1:Knod) * yloc(jx,jy)
-           ENDDO
+           ELSE
+             tmp(1:Knod) = FlxVBy(1:Knod,ijP,el) 
+           ENDIF
+           FlxVBy(1:Knod,ijP,el) = tmp(1:Knod) * uBy(1:Knod,ijP,el)
+!           FlxUBy(1:Knod,ijP,el) = tmp(1:Knod)
          ENDDO
-
-         IF (elemID(3,i) .lt. 0) THEN
-!           IF (BC_Switch(-elemID(3,i)) .eq. DirichletBC) THEN
-             tmp(1:Knod) = BC_Values(1:Knod,-elemID(3,i))
-!           ELSEIF (BC_Switch(-elemID(3,i)) .eq. NeumannBC) THEN
-!           ENDIF
-         ELSE
-           tmp(1:Knod) = FlxVBy(1:Knod,1,i) 
-         ENDIF
-         FlxVBy(1:Knod,1,i) = tmp(1:Knod) * uBy(1:Knod,1,i)
-         FlxUBy(1:Knod,1,i) = tmp(1:Knod)
-
-         ! South face
-         dx_dxsi = 0.d0
-         dx_deta = 0.d0
-         dy_dxsi = 0.d0
-         dy_deta = 0.d0
-         DO jy = 1, Lnod
-           DO jx = 1, Lnod
-             dx_deta(1:Knod) = dx_deta(1:Knod) + &
-                               ! grad at y-dir                   no grad along x-dir                x/y-coord of geom
-                               GeomBndryGradLgrangeBasis(jy,0) * GeomNodesLgrangeBasis(jx,1:Knod) * xloc(jx,jy)
-             dy_deta(1:Knod) = dy_deta(1:Knod) + &
-                               GeomBndryGradLgrangeBasis(jy,0) * GeomNodesLgrangeBasis(jx,1:Knod) * yloc(jx,jy)
-             dx_dxsi(1:Knod) = dx_dxsi(1:Knod) + &
-                               ! no grad at y-dir            grad along x-dir                       x/y-coord of geom
-                               GeomBndryLgrangeBasis(jy,0) * GeomNodesGradLgrangeBasis(jx,1:Knod) * xloc(jx,jy)
-             dy_dxsi(1:Knod) = dy_dxsi(1:Knod) + &
-                               GeomBndryLgrangeBasis(jy,0) * GeomNodesGradLgrangeBasis(jx,1:Knod) * yloc(jx,jy)
-           ENDDO
-         ENDDO
-
-         IF (elemID(1,i) .lt. 0) THEN
-!           IF (BC_Switch(-elemID(1,i)) .eq. DirichletBC) THEN
-             tmp(1:Knod) = BC_Values(1:Knod,-elemID(1,i))
-!           ELSEIF (BC_Switch(-elemID(1,i)) .eq. NeumannBC) THEN
-!           ENDIF
-         ELSE
-           tmp(1:Knod) = FlxVBy(1:Knod,0,i) 
-         ENDIF
-         FlxVBy(1:Knod,0,i) = tmp(1:Knod) * uBy(1:Knod,0,i)
-         FlxUBy(1:Knod,0,i) = tmp(1:Knod)
 
        ENDDO
 
-       DO i = 1, Nel
-         ! Right face
-         IF (elemID(2,i) .gt. 0) THEN
-           DO j = 1, Knod
-             IF (Abs(uBx(j,1,i) - uBx(j,0,elemID(2,i))) .gt. 1.0d-6) THEN
-               conv = (FlxUBx(j,1,i) - FlxUBx(j,0,elemID(2,i))) / (uBx(j,1,i) - uBx(j,0,elemID(2,i)))
-               jFlxBx(j,1,i) = 0.5d0*( FlxUBx(j,1,i) + FlxUBx(j,0,elemID(2,i)) + Abs(conv) * ( uBx(j,1,i) - uBx(j,0,elemID(2,i)) ) )
-             ELSE
-               jFlxBx(j,1,i) = 0.5d0*( FlxUBx(j,1,i) + FlxUBx(j,0,elemID(2,i)) )
-!               conv = FlxVBx(j,1,i)
-             ENDIF
-!             upwind = 0.5d0 * ( FlxUBx(j,1,i) + FlxUBx(j,0,elemID(2,i)) + Abs(conv) * ( uBx(j,1,i) - uBx(j,0,elemID(2,i)) ) )
-!             jFlxBx(j,1,i) = upwind !- jFlxBx(j,1,i)
-           ENDDO
-         ELSEIF (elemID(2,i) .lt. 0) THEN
-           ! Dirichlet BC
-!           IF (BC_Switch(-elemID(2,i)) .eq. DirichletBC) THEN
-             jFlxBx(1:Knod,1,i) = FlxUBx(1:Knod,1,i) !- jFlxBx(j,1,i)
-           ! Neumann BC
-!           ELSEIF (BC_Switch(-elemID(2,i)) .eq. NeumannBC) THEN
-!           ENDIF
-         ENDIF
+       DO el = 1, Nel
 
-         ! Left face
-         IF (elemID(4,i) .gt. 0) THEN
-           DO j = 1, Knod
-             IF (Abs(uBx(j,0,i) - uBx(j,1,elemID(4,i))) .gt. 1.0d-6) THEN
-               conv = (FlxUBx(j,0,i) - FlxUBx(j,1,elemID(4,i))) / (uBx(j,0,i) - uBx(j,1,elemID(4,i)))
-               jFlxBx(j,0,i) = 0.5d0*( FlxUBx(j,0,i) + FlxUBx(j,1,elemID(4,i)) - Abs(conv) * ( uBx(j,0,i) - uBx(j,1,elemID(4,i)) ) )
-             ELSE
-               jFlxBx(j,0,i) = 0.5d0*( FlxUBx(j,0,i) + FlxUBx(j,1,elemID(4,i)) )
-!               conv = FlxVBx(j,0,i)
-             ENDIF
-!             upwind = 0.5d0 * ( FlxUBx(j,0,i) + FlxUBx(j,1,elemID(4,i)) - Abs(conv) * ( uBx(j,0,i) - uBx(j,1,elemID(4,i)) ) )
-!             jFlxBx(j,0,i) = upwind !- jFlxBx(j,0,i)
-           ENDDO
-         ELSEIF (elemID(4,i) .lt. 0) THEN
+         ! 1D tensor notation in the x-dir
+         DO ijP = 0, 1
+           ijPm = 1 - ijP
+           ! mesh to the left of left face or right of right face
+           eln = elemID(i2f(ijP),el)
+           IF (eln .gt. 0) THEN
+             DO j = 1, Knod
+               IF (Abs(uBx(j,ijP,el) - uBx(j,ijPm,eln)) .gt. 1.0d-6) THEN
+                 conv = (FlxUBx(j,ijP,el) - FlxUBx(j,ijPm,eln)) / (uBx(j,ijP,el) - uBx(j,ijPm,eln))
+                 jFlxBx(j,ijP,el) = 0.5d0*( FlxUBx(j,ijP,el) + FlxUBx(j,ijPm,eln) + &
+                                           sgn(ijP) * Abs(conv) * ( uBx(j,ijP,el) - uBx(j,ijPm,eln) ) )
+               ELSE
+                 jFlxBx(j,ijP,el) = 0.5d0*( FlxUBx(j,ijP,el) + FlxUBx(j,ijPm,eln) )
+!               conv = FlxVBx(j,ijP,el)
+               ENDIF
+!             upwind = 0.5d0 * ( FlxUBx(j,ijP,el) + FlxUBx(j,ijPm,eln) + &
+!                                           sgn(ijP) * Abs(conv) * ( uBx(j,ijP,el) - uBx(j,ijPm,eln) ) )
+!             jFlxBx(j,ijP,el) = upwind !- jFlxBx(j,ijP,el)
+             ENDDO
+           ELSEIF (eln .lt. 0) THEN
            ! Dirichlet BC
-!           IF (BC_Switch(-elemID(4,i)) .eq. DirichletBC) THEN
-             jFlxBx(1:Knod,0,i) = FlxUBx(1:Knod,0,i) !- jFlxBx(j,0,i)
+!           IF (BC_Switch(-eln) .eq. DirichletBC) THEN
+             jFlxBx(1:Knod,ijP,el) = FlxUBx(1:Knod,ijP,el) !- jFlxBx(j,ijP,el)
            ! Neumann BC
-!           ELSEIF (BC_Switch(-elemID(4,i)) .eq. NeumannBC) THEN
+!           ELSEIF (BC_Switch(-eln) .eq. NeumannBC) THEN
 !           ENDIF
-         ENDIF
+           ENDIF
+         ENDDO
 
-         ! North face
-         IF (elemID(3,i) .gt. 0) THEN
-           DO j = 1, Knod
-             IF (Abs(uBy(j,1,i) - uBy(j,0,elemID(3,i))) .gt. 1.0d-6) THEN
-               conv = (FlxVBy(j,1,i) - FlxVBy(j,0,elemID(3,i))) / (uBy(j,1,i) - uBy(j,0,elemID(3,i)))
-               jFlxBy(j,1,i) = 0.5d0*( FlxVBy(j,1,i) + FlxVBy(j,0,elemID(3,i)) + Abs(conv) * ( uBy(j,1,i) - uBy(j,0,elemID(3,i)) ) )
-             ELSE
-               jFlxBy(j,1,i) = 0.5d0*( FlxVBy(j,1,i) + FlxVBy(j,0,elemID(3,i)) )
-!               conv = FlxUBy(j,1,i)
-             ENDIF
-!             upwind = 0.5d0 * ( FlxVBy(j,1,i) + FlxVBy(j,0,elemID(3,i)) + Abs(conv) * ( uBy(j,1,i) - uBy(j,0,elemID(3,i)) ) )
-!             jFlxBy(j,1,i) = upwind !- jFlxBy(j,1,i)
-           ENDDO
-         ELSEIF (elemID(3,i) .lt. 0) THEN
+         ! 1D tensor notation in the y-dir
+         DO ijP = 0, 1
+           ijPm = 1 - ijP
+           ! mesh to the left of left face or right of right face
+           eln = elemID(i2f(ijP+2),el)
+           IF (eln .gt. 0) THEN
+             DO j = 1, Knod
+               IF (Abs(uBy(j,ijP,el) - uBy(j,ijPm,eln)) .gt. 1.0d-6) THEN
+                 conv = (FlxVBy(j,ijP,el) - FlxVBy(j,ijPm,eln)) / (uBy(j,ijP,el) - uBy(j,ijPm,eln))
+                 jFlxBy(j,ijP,el) = 0.5d0*( FlxVBy(j,ijP,el) + FlxVBy(j,ijPm,eln) + &
+                                           sgn(ijP) * Abs(conv) * ( uBy(j,ijP,el) - uBy(j,ijPm,eln) ) )
+               ELSE
+                 jFlxBy(j,ijP,el) = 0.5d0*( FlxVBy(j,ijP,el) + FlxVBy(j,ijPm,eln) )
+!                conv = FlxUBy(j,ijP,el)
+               ENDIF
+!              upwind = 0.5d0 * ( FlxVBy(j,ijP,el) + FlxVBy(j,ijPm,eln) + &
+!                                           sgn(ijP) * Abs(conv) * ( uBy(j,ijP,el) - uBy(j,ijPm,eln) ) )
+!              jFlxBy(j,ijP,el) = upwind !- jFlxBy(j,ijP,el)
+             ENDDO
+           ELSEIF (eln .lt. 0) THEN
            ! Dirichlet BC
-!           IF (BC_Switch(-elemID(3,i)) .eq. DirichletBC) THEN
-             jFlxBy(1:Knod,1,i) = FlxVBy(1:Knod,1,i) !- jFlxBy(j,1,i)
+!           IF (BC_Switch(-eln) .eq. DirichletBC) THEN
+             jFlxBy(1:Knod,ijP,el) = FlxVBy(1:Knod,ijP,el) !- jFlxBy(j,ijP,el)
            ! Neumann BC
-!           ELSEIF (BC_Switch(-elemID(3,i)) .eq. NeumannBC) THEN
+!           ELSEIF (BC_Switch(-eln) .eq. NeumannBC) THEN
 !           ENDIF
-         ENDIF
-
-         ! South face
-         IF (elemID(1,i) .gt. 0) THEN
-           DO j = 1, Knod
-             IF (Abs(uBy(j,0,i) - uBy(j,1,elemID(1,i))) .gt. 1.0d-6) THEN
-               conv = (FlxVBy(j,0,i) - FlxVBy(j,1,elemID(1,i))) / (uBy(j,0,i) - uBy(j,1,elemID(1,i)))
-               jFlxBy(j,0,i) = 0.5d0*( FlxVBy(j,0,i) + FlxVBy(j,1,elemID(1,i)) - Abs(conv) * ( uBy(j,0,i) - uBy(j,1,elemID(1,i)) ) )
-             ELSE
-               jFlxBy(j,0,i) = 0.5d0*( FlxVBy(j,0,i) + FlxVBy(j,1,elemID(1,i)) )
-!               conv = FlxUBy(j,0,i)
-             ENDIF
-!             upwind = 0.5d0 * ( FlxVBy(j,0,i) + FlxVBy(j,1,elemID(1,i)) - Abs(conv) * ( uBy(j,0,i) - uBy(j,1,elemID(1,i)) ) )
-!             jFlxBy(j,0,i) = upwind !- jFlxBy(j,0,i)
-           ENDDO
-         ELSEIF (elemID(1,i) .lt. 0) THEN
-           ! Dirichlet BC
-!           IF (BC_Switch(-elemID(1,i)) .eq. DirichletBC) THEN
-             jFlxBy(1:Knod,0,i) = FlxVBy(1:Knod,0,i) !- jFlxBy(j,0,i)
-           ! Neumann BC
-!           ELSEIF (BC_Switch(-elemID(1,i)) .eq. NeumannBC) THEN
-!           ENDIF
-         ENDIF
+           ENDIF
+         ENDDO
 
        ENDDO
 
 
-       DO i = 1, Nel
-
-         DO jy = 1, Lnod
-           DO jx = 1, Lnod
-             xloc(jx,jy) = xcoord(nodeID(t2f(jx,jy),i))
-             yloc(jx,jy) = ycoord(nodeID(t2f(jx,jy),i))
-           ENDDO
-         ENDDO
+       DO el = 1, Nel
 
          ! Get first derivatives of the variable
          DO jy = 1, Knod
            DO jx = 1, Knod
-             ! Get geometry stuff at all solution nodes (per element)
-             sdx_dxsi = 0.d0
-             sdx_deta = 0.d0
-             sdy_dxsi = 0.d0
-             sdy_deta = 0.d0
-             DO ly = 1, Lnod
-               DO lx = 1, Lnod
-                 sdx_dxsi = sdx_dxsi + &
-                            ! grad at x-dir                    no grad at y-dir               x/y-coord of geom
-                            GeomNodesGradLgrangeBasis(lx,jx) * GeomNodesLgrangeBasis(ly,jy) * xloc(lx,ly)
-                 sdy_dxsi = sdy_dxsi + &
-                            GeomNodesGradLgrangeBasis(lx,jx) * GeomNodesLgrangeBasis(ly,jy) * yloc(lx,ly)
-                 sdx_deta = sdx_deta + &
-                            ! no grad at x-dir             grad at y-dir                      x/y-coord of geom
-                            GeomNodesLgrangeBasis(lx,jx) * GeomNodesGradLgrangeBasis(ly,jy) * xloc(lx,ly)
-                 sdy_deta = sdy_deta + &
-                            GeomNodesLgrangeBasis(lx,jx) * GeomNodesGradLgrangeBasis(ly,jy) * yloc(lx,ly)
-               ENDDO
-             ENDDO
-             sJac(jx,jy) = sdx_dxsi * sdy_deta - sdx_deta * sdy_dxsi
-
              ! Get f~ and g~ as per Huynh's paper
-             f_tilda(jx,jy) = DFluxX(jx,jy,i)
-             g_tilda(jx,jy) = DFluxY(jx,jy,i)
+             f_tilda(jx,jy) = DFluxX(jx,jy,el)
+             g_tilda(jx,jy) = DFluxY(jx,jy,el)
            ENDDO
          ENDDO
 
          ! Get ?_tildas at the mesh boundaries
-         DO j = 1, Knod
-           f_tildaB(j,0) = dot_product(f_tilda(1:Knod,j), SolnBndryLgrangeBasis(1:Knod,0))      ! Left of mesh - derivative
-           f_tildaB(j,1) = dot_product(f_tilda(1:Knod,j), SolnBndryLgrangeBasis(1:Knod,1))      ! Right of mesh - derivative
-           g_tildaB(j,0) = dot_product(g_tilda(j,1:Knod), SolnBndryLgrangeBasis(1:Knod,0))      ! South of mesh - derivative
-           g_tildaB(j,1) = dot_product(g_tilda(j,1:Knod), SolnBndryLgrangeBasis(1:Knod,1))      ! North of mesh - derivative
+         DO ijP = 0, 1
+           DO j = 1, Knod
+             f_tildaB(j,ijP) = dot_product(f_tilda(1:Knod,j), SolnBndryLgrangeBasis(1:Knod,ijP))      ! Left of mesh - derivative
+             g_tildaB(j,ijP) = dot_product(g_tilda(j,1:Knod), SolnBndryLgrangeBasis(1:Knod,ijP))      ! South of mesh - derivative
+           ENDDO
          ENDDO
 
          ! Now get the convection
          DO jy = 1, Knod
            DO jx = 1, Knod
-!             du(jx,jy,i) = du(jx,jy,i) -  &
-             du(jx,jy,i) = - &
+!             du(jx,jy,el) = du(jx,jy,el) -  &
+             du(jx,jy,el) = - &
                              (dot_product(f_tilda(1:Knod,jy), SolnNodesGradLgrangeBasis(1:Knod,jx))   + &
-                              dot_product(jFlxBx(jy,0:1,i) - f_tildaB(jy,0:1), NodesGradRadau(jx,0:1)) + &
+                              dot_product(jFlxBx(jy,0:1,el) - f_tildaB(jy,0:1), NodesGradRadau(jx,0:1)) + &
                               dot_product(g_tilda(jx,1:Knod), SolnNodesGradLgrangeBasis(1:Knod,jy))   + &
-                              dot_product(jFlxBy(jx,0:1,i) - g_tildaB(jx,0:1), NodesGradRadau(jy,0:1))) / sJac(jx,jy)
+                              dot_product(jFlxBy(jx,0:1,el) - g_tildaB(jx,0:1), NodesGradRadau(jy,0:1))) / Vol_Jac(jx,jy,el)                                       
            ENDDO
          ENDDO
 
        ENDDO
   
-END SUBROUTINE GetConvectedFlux
+END SUBROUTINE GetConvectedFluxP
 
 
 SUBROUTINE Gauss_Solver(n,A,x,b)
