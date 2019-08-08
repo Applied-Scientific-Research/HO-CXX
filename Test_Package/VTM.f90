@@ -1814,14 +1814,14 @@ SUBROUTINE SetLaplacian(HuynhSolver_type, A_handle, P_handle, S_handle)
        implicit NONE
        integer HuynhSolver_type
 
-       integer i, j, l, m, p, el, eln, bel, ijP, ijPm, idir, ibnd, ibndm, jx, jy, lx, ly, jm1, ij, mj, im, mm1, lm, ml
-       integer colc, cole, colw, coln, cols, nnz, nrows, Ksq, K4, ierr
+       integer i, j, l, m, p, el, eln, bel, ijP, ijPm, idir, idirm, ibnd, ibndm, jx, jy, lx, ly, jm1, ij, mj, im, mm1, lm, ml
+       integer colctr, colnbr(0:3), nnz, nrows, Knm, Ksq, K4, ierr
        real*8 tmp, tmpx, tmpy, Ovr_Jac
        real*8, dimension(Knod) :: Acoef, Bcoef
        real*8, dimension(Knod, 0:3) :: FaceA, FaceB, NormA
        real*8, dimension(Knod, Knod, 0:1, 0:1) :: SBLB_i_NGR_j, SBGLB_SBLB_i_NGR_j
        real*8, dimension(Knod, Knod) :: SNGLB_SBLBdotNGR, SNGLB_2xSBLBdotNGR
-       real*8, dimension(Knod, Knod) :: SolnAxx, SolnAxy, SolnAyy
+       real*8, dimension(Knod, Knod, 2) :: SolnA, SolnB
        real*8, dimension(Knod, Knod) :: NeuMatrix_Orig, NeuMatrix  ! small dense matrix to obtain comx (per element) for a given Neumann BC
 
        real*8, allocatable, dimension(:,:,:) :: LaplacianCenter
@@ -1852,6 +1852,7 @@ function inv(A) result(Ainv)
 end function inv
 end interface
 
+       Knm = Knod - 1
        Ksq = Knod * Knod
        K4 = Ksq * Ksq
        allocate (LaplacianCenter(Ksq,Ksq,Nel), LaplacianNeigbr(Ksq,Ksq,0:3,Nel))
@@ -1895,15 +1896,18 @@ end interface
            DO jx = 1, Knod
              Ovr_Jac = 1.d0 / Vol_Jac(jx,jy,el)
              ! Ax in notes
-             SolnAxx(jx,jy) = ( Vol_Dx_iDxsi_j(jx,jy,1,2,el) *  Vol_Dx_iDxsi_j(jx,jy,1,2,el) + &
+             SolnA(jx,jy,1) = ( Vol_Dx_iDxsi_j(jx,jy,1,2,el) *  Vol_Dx_iDxsi_j(jx,jy,1,2,el) + &
                                 Vol_Dx_iDxsi_j(jx,jy,2,2,el) *  Vol_Dx_iDxsi_j(jx,jy,2,2,el) ) * Ovr_Jac
-             ! B in notes   --  should try Axy and Ayx in (jx,jy) and (jy,jx) storage form
-             !   This term is zero for orthogonal (?, at least rectangular) grids - should use it during matrix setup
-             SolnAxy(jx,jy) = ( Vol_Dx_iDxsi_j(jx,jy,1,1,el) *  Vol_Dx_iDxsi_j(jx,jy,1,2,el) + &
-                                Vol_Dx_iDxsi_j(jx,jy,2,1,el) *  Vol_Dx_iDxsi_j(jx,jy,2,2,el) ) * Ovr_Jac
-             ! Ay in notes  --  should try saving in (jy,jx) form to speed up a bit
-             SolnAyy(jx,jy) = ( Vol_Dx_iDxsi_j(jx,jy,1,1,el) *  Vol_Dx_iDxsi_j(jx,jy,1,1,el) + &
+             ! Ay in notes
+             ! Saving in (jy,jx) instead of (jx,jy) makes it possible to lump operations in x and y directions in one uniform call
+             SolnA(jy,jx,2) = ( Vol_Dx_iDxsi_j(jx,jy,1,1,el) *  Vol_Dx_iDxsi_j(jx,jy,1,1,el) + &
                                 Vol_Dx_iDxsi_j(jx,jy,2,1,el) *  Vol_Dx_iDxsi_j(jx,jy,2,1,el) ) * Ovr_Jac
+             ! B in notes
+             !   This term is zero for orthogonal (?, at least rectangular) grids - should use it during matrix setup
+             SolnB(jx,jy,1) = ( Vol_Dx_iDxsi_j(jx,jy,1,1,el) *  Vol_Dx_iDxsi_j(jx,jy,1,2,el) + &
+                                Vol_Dx_iDxsi_j(jx,jy,2,1,el) *  Vol_Dx_iDxsi_j(jx,jy,2,2,el) ) * Ovr_Jac
+             ! This makes it possible to lump operations in x and y directions in one uniform call
+             SolnB(jy,jx,2) = SolnB(jx,jy,1)
            ENDDO
 
            DO ijP = 0, 3
@@ -1925,16 +1929,16 @@ end interface
                tmpx = 0.d0
                tmpy = 0.d0
                DO l = 1, Knod
-                 tmpx = tmpx + SolnAxx(l,j) * SNGLB_2xSBLBdotNGR(l,i) * SNGLB_SBLBdotNGR(m,l)
-                 tmpy = tmpy + SolnAyy(i,l) * SNGLB_2xSBLBdotNGR(l,j) * SNGLB_SBLBdotNGR(m,l)
+                 tmpx = tmpx + SolnA(l,j,1) * SNGLB_2xSBLBdotNGR(l,i) * SNGLB_SBLBdotNGR(m,l)
+                 tmpy = tmpy + SolnA(l,i,2) * SNGLB_2xSBLBdotNGR(l,j) * SNGLB_SBLBdotNGR(m,l)
                ENDDO
                LaplacianCenter(mj,ij,el) = LaplacianCenter(mj,ij,el) + tmpx
                LaplacianCenter(im,ij,el) = LaplacianCenter(im,ij,el) + tmpy
                DO l = 1, Knod
                  lm = mm1 + l
                  LaplacianCenter(lm,ij,el) = LaplacianCenter(lm,ij,el) - ( &
-                                               SolnAxy(l,j) * SNGLB_2xSBLBdotNGR(l,i) * SNGLB_SBLBdotNGR(m,j) + &
-                                               SolnAxy(i,m) * SNGLB_2xSBLBdotNGR(m,j) * SNGLB_SBLBdotNGR(l,i) )
+                                               SolnB(l,j,1) * SNGLB_2xSBLBdotNGR(l,i) * SNGLB_SBLBdotNGR(m,j) + &
+                                               SolnB(m,i,2) * SNGLB_2xSBLBdotNGR(m,j) * SNGLB_SBLBdotNGR(l,i) )
                ENDDO
              ENDDO
            ENDDO
@@ -1942,13 +1946,9 @@ end interface
 
          ijP = 0
          ! Extrapolation operations in x (=1) and y (=2) directions
-         ! For now, there doesn't appear to be an obvious way to lump the operations in the two directions
-         !   into one canned loop. The problem is the loop sums stuff into u(l,m,i,j) in the x direction
-         !   and into u(m,l,j,i) in the y direction. That is, y sums into a transposed matrix vis a vis x
-         !   NOTE: the first step to generalization is to convert Axx(i,j) into a A(i,j,1) and Ayy(i,j) into
-         !         a A(j,i,2) in the previous setup loop. Also, I expect Axy(i,j) would be saved into a
-         !         B(i,j,1) and B(j,i,2) to help with generalization. But that's just one small part of the problem
-!         DO idir = 1, 2
+         DO idir = 1, 2
+           idirm = (idir-1) * Knm
+           ! Operations at the Left/South (=0) and Right/North (=1) boundaries
            DO ibnd = 0, 1
              ibndm = 1 - ibnd
              ! mesh to the left/south of left/south face or right/north of right/north face
@@ -1963,12 +1963,13 @@ end interface
 !                  tmp = 2.d0 * gLprime(ibnd) * FaceA(j,ijP) * BC_Values(j,bel)
                    tmp = 2.d0 * gLprime(ibnd) * FaceA(j,ijP)
                    DO i = 1, Knod
-                     ij = jm1 + i
-!                    BndrySrc(ij,el) = BndrySrc(ij,el) + tmp * NodesGradRadau(i,1)
+                     ! idirm * (i-j) basically saves the info in the transposed position of the matrix for idir = 2
+                     !    This allows lumping all operations for x and y directions into one generic loop
+                     ij = jm1 + i + idirm * (i-j)
                      BndrySrc(j,ij,bel) = BndrySrc(j,ij,bel) + tmp * NodesGradRadau(i,ibnd)
                      DO m = 1, Knod
                        mm1 = (m-1) * Knod
-                       mj = jm1 + m
+                       mj = jm1 + m + idirm * (m-j)
 !                      BndrySrc(ij,el) = BndrySrc(ij,el) + &
 !                                        SolnAxx(m,j,el) * SNGLB_2xSBLBdotNGR(m,i) * NodesGradRadau(m,ibnd) &
 !                                                                                 * BC_Values(j,bel) - &
@@ -1976,20 +1977,20 @@ end interface
 !                                                           * ( SolnAxy(i,m,el) * SNGLB_2xSBLBdotNGR(m,j) + &
 !                                                               FaceB(j,el,ijP) * SolnNodesGradLgrangeBasis(m,j) )
                        BndrySrc(j,ij,bel) = BndrySrc(j,ij,bel) + &
-                                            SolnAxx(m,j) * SNGLB_2xSBLBdotNGR(m,i) * NodesGradRadau(m,ibnd)
+                                            SolnA(m,j,idir) * SNGLB_2xSBLBdotNGR(m,i) * NodesGradRadau(m,ibnd)
                        BndrySrc(m,ij,bel) = BndrySrc(m,ij,bel) - NodesGradRadau(i,ibnd) &
-                                                            * ( SolnAxy(i,m) * SNGLB_2xSBLBdotNGR(m,j) + &
+                                                            * ( SolnB(i,m,idir) * SNGLB_2xSBLBdotNGR(m,j) + &
                                                                 FaceB(j,ijP) * SolnNodesGradLgrangeBasis(m,j) )
                        tmpx = 0.d0
                        DO l = 1, Knod
-                         tmpx = tmpx + SolnAxx(l,j) * SNGLB_2xSBLBdotNGR(l,i) * SBLB_i_NGR_j(m,l,ibnd,ibnd)
+                         tmpx = tmpx + SolnA(l,j,idir) * SNGLB_2xSBLBdotNGR(l,i) * SBLB_i_NGR_j(m,l,ibnd,ibnd)
                        ENDDO
                        LaplacianCenter(mj,ij,el) = LaplacianCenter(mj,ij,el) - tmpx + 2.d0 * FaceA(j,ijP) * &
                                                      ( SBGLB_SBLB_i_NGR_j(m,i,ibnd,ibnd) - &
                                                        gLprime(ibnd) * SBLB_i_NGR_j(m,i,ibnd,ibnd) )
-                       tmpy = SolnAxy(i,m) * SNGLB_2xSBLBdotNGR(m,j)
+                       tmpy = SolnB(i,m,idir) * SNGLB_2xSBLBdotNGR(m,j)
                        DO l = 1, Knod
-                         lm = mm1 + l
+                         lm = mm1 + l + idirm * (l-m)
                          LaplacianCenter(lm,ij,el) = LaplacianCenter(lm,ij,el) + tmpy * SBLB_i_NGR_j(l,i,ibnd,ibnd)
                        ENDDO
                      ENDDO
@@ -2010,58 +2011,50 @@ end interface
                  DO j = 1, Knod
                    jm1 = (j-1) * Knod
                    DO i = 1, Knod
-                     ij = jm1 + i
-!                    BndrySrc(ij,el) = BndrySrc(ij,el) + NodesGradRadau(i,ibnd) * BC_Values(j,bel) * NormA(j,ijP)
+                     ij = jm1 + i + idirm * (i-j)
+!                    BndrySrc(ij,el) = BndrySrc(ij,el) + NodesGradRadau(i,ibnd) * NormA(j,ijP) * BC_Values(j,bel)
                      BndrySrc(j,ij,bel) = BndrySrc(j,ij,bel) + NodesGradRadau(i,ibnd) * NormA(j,ijP)
                      DO m = 1, Knod
                        mm1 = (m-1) * Knod
-                       mj = jm1 + m
+                       mj = jm1 + m + idirm * (m-j)
 
 !                     tmpx = 0.d0
 !                     tmpy = SolnAxy(i,m,el) * SNGLB_2xSBLBdotNGR(m,j) * NodesGradRadau(i,ibnd)
 !                     DO l = 1, Knod
-!                       tmpx = tmpx + NeuMatrix(j,l) * BC_Values(l,bel) * NormA(l,ijP)
-!                       BndrySrc(ij,el) = BndrySrc(ij,el) + tmpy * NeuMatrix(m,l) * BC_Values(l,bel) * NormA(l,ijP)
+!                       tmpx = tmpx + NeuMatrix(j,l) * NormA(l,ijP) * BC_Values(l,bel)
+!                       BndrySrc(ij,el) = BndrySrc(ij,el) + tmpy * NeuMatrix(m,l) * NormA(l,ijP) * BC_Values(l,bel)
 !                     ENDDO
 !                     BndrySrc(ij,el) = BndrySrc(ij,el) - tmpx * SolnAxx(m,j,el) * SNGLB_2xSBLBdotNGR(m,i) * NodesGradRadau(m,ibnd)
-                       tmpx = SolnAxx(m,j) * SNGLB_2xSBLBdotNGR(m,i) * NodesGradRadau(m,ibnd)
-                       tmpy = SolnAxy(i,m) * SNGLB_2xSBLBdotNGR(m,j) * NodesGradRadau(i,ibnd)
+                       tmpx = SolnA(m,j,idir) * SNGLB_2xSBLBdotNGR(m,i) * NodesGradRadau(m,ibnd)
+                       tmpy = SolnB(i,m,idir) * SNGLB_2xSBLBdotNGR(m,j) * NodesGradRadau(i,ibnd)
                        DO l = 1, Knod
                          BndrySrc(l,ij,bel) = BndrySrc(l,ij,bel) + (tmpy * NeuMatrix(m,l) - tmpx * NeuMatrix(j,l)) * NormA(l,ijP)
                        ENDDO
 
                        tmpx = 0.d0
                        DO l = 1, Knod
-                         tmpx = tmpx + SolnAxx(l,j) * SNGLB_2xSBLBdotNGR(l,i) * SBLB_i_NGR_j(m,l,ibnd,ibnd)
+                         tmpx = tmpx + SolnA(l,j,idir) * SNGLB_2xSBLBdotNGR(l,i) * SBLB_i_NGR_j(m,l,ibnd,ibnd)
                        ENDDO
                        LaplacianCenter(mj,ij,el) = LaplacianCenter(mj,ij,el) - tmpx
 
+                       tmp = SolnB(i,m,idir) * SNGLB_2xSBLBdotNGR(m,j)
                        tmpy =0.d0
                        DO l = 1, Knod
-                         tmpy = tmpy + SolnAxy(i,l) * SNGLB_2xSBLBdotNGR(l,j) * NeuMatrix(l,m)
+                         tmpy = tmpy + SolnB(i,l,idir) * SNGLB_2xSBLBdotNGR(l,j) * NeuMatrix(l,m)
                        ENDDO
-                       DO l = 1, Knod
-                         lm = mm1 + l
-                         LaplacianCenter(lm,ij,el) = LaplacianCenter(lm,ij,el) - 2.d0 * tmpy * FaceA(m,ijP) * &
-                                                     (SBGLB_SBLB_i_NGR_j(l,i,ibnd,ibnd) - &
-                                                      gLprime(ibnd) * SBLB_i_NGR_j(l,i,ibnd,ibnd))
-                       ENDDO
-
+                       tmpy = 2.d0 * tmpy * FaceA(m,ijP)
                        DO l = 1, Knod
                          tmpx = 0.d0
                          DO p = 1, Knod
-                           tmpx = tmpx + SolnAxx(p,j) * SNGLB_2xSBLBdotNGR(p,i) * &
-                                                       (SBGLB_SBLB_i_NGR_j(l,p,ibnd,ibnd) - &
-                                                        gLprime(ibnd) * SBLB_i_NGR_j(l,p,ibnd,ibnd))
+                           tmpx = tmpx + SolnA(p,j,idir) * SNGLB_2xSBLBdotNGR(p,i) * &
+                                                          (SBGLB_SBLB_i_NGR_j(l,p,ibnd,ibnd) - &
+                                                           gLprime(ibnd) * SBLB_i_NGR_j(l,p,ibnd,ibnd))
                          ENDDO
-                         lm = mm1 + l
-                         LaplacianCenter(lm,ij,el) = LaplacianCenter(lm,ij,el) + 2.d0 * tmpx * FaceA(m,ijP) * NeuMatrix(j,m)
-                       ENDDO
-
-                       tmpy = SolnAxy(i,m) * SNGLB_2xSBLBdotNGR(m,j)
-                       DO l = 1, Knod
-                         lm = mm1 + l
-                         LaplacianCenter(lm,ij,el) = LaplacianCenter(lm,ij,el) + tmpy * SBLB_i_NGR_j(l,i,ibnd,ibnd)
+                         lm = mm1 + l + idirm * (l-m)
+                         LaplacianCenter(lm,ij,el) = LaplacianCenter(lm,ij,el) + tmp * SBLB_i_NGR_j(l,i,ibnd,ibnd) &
+                                                                               + 2.d0 * tmpx * FaceA(m,ijP) * NeuMatrix(j,m) &
+                                                                               - tmpy * (SBGLB_SBLB_i_NGR_j(l,i,ibnd,ibnd)   &
+                                                                               - gLprime(ibnd) * SBLB_i_NGR_j(l,i,ibnd,ibnd))
                        ENDDO
                      ENDDO
                    ENDDO
@@ -2080,13 +2073,13 @@ end interface
                DO j = 1, Knod
                  jm1 = (j-1) * Knod
                  DO i = 1, Knod
-                   ij = jm1 + i
+                   ij = jm1 + i + idirm * (i-j)
                    DO m = 1, Knod
                      mm1 = (m-1) * Knod
-                     mj = jm1 + m
+                     mj = jm1 + m + idirm * (m-j)
                      tmpx = 0.d0
                      DO l = 1, Knod
-                       tmpx = tmpx + SolnAxx(l,j) * SNGLB_2xSBLBdotNGR(l,i) * SBLB_i_NGR_j(m,l,ibndm,ibnd)
+                       tmpx = tmpx + SolnA(l,j,idir) * SNGLB_2xSBLBdotNGR(l,i) * SBLB_i_NGR_j(m,l,ibndm,ibnd)
                      ENDDO
                      LaplacianNeigbr(mj,ij,ijP,el) = LaplacianNeigbr(mj,ij,ijP,el) + tmpx + &
                                                        Acoef(j) * SBGLB_SBLB_i_NGR_j(m,i,ibndm,ibnd) + &
@@ -2095,9 +2088,9 @@ end interface
                                                    FaceA(j,ijP) * SBGLB_SBLB_i_NGR_j(m,i,ibnd,ibnd) - &
                                                    gLprime(ibnd) * Acoef(j) * SBLB_i_NGR_j(m,i,ibnd,ibnd) )
                      tmp = Bcoef(j) * SolnNodesGradLgrangeBasis(m,j)
-                     tmpy = tmp + SolnAxy(i,m) * SNGLB_2xSBLBdotNGR(m,j)
+                     tmpy = tmp + SolnB(i,m,idir) * SNGLB_2xSBLBdotNGR(m,j)
                      DO l = 1, Knod
-                       lm = mm1 + l
+                       lm = mm1 + l + idirm * (l-m)
                        LaplacianNeigbr(lm,ij,ijP,el) = LaplacianNeigbr(lm,ij,ijP,el) - tmpy * SBLB_i_NGR_j(l,i,ibndm,ibnd) 
                        LaplacianCenter(lm,ij,el) = LaplacianCenter(lm,ij,el) - tmp * SBLB_i_NGR_j(l,i,ibnd,ibnd)
                      ENDDO
@@ -2108,151 +2101,12 @@ end interface
              ENDIF
              ijP = ijP + 1
            ENDDO
+         ENDDO
 
-           ! y direction
-           DO ibnd = 0, 1
-             ibndm = 1 - ibnd
-             ! mesh to the left/south of left/south face or right/north of right/north face
-             eln = elemID(i2f(ijP),el)
-             IF (eln .lt. 0) THEN
-
-               bel = -eln
-               IF (BC_Switch(bel) .eq. DirichletBC) THEN
-
-                 DO i = 1, Knod
-                   tmp = 2.d0 * gLprime(ibnd) * FaceA(i,ijP)
-                   DO j = 1, Knod
-                     ij = (j-1) * Knod + i
-                     BndrySrc(i,ij,bel) = BndrySrc(i,ij,bel) + tmp * NodesGradRadau(j,ibnd)
-                     DO m = 1, Knod
-                       im = (m-1) * Knod + i
-                       BndrySrc(i,ij,bel) = BndrySrc(i,ij,bel) + &
-                                            SolnAyy(i,m) * SNGLB_2xSBLBdotNGR(m,j) * NodesGradRadau(m,ibnd)
-                       BndrySrc(m,ij,bel) = BndrySrc(m,ij,bel) - NodesGradRadau(j,ibnd) &
-                                                            * ( SolnAxy(m,j) * SNGLB_2xSBLBdotNGR(m,i) + &
-                                                                FaceB(i,ijP) * SolnNodesGradLgrangeBasis(m,i) )
-                       tmpy = 0.d0
-                       DO l = 1, Knod
-                         tmpy = tmpy + SolnAyy(i,l) * SNGLB_2xSBLBdotNGR(l,j) * SBLB_i_NGR_j(m,l,ibnd,ibnd)
-                       ENDDO
-                       LaplacianCenter(im,ij,el) = LaplacianCenter(im,ij,el) - tmpy + 2.d0 * FaceA(i,ijP) * &
-                                                     ( SBGLB_SBLB_i_NGR_j(m,j,ibnd,ibnd) - &
-                                                       gLprime(ibnd) * SBLB_i_NGR_j(m,j,ibnd,ibnd) )
-                       tmpx = SolnAxy(m,j) * SNGLB_2xSBLBdotNGR(m,i)
-                       DO l = 1, Knod
-                         ml = (l-1) * Knod + m
-                         LaplacianCenter(ml,ij,el) = LaplacianCenter(ml,ij,el) + tmpx * SBLB_i_NGR_j(l,j,ibnd,ibnd)
-                       ENDDO
-                     ENDDO
-                   ENDDO
-                 ENDDO
-
-               ELSEIF (BC_Switch(bel) .eq. NeumannBC) THEN
-
-                 DO j = 1, Knod
-                   DO i = 1, Knod
-                     NeuMatrix_Orig(i,j) = FaceB(i,ijP) * SolnNodesGradLgrangeBasis(j,i)
-                   ENDDO
-                   NeuMatrix_Orig(j,j) = NeuMatrix_Orig(j,j) - 2.d0 * gLprime(ibnd) * FaceA(j,ijP)
-                 ENDDO
-
-                 NeuMatrix = inv(NeuMatrix_Orig)
-
-                 DO i = 1, Knod
-                   DO j = 1, Knod
-                     ij = (j-1) * Knod + i
-                     BndrySrc(i,ij,bel) = BndrySrc(i,ij,bel) + NodesGradRadau(j,ibnd) * NormA(i,ijP)
-                     DO m = 1, Knod
-                       im = (m-1) * Knod + i
-
-                       tmpx = SolnAyy(i,m) * SNGLB_2xSBLBdotNGR(m,j) * NodesGradRadau(m,ibnd)
-                       tmpy = SolnAxy(m,j) * SNGLB_2xSBLBdotNGR(m,i) * NodesGradRadau(j,ibnd)
-                       DO l = 1, Knod
-                         BndrySrc(l,ij,bel) = BndrySrc(l,ij,bel) + (tmpy * NeuMatrix(m,l) - tmpx * NeuMatrix(i,l)) * NormA(l,ijP)
-                       ENDDO
-
-                       tmpx = 0.d0
-                       DO l = 1, Knod
-                         tmpx = tmpx + SolnAyy(i,l) * SNGLB_2xSBLBdotNGR(l,j) * SBLB_i_NGR_j(m,l,ibnd,ibnd)
-                       ENDDO
-                       LaplacianCenter(im,ij,el) = LaplacianCenter(im,ij,el) - tmpx
-
-                       tmpy =0.d0
-                       DO l = 1, Knod
-                         tmpy = tmpy + SolnAxy(l,j) * SNGLB_2xSBLBdotNGR(l,i) * NeuMatrix(l,m)
-                       ENDDO
-                       DO l = 1, Knod
-                         ml = (l-1) * Knod + m
-                         LaplacianCenter(ml,ij,el) = LaplacianCenter(ml,ij,el) - 2.d0 * tmpy * FaceA(m,ijP) * &
-                                                     (SBGLB_SBLB_i_NGR_j(l,j,ibnd,ibnd) - &
-                                                      gLprime(ibnd) * SBLB_i_NGR_j(l,j,ibnd,ibnd))
-                       ENDDO
-
-                       DO l = 1, Knod
-                         tmpx = 0.d0
-                         DO p = 1, Knod
-                           tmpx = tmpx + SolnAyy(i,p) * SNGLB_2xSBLBdotNGR(p,j) * &
-                                                       (SBGLB_SBLB_i_NGR_j(l,p,ibnd,ibnd) - &
-                                                        gLprime(ibnd) * SBLB_i_NGR_j(l,p,ibnd,ibnd))
-                         ENDDO
-                         ml = (l-1) * Knod + m
-                         LaplacianCenter(ml,ij,el) = LaplacianCenter(ml,ij,el) + 2.d0 * tmpx * FaceA(m,ijP) * NeuMatrix(i,m)
-                       ENDDO
-
-                       tmpy = SolnAxy(m,j) * SNGLB_2xSBLBdotNGR(m,i)
-                       DO l = 1, Knod
-                         ml = (l-1) * Knod + m
-                         LaplacianCenter(ml,ij,el) = LaplacianCenter(ml,ij,el) + tmpy * SBLB_i_NGR_j(l,j,ibnd,ibnd)
-                       ENDDO
-                     ENDDO
-                   ENDDO
-                 ENDDO
-
-               ENDIF
-
-             ELSE
-
-               DO j = 1, Knod
-                 ijPm = nbr(ijP)
-                 Acoef(j) = Face_Acoef(j,ijPm,eln) / Face_Jac(j,ijP,eln)
-                 Bcoef(j) = 0.5d0 * ( FaceB(j,ijP) + Face_Bcoef(j,ijPm,eln) / Face_Jac(j,ijPm,eln) )
-               ENDDO
-
-               DO i = 1, Knod
-                 DO j = 1, Knod
-                   ij = (j-1) * Knod + i
-                   DO m = 1, Knod
-                     im = (m-1) * Knod + i
-                     tmpy = 0.d0
-                     DO l = 1, Knod
-                       tmpy = tmpy + SolnAyy(i,l) * SNGLB_2xSBLBdotNGR(l,j) * SBLB_i_NGR_j(m,l,ibndm,ibnd)
-                     ENDDO
-                     LaplacianNeigbr(im,ij,ijP,el) = LaplacianNeigbr(im,ij,ijP,el) + tmpy + &
-                                                       Acoef(i) * SBGLB_SBLB_i_NGR_j(m,j,ibndm,ibnd) + &
-                                                       gLprime(ibnd) * FaceA(i,ijP) * SBLB_i_NGR_j(m,j,ibndm,ibnd)
-                     LaplacianCenter(im,ij,el) = LaplacianCenter(im,ij,el) + ( &
-                                                   FaceA(i,ijP) * SBGLB_SBLB_i_NGR_j(m,j,ibnd,ibnd) - &
-                                                   gLprime(ibnd) * Acoef(i) * SBLB_i_NGR_j(m,j,ibnd,ibnd) )
-                     tmp = Bcoef(i) * SolnNodesGradLgrangeBasis(m,i)
-                     tmpx = tmp + SolnAxy(m,j) * SNGLB_2xSBLBdotNGR(m,i)
-                     DO l = 1, Knod
-                       ml = (l-1) * Knod + m
-                       LaplacianNeigbr(ml,ij,ijP,el) = LaplacianNeigbr(ml,ij,ijP,el) - tmpx * SBLB_i_NGR_j(l,j,ibndm,ibnd) 
-                       LaplacianCenter(ml,ij,el) = LaplacianCenter(ml,ij,el) - tmp * SBLB_i_NGR_j(l,j,ibnd,ibnd)
-                     ENDDO
-                   ENDDO
-                 ENDDO
-               ENDDO
-
-             ENDIF
-             ijP = ijP + 1
-           ENDDO
-!         This is for the idir loop
-!         ENDDO
        ENDDO
 
-!      Everything above here is used in conjunction with LaplacianP to get fast diffusion; for now, below is to solve
-!      the Poisson equation, but it needs to be modified to replace Laplacian* variables into matrix A
+!      Everything above can be used in conjunction with another Laplacian to get fast diffusion; for now, below is to solve
+!      the Poisson equation, but it needs to be modified to replace Laplacian (for diffusion) variables into matrix A
        nrows = Ksq * Nel
        nnz = K4 * Nel
        DO el = 1, Nel
@@ -2268,11 +2122,10 @@ end interface
        nrows = 0
        nnz = 0
        DO el = 1, Nel
-         colc = (el - 1) * Ksq
-         cole = (elemID(2,el) - 1) * Ksq
-         colw = (elemID(4,el) - 1) * Ksq
-         coln = (elemID(3,el) - 1) * Ksq
-         cols = (elemID(1,el) - 1) * Ksq
+         colctr = (el - 1) * Ksq
+         DO ijP = 0, 3
+           colnbr(ijP) = (elemID(i2f(ijP),el) - 1) * Ksq
+         ENDDO
          DO j = 1, Knod
            jm1 = (j-1) * Knod
            DO i = 1, Knod
@@ -2285,53 +2138,22 @@ end interface
                  lm = mm1 + l
                  nnz = nnz + 1
                  values(nnz) = LaplacianCenter(lm,ij,el)
-                 colidx(nnz) = colc + lm
+                 colidx(nnz) = colctr + lm
                ENDDO
              ENDDO
-             IF (elemID(2,el) > 0) THEN
-               DO m = 1, Knod
-                 mm1 = (m-1) * Knod
-                 DO l = 1, Knod
-                   lm = mm1 + l
-                   nnz = nnz + 1
-                   values(nnz) = LaplacianNeigbr(lm,ij,1,el)
-                   colidx(nnz) = cole + lm
+             DO ijP = 0, 3
+               IF (elemID(i2f(ijP),el) > 0) THEN
+                 DO m = 1, Knod
+                   mm1 = (m-1) * Knod
+                   DO l = 1, Knod
+                     lm = mm1 + l
+                     nnz = nnz + 1
+                     values(nnz) = LaplacianNeigbr(lm,ij,ijP,el)
+                     colidx(nnz) = colnbr(ijP) + lm
+                   ENDDO
                  ENDDO
-               ENDDO
-             ENDIF
-             IF (elemID(4,el) > 0) THEN
-               DO m = 1, Knod
-                 mm1 = (m-1) * Knod
-                 DO l = 1, Knod
-                   lm = mm1 + l
-                   nnz = nnz + 1
-                   values(nnz) = LaplacianNeigbr(lm,ij,0,el)
-                   colidx(nnz) = colw + lm
-                 ENDDO
-               ENDDO
-             ENDIF
-             IF (elemID(3,el) > 0) THEN
-               DO m = 1, Knod
-                 mm1 = (m-1) * Knod
-                 DO l = 1, Knod
-                   lm = mm1 + l
-                   nnz = nnz + 1
-                   values(nnz) = LaplacianNeigbr(lm,ij,3,el)
-                   colidx(nnz) = coln + lm
-                 ENDDO
-               ENDDO
-             ENDIF
-             IF (elemID(1,el) > 0) THEN
-               DO m = 1, Knod
-                 mm1 = (m-1) * Knod
-                 DO l = 1, Knod
-                   lm = mm1 + l
-                   nnz = nnz + 1
-                   values(nnz) = LaplacianNeigbr(lm,ij,2,el)
-                   colidx(nnz) = cols + lm
-                 ENDDO
-               ENDDO
-             ENDIF
+               ENDIF
+             ENDDO
            ENDDO
          ENDDO
        ENDDO
