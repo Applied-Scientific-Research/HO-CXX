@@ -2066,7 +2066,7 @@ end interface
 
                DO j = 1, Knod
                  ijPm = nbr(ijP)
-                 Acoef(j) = Face_Acoef(j,ijPm,eln) / Face_Jac(j,ijP,eln)
+                 Acoef(j) = Face_Acoef(j,ijPm,eln) / Face_Jac(j,ijPm,eln)
                  Bcoef(j) = 0.5d0 * ( FaceB(j,ijP) + Face_Bcoef(j,ijPm,eln) / Face_Jac(j,ijPm,eln) )
                ENDDO
 
