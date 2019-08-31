@@ -26,7 +26,7 @@ MODULE params
        real*8, parameter :: pi = 3.1415926535897931d0
        integer, parameter :: DefaultBC = 0, DirichletBC = 1, NeumannBC = 2
 
-       integer Knod, Lnod, Nel, NelB
+       integer Knod, Lnod, Nel, Nodes, NelB, NBndry
        ! i2f converts indexed notation (0-1 are left-right; 2-3 are south-north) to CCW FEM face numbers starting from the south
        ! face
        integer, parameter, dimension(0:3) :: i2f = (/4, 2, 1, 3/), nbr = (/1, 0, 3, 2/)
@@ -51,6 +51,10 @@ MODULE variables
                                                     ! BUT the general version would be completely independent, and linked to quads via elemID
                                                     ! WARNING: We MUST make sure the numbering order is consistent between nodeID and BoundaryNodeID
        integer, allocatable :: boundaryPointsElemID(:) ! index pointing to mesh element number containing that boundary element
+       character(len=100), allocatable :: BndryTag(:)  ! Each boundary will be given a name/tag
+       logical, allocatable :: NoSlip(:)            ! Assign NoSlip (= .true.), or Slip (.false.) for each tagged boundary patch
+       integer, allocatable :: BndryNum(:)          ! Cumulative number of boundary elements; number of elements in each patch i is
+                                                    ! BndryNum(i) - BndryNum(i-1),  where BndryNum(0)
        real*8, allocatable :: VelocJump(:,:)
        real*8, allocatable :: gps(:)                ! scaled/parametric coordinates of the geometric nodes (in 1-D)
        real*8, allocatable :: sps(:)                ! scaled/parametric coordinates of the solution points (in 1-D)
@@ -77,7 +81,7 @@ MODULE variables
        ! Neumann or Dirichlet BC. The patches are numbered from the bottom/south and go counter-clockwise
        ! S=1; E=2; N=3; W=4
        ! For now, memory is over-allocated based on the original value of NelB (NelB gets modified properly in MeshSetup)
-       real*8, allocatable :: BC_VelNorm(:,:), BC_VelParl(:,:)
+       real*8, allocatable :: BC_VelNorm(:,:), BC_VelParl(:,:), BC_Psi(:,:)
        real*8, allocatable ::  BC_Values(:,:)                  ! BC values for the Knod points of NelB boundary elements
        integer, allocatable ::  BC_Switch(:)                   ! The BC switch for these patches is Dirichlet = 1; Neumann = 2
 
@@ -132,7 +136,7 @@ CONTAINS
          IF (i .eq. 4) t2f1d = 2
 
        ELSE
-         print *,'Only up to quadratic finite elements (Lnod = 3) are supported!'
+         print *,'Only up to cubic finite elements (Lnod = 4) are supported!'
          STOP
        ENDIF
   END FUNCTION T2F1D
@@ -201,7 +205,8 @@ PROGRAM TwoD_Vorticity_Transport
        implicit NONE
        integer Nelx, Nely, Lnod_in, prob_type, HuynhSolver_type, tIntegrator_type, numStep, dumpFreq, fast
        real*8 Reyn, fac, dxrat, dt
-       character(132) dum
+       integer i, el, idum, ic
+       character(132) dum, mesh_filename
 
        type(APLLES_MatrixHandleType) :: A_handle
        type(APLLES_PreconHandleType) :: P_handle
@@ -215,6 +220,8 @@ PROGRAM TwoD_Vorticity_Transport
          read(2,*) Knod                 ! solution nodes per elem (must generalize to include x, y dirs)
          read(2,'(a)') dum
          read(2,*) Lnod_in              ! geometry parametric order per elem (must generalize to include x, y dirs)
+         read(2,'(a)') dum
+         read(2,'(a)') mesh_filename    ! SU-based mesh file; it's a hack; using prob_type >= 10 for now
          read(2,'(a)') dum
          read(2,'(L)') exact            ! Exact geometry for concentric cylinders
          read(2,'(a)') dum
@@ -232,7 +239,7 @@ PROGRAM TwoD_Vorticity_Transport
          read(2,*) tIntegrator_type     ! time integration method; 1=Euler; 2=Mod. Euler; 4=RK4
          read(2,'(a)') dum
          read(2,*) prob_type            ! Solve different problems (types 1 and 2)
-         IF (prob_type .eq. 2 .or. prob_type .eq. 6 .or. prob_type .eq. 5 .or. prob_type > 8) THEN
+         IF (prob_type /= 1 .and. prob_type /= 3 .and. prob_type /= 10) THEN
            print *,'problem type unavailable ', prob_type
            stop
          ENDIF
@@ -263,11 +270,42 @@ PROGRAM TwoD_Vorticity_Transport
 
        Lnod = Lnod_in + 1
        ! Assuming a Square Domain
+       NBndry = 4
        Nel = Nelx * Nely
        NelB = 2 * (Nelx + Nely)
+       Nodes = (Nelx*Lnod_in+1)*(Nely*Lnod_in+1)
+
+       ! Temp hack for generic mesh generation
+       IF (prob_type .eq. 10) THEN
+         OPEN (10, File = trim(mesh_filename), Status = 'unknown')
+
+         NelB = 0
+         read(10,'(a6,i10)') dum, idum
+         read(10,'(a6,i10)') dum, Nel
+         DO el = 1, Nel
+           read(10,'(a)') dum
+         ENDDO
+         read(10,'(a6,i10)') dum, Nodes
+         DO i = 1, Nodes
+           read(10,'(a)') dum
+         ENDDO
+         Nodes = Nodes - 1
+         read(10,'(a6,i10)') dum, NBndry
+         DO i = 1, NBndry
+           read(10,'(a)') dum
+           read(10,'(a14,i10)') dum, idum
+           NelB = NelB + idum
+           DO el = 1, idum
+             read(10,'(a)') dum
+           ENDDO
+         ENDDO
+
+         CLOSE (10)
+         print *,'Nel= ',Nel,' Nodes= ',Nodes,' NelB= ',NelB,' NBndry= ',NBndry
+       ENDIF
 
        ! Nothing to do here: Just allocate arrays
-       CALL Allocate_Arrays(Nelx, Nely, Nel, Nelb, Knod, Lnod)
+       CALL Allocate_Arrays(Nel, Nodes, NBndry, NelB, Knod, Lnod)
 
        IF (Knod .eq. 1) THEN
          sps(1) = 0.d0                                       ! this case doesn't work; I'd need to do special cases
@@ -338,12 +376,16 @@ PROGRAM TwoD_Vorticity_Transport
        CALL GetRadauBases
 
        ! Nothing to do here: Set up nodes and element meshes
-       CALL SetupMesh(Nelx, Nely, fac, dxrat, prob_type)
+       IF (prob_type .eq. 10) THEN
+         CALL SetupMesh_SU(mesh_filename)
+       ELSE
+         CALL SetupMesh(Nelx, Nely, fac, dxrat, prob_type)
+       ENDIF
 
        ! Nothing to do here: UNLESS we want to add new problem types
        !                     Set up IC, BC, and Source for a given problem
        ! NOTE: Make sure to add the corresponding exact solution for the problem type in Function u_xct
-       CALL SetupICBCandSrc(Nel, NelB, Knod, Lnod, prob_type)
+       CALL SetupICBCandSrc(Nel, NelB, NBndry, Knod, Lnod, prob_type)
 
        ! Nothing to do here: Set up volume and surface metrics
        CALL GetMetrics
@@ -363,20 +405,21 @@ PROGRAM TwoD_Vorticity_Transport
 END PROGRAM TwoD_Vorticity_Transport
 
 
-SUBROUTINE Allocate_Arrays(Nx, Ny, N, NB, K, L)
+SUBROUTINE Allocate_Arrays(N, NN, NP, NB, K, L)
        USE variables
 
        implicit NONE
-       integer Nx, Ny, N, NB, K, L
+       integer N, NN, NP, NB, K, L
        integer Lm1, Ksq
 
        Lm1 = L - 1
        Ksq = K*K
  
-       allocate (xcoord((Nx*Lm1+1)*(Ny*Lm1+1)), ycoord((Nx*Lm1+1)*(Ny*Lm1+1)))
+       allocate (xcoord(NN), ycoord(NN))
        allocate (nodeID(L*L,N))
        allocate (elemID(4,N))
-       allocate (BoundaryNodeID(L,NB), BC_Values(K,NB), BC_VelNorm(K,NB), BC_VelParl(K,NB))
+       allocate (BndryNum(0:NP), BndryTag(NP), NoSlip(NP))
+       allocate (BoundaryNodeID(L,NB), BC_Values(K,NB), BC_VelNorm(K,NB), BC_VelParl(K,NB), BC_Psi(K,NB))
        allocate (BC_Switch(NB))
        allocate (boundaryPointsElemID(NB))
        allocate (VelocJump(k,NB))
@@ -401,7 +444,8 @@ SUBROUTINE deAllocate_Arrays
        deallocate (xcoord, ycoord)
        deallocate (nodeID)
        deallocate (elemID)
-       deallocate (BoundaryNodeID, BC_Values, BC_VelNorm, BC_VelParl)
+       deallocate (BndryNum, BndryTag, NoSlip)
+       deallocate (BoundaryNodeID, BC_Values, BC_VelNorm, BC_VelParl, BC_Psi)
        deallocate (BC_Switch)
        deallocate (boundaryPointsElemID)
        deallocate (VelocJump)
@@ -693,6 +737,144 @@ SUBROUTINE GetMetrics
        ENDDO
 
 END SUBROUTINE GetMetrics
+
+
+SUBROUTINE SetupMesh_SU(mesh_filename)
+       USE params
+       USE variables
+
+       implicit NONE
+
+       integer L2, idum, el, i, j, nb, ip1, jm1, eln
+       character(20) cdum
+       character(132) mesh_filename
+
+       L2 = Lnod**2
+
+       OPEN (10, File = trim(mesh_filename), Status = 'unknown')
+
+       ! Dimension Number
+       read(10,'(a)') cdum
+
+       ! Nelem
+       read(10,'(a6,i10)') cdum, Nel
+       print *,cdum, Nel
+       ! Connectivity data; Node numbers for each mesh (standard FEM notation?)
+       DO el = 1, Nel
+         read(10,*) idum, nodeID(1:L2,el), idum
+       ENDDO
+
+       ! Number of nodes plus one!!!!
+       ! For now, this is a hack because we know there's an extra point inside the circle/ellipse
+       ! Used by Gmsh for geometry generation. So, we have to take that out. But, this may not even
+       ! be important because we mainly care about mesh nodes pointing to the correct node
+       
+       ! NOTE: For now, we're assuming mesh numbers are consecutive and always start from one
+       !       We may want to generalize this later (IF necessary)
+       read(10,'(a6,i10)') cdum, Nodes
+       Nodes = Nodes - 1
+       print *,cdum, Nodes
+       read(10,'(a)') cdum
+       ! (x,y) coords of the mesh collocation points
+       DO i = 1, Nodes
+         read(10,*) xcoord(i), ycoord(i), idum
+       ENDDO
+
+       ! Number of (solid and fluid) boundaries
+       read(10,'(a6,i10)') cdum, NBndry
+       print *,cdum, NBndry
+       nb = 0
+       BndryNum(0) = 0
+       DO i = 1, NBndry
+        ! Name of boundaries
+         read(10,'(a12,a)') cdum, BndryTag(i)
+         print *,cdum, BndryTag(i)
+        ! Number of elements for each boundary
+         read(10,'(a14,i10)') cdum, BndryNum(i)
+         print *,cdum, BndryNum(i)
+         DO j = 1, BndryNum(i)
+           nb = nb + 1
+           ! Node number for each boundary; this is the same as the numbers for the mesh that contains this boundary element
+           read(10,*) idum, BoundaryNodeID(1:Lnod,nb)
+         ENDDO
+         ! We change the definition here, so BndryNum gives the cumulative value at each boundary/patch
+         ! Therefore, the number of elements for each boundary i is BndryNum(i) - BndryNum(i-1)
+         BndryNum(i) = BndryNum(i) + BndryNum(i-1)
+       ENDDO
+
+       CLOSE (10)
+
+       ! Poor man's approach to finding neighboring elements in a structured grid environment
+       ! It also links the mesh faces to the boundary elements
+       ! Seems to work!!
+       elemID = 0
+       DO el = 1, Nel
+         DO i = 1, 4
+           ip1 = mod(i,4) + 1
+           IF (elemID(i,el) .eq. 0) THEN
+  Inner1:    DO eln = 1, Nel
+               IF (eln .eq. el) cycle
+               DO j = 1, 4
+                 IF (nodeID(i,el) .eq. nodeID(j,eln)) THEN
+                   jm1 = j - 1
+                   IF (jm1 .eq. 0) jm1 = 4
+                   IF (nodeID(ip1,el) .eq. nodeID(jm1,eln)) THEN
+                     elemID(i,el) = eln
+                     elemID(jm1,eln) = el
+                     exit Inner1
+                   ENDIF
+                 ENDIF
+               ENDDO
+             ENDDO Inner1
+           ENDIF
+
+           IF (elemID(i,el) .eq. 0) THEN
+  Inner2:    DO eln = 1, NelB
+               DO j = 1, 2
+                 IF (nodeID(i,el) .eq. BoundaryNodeID(j,eln)) THEN
+                   jm1 = j - 1
+                   IF (jm1 .eq. 0) jm1 = 2
+                   IF (nodeID(ip1,el) .eq. BoundaryNodeID(jm1,eln)) THEN
+                     elemID(i,el) = -eln
+                     boundaryPointsElemID(eln) = el
+                     exit Inner2
+                   ENDIF
+                 ENDIF
+               ENDDO
+             ENDDO Inner2
+           ENDIF
+
+         ENDDO
+       ENDDO
+
+       ! Paraview Geometry can handle only up to Lnod = 3
+       ! Quick Paraview viz of geometry (useful when checking effect of fac randomization of grids)
+       OPEN(unit = 8, file = 'Geometry.vtk', status = 'unknown')
+       write(8,'(a)') '# vtk DataFile Version 3.0'
+       write(8,'(a)') '2D Unstructured Grid of Quads'
+       write(8,'(a)') 'ASCII'
+       write(8,'(a)') ' '
+       write(8,'(a)') 'DATASET UNSTRUCTURED_GRID'
+
+       write(8,'(a,i8,a)') 'POINTS ', Nodes, ' float'
+       DO i = 1, Nodes
+         write(8,*) real(xcoord(i)),real(ycoord(i)),' 0.0'
+       ENDDO
+
+       write(8,'(a)') ' '
+       write(8,'(a,i8,1x,i8)') 'CELLS ', Nel, (L2+1)*Nel
+       DO i = 1, Nel
+         write(8,*) L2, nodeID(1:L2,i)-1
+       ENDDO
+
+       write(8,'(a)') ' '
+       write(8,'(a,i8)') 'CELL_TYPES ',Nel
+       DO i = 1, Nel
+         write(8,*) Lnod**3 + 1
+       ENDDO
+       CLOSE(unit = 8)
+
+END SUBROUTINE SetupMesh_SU
 
 
 SUBROUTINE SetupMesh(Nelx, Nely, fac, dxrat, prob_type)
@@ -1133,23 +1315,23 @@ SUBROUTINE SetupMesh(Nelx, Nely, fac, dxrat, prob_type)
 END SUBROUTINE SetupMesh
 
 
-SUBROUTINE SetupICBCandSrc(N, NB, K, L, prob_type)
+SUBROUTINE SetupICBCandSrc(N, NB, NP, K, L, prob_type)
        USE params
        USE variables
        USE CnvrtTensor2FemIndices
 
        implicit NONE
-       integer N, NB, K, L, prob_type
+       integer N, NB, NP, K, L, prob_type
 
-       integer i, kx, ky, jx, jy
-       real*8 x, y, xy, eps, ys, xm, ym
+       integer i, j, kx, ky, jx, jy
+       real*8 x, y, xy, eps, ys, xm, ym, HalfHeight, y2, y1
 
        real*8 theta2,theta1,thetam,thetad,rad2,rad1,radm,radd
        real*8, dimension(Lnod,Lnod) :: xloc, yloc
 
        eps = 1.d-4
 
-       OPEN(UNIT = 3, file = 'Solution_Nodes.csv', status = 'unknown')
+!       OPEN(UNIT = 3, file = 'Solution_Nodes.csv', status = 'unknown')
 
        ! For now, we are assuming a constant value of BC across a single patch at the boundary
        ! That is, the geometry is topologically a square, each side of which has a constant
@@ -1161,6 +1343,9 @@ SUBROUTINE SetupICBCandSrc(N, NB, K, L, prob_type)
 
        BC_VelNorm(1:K,1:NB) = 0.d0   ! Wall normal velocity
        BC_VelParl(1:K,1:NB) = 0.d0   ! Wall parallel velocity
+       BC_Psi(1:K,1:NB) = 0.d0       ! Wall normal velocity (in terms of psi)
+
+       NoSlip(1:NP) = .true.         ! Set NoSlip to all walls (as default)
 
        IF (prob_type .eq. 1) THEN
 
@@ -1188,14 +1373,92 @@ SUBROUTINE SetupICBCandSrc(N, NB, K, L, prob_type)
 
          Vort0 = 0.d0
 
-       ELSEIF (prob_type .eq. 4) THEN
+       ELSEIF (prob_type .eq. 10) THEN
+
+         ! Need to make BC_Psi generic to account for width of inlet automatically instead of the current manual setup
+         ! We want a uniform inlet velocity of 1, so Psi = y / (2*HalfHeight)
+         ! But we want the values at the wall solution points, so y = 0.5 * ( (y_2 + y_1) + sps * (y_2 - y_1) )
+         ! where y_2 and y_1 are the coords of the end points of a boundary element and sps is the solution point position in local
+         ! coords
+         BC_Psi = 0.d0
+         Vort0 = 0.d0
+         BC_Switch(1:NB) = DirichletBC
+
+         ! This is hack
+         DO i = 1, NBndry
+           IF (trim(BndryTag(i)) .eq. 'Top') THEN
+             y2 = ycoord(BoundaryNodeID(1,BndryNum(i)))
+           ENDIF
+           IF (trim(BndryTag(i)) .eq. 'Bottom') THEN
+             y1 = ycoord(BoundaryNodeID(1,BndryNum(i)))
+           ENDIF
+         ENDDO
+         HalfHeight = 0.5d0 * (y2 - y1)
+
+         DO i = 1, NBndry
+
+           IF (trim(BndryTag(i)) .eq. 'Top') THEN
+             ! Set slip BC to not allow diffusion
+             NoSlip(i) = .false.
+             DO j = BndryNum(i-1)+1, BndryNum(i)
+               BC_Psi(1:K,j) = HalfHeight
+             ENDDO
+           ENDIF
+
+           IF (trim(BndryTag(i)) .eq. 'Bottom') THEN
+             ! Set slip BC to not allow diffusion
+             NoSlip(i) = .false.
+             DO j = BndryNum(i-1)+1, BndryNum(i)
+               BC_Psi(1:K,j) = -HalfHeight
+             ENDDO
+           ENDIF
+
+           IF (trim(BndryTag(i)) .eq. 'Inlet') THEN
+             ! Set slip BC to not allow diffusion
+             NoSlip(i) = .false.
+             DO j = BndryNum(i-1)+1, BndryNum(i)
+               DO ky = 1, Knod
+                 ! interpolate y-coord of sol pt at (ky) using nodal coordinates of element j
+                 y = 0.d0
+                 DO jy = 1, Lnod
+                           ! along y-dir                    x-coord of geom
+                   y = y + GeomNodesLgrangeBasis(jy,ky) * ycoord(BoundaryNodeID(t2f(jy),j))
+                 ENDDO
+                 BC_Psi(ky,j) = y
+                 BC_VelNorm(ky,j) = 1.d0
+               ENDDO
+!               BC_Psi(1:K,j) = (0.25d0/HalfHeight) * (ycoord(BoundaryNodeID(2,j)) + ycoord(BoundaryNodeID(1,j)) + &
+!                                          sps(1:K) * (ycoord(BoundaryNodeID(2,j)) - ycoord(BoundaryNodeID(1,j)) ) )
+             ENDDO
+           ENDIF
+
+           IF (trim(BndryTag(i)) .eq. 'Outlet') THEN
+             ! Set slip BC to not allow diffusion
+             NoSlip(i) = .false.
+             DO j = BndryNum(i-1)+1, BndryNum(i)
+               DO ky = 1, Knod
+                 ! interpolate y-coord of sol pt at (ky) using nodal coordinates of element j
+                 y = 0.d0
+                 DO jy = 1, Lnod
+                           ! along y-dir                    x-coord of geom
+                   y = y + GeomNodesLgrangeBasis(jy,ky) * ycoord(BoundaryNodeID(t2f(jy),j))
+                 ENDDO
+                 BC_Psi(ky,j) = y
+                 BC_VelNorm(ky,j) = 1.d0
+               ENDDO
+!               BC_Psi(1:K,j) = (0.25d0/HalfHeight) * (ycoord(BoundaryNodeID(2,j)) + ycoord(BoundaryNodeID(1,j)) + &
+!                                          sps(1:K) * (ycoord(BoundaryNodeID(2,j)) - ycoord(BoundaryNodeID(1,j)) ) )
+             ENDDO
+           ENDIF
+
+         ENDDO
 
        ELSE
          print *,'only prob_type = 3 (square cavity) is allowed '
          stop
        ENDIF
 
-       CLOSE(UNIT = 3)
+!       CLOSE(UNIT = 3)
 
 END SUBROUTINE SetupICBCandSrc
 
@@ -1393,7 +1656,7 @@ Vort_tmp = vort
        ENDDO
 if(.true.) then
        BC_Switch = DirichletBC
-       BC_Values = 0.d0
+       BC_Values = BC_Psi
        CALL GetLaplacian(HuynhSolver_type, Vort_tmp, psi, A_handle, P_handle, S_handle)                                ! Stage 1
        CALL GetLaplacGrads(HuynhSolver_type, psi, 1)
 
@@ -1474,7 +1737,7 @@ Vort_tmp = vort
        ENDDO
 if(.true.) then
        BC_Switch = DirichletBC
-       BC_Values = 0.d0
+       BC_Values = BC_Psi
        CALL GetLaplacian(HuynhSolver_type, Vort_tmp, psi, A_handle, P_handle, S_handle)                                ! Stage 1
        CALL GetLaplacGrads(HuynhSolver_type, psi, 1)
 
@@ -1511,9 +1774,11 @@ CONTAINS
        type(APLLES_PreconHandleType) :: P_handle
        type(APLLES_SolverHandleType) :: S_handle
 
+       integer i, j
+
 print *,'**** CONVECTION **** '
 
-         BC_Values = 0.d0
+         BC_Values = BC_Psi
          BC_Switch = DirichletBC
          CALL GetLaplacian(HuynhSolver_type, VortIn, psi, A_handle, P_handle, S_handle)                                ! Stage 1
          CALL GetLaplacGrads(HuynhSolver_type, psi, 1)
@@ -1529,7 +1794,7 @@ print *,'**** DIFFUSION **** '
 
  if (.false.) then
          VortIn = VortOut
-         BC_Values = 0.d0
+         BC_Values = BC_Psi
          CALL GetLaplacian(HuynhSolver_type, VortIn, psi, A_handle, P_handle, S_handle)                                ! Stage 1
          CALL GetLaplacGrads(HuynhSolver_type, psi, 1)
  endif
@@ -1537,8 +1802,20 @@ print *,'**** DIFFUSION **** '
 print *,'Velocity ',minval(sqrt(uvel**2 + vvel**2)),maxval(sqrt(uvel**2 + vvel**2))
 
 print *,'Jump ',minval(VelocJump),maxval(VelocJump)
-         VelocJump = VelocJump - BC_VelParl
-         BC_Values = (VelocJump) * Reyn / dt
+
+         DO i = 1, NBndry
+           IF (NoSlip(i)) THEN
+             DO j = BndryNum(i-1)+1, BndryNum(i)
+               VelocJump(1:Knod,j) = VelocJump(1:Knod,j) - BC_VelParl(1:Knod,j)
+               BC_Values(1:Knod,j) = VelocJump(1:Knod,j) * Reyn / dt
+             ENDDO
+           ELSE
+             DO j = BndryNum(i-1)+1, BndryNum(i)
+               BC_Values(1:Knod,j) = 0.d0
+             ENDDO
+           ENDIF
+         ENDDO
+
          BC_Switch = NeumannBC
          CALL GetDiffusedFlux(HuynhSolver_type, VortIn, f_of_Vort)
 
