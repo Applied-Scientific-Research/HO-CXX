@@ -4,22 +4,24 @@ K                  ! nodes per elem
 4
 L                  ! geometry parametric order
 1
+SU Mesh File       ! For now, use prob_type >=10 for this; <10 for internal mesh problems
+Cylinder.su2
 Exact              ! Exact geometry for concentric cylinders, prob_type=7,8
 false  
 Reyn               ! Reynolds number
-10000.0d0
+9500.0d0
 dxrat              ! multiplier to make geometrically expanding grids uniform: dxrat = 1.
-1.10d0
+1.00d0
 fac                ! multiplier to make grids randomly non-uniform; uniform: fac=0.
-0.00d0
+0.0d0
 HuynhSolver_type   ! Huynh's scheme types: 2=std DG; 11=higher order
 2
 tIntegrator_type   ! time integration method; 1=Euler; 2=Mod. Euler; 4=RK4
-2
+4
 prob_type          ! Solve different problems
-3
+10 
 numStep            ! num. of timesteps
-100000
+10000
 dt                 ! timestep size
 1.0d-3
 dumpFreq           ! dump output at every dumpFreq steps; (= 0 will dump only the last step)
