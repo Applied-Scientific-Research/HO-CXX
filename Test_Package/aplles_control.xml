@@ -14,7 +14,7 @@
       <!-- max_iters: Control the maximum number of iterations by the solver. (int), default=500-->
       <max_iters>500</max_iters>
       <!-- tolerance (or max_resid): Control the convergence residual limit. (float), default=1.0e-08-->
-      <tolerance>1.0e-12</tolerance>
+      <tolerance>1.0e-10</tolerance>
       <!-- verbosity: Control the verbosity of the solvers. 0=none, 1=mild, 2=very. (int), default=0-->
       <verbosity>1</verbosity>
       <!-- absolute: enable(1) or disable(0) absolute residual testing for the convergence. (float), default=0-->
@@ -83,9 +83,9 @@
          <!-- strength: sets the strength-of-connection algorithm used to weight the edges of graph. classical = Classical strength-of-connection; Symmetric = symmetric strength-of-connection. (string), default=classical -->
          <strength>classical</strength>
          <!-- theta: sets the threshold to defined weak vs. strong connections for the edges in the graph. 0.5 is reasonable for 3d mesh poisson problems; 0.25 for 2d. Valid between [0,1). (float), default=0.5 -->
-         <theta>0.23</theta>
+         <theta>0.5</theta>
          <coarsen>pmis</coarsen>
-         <interp>extended</interp>
+         <interp>extended+iff</interp>
          <interp_trunc_factor>0.2</interp_trunc_factor>
          <do_cf_splitting_2nd_pass>true</do_cf_splitting_2nd_pass>
          <!-->
