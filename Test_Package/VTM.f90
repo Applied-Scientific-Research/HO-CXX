@@ -193,12 +193,142 @@ CONTAINS
 
 END MODULE CnvrtTensor2FemIndices
 
+MODULE CLI_OPTIONS
+
+CONTAINS
+
+  function get_cli_option_str( option_in, default_in ) result(res_str)
+
+    implicit none
+
+    character(len=*), intent(in) :: option_in, default_in
+
+    character(len=64) :: res_str, arg
+
+    integer :: nargs, i
+
+    res_str = trim(default_in)
+
+    nargs = command_argument_count()
+
+    do i = 1, nargs
+       CALL get_command_argument(i, arg)
+       IF (LEN_TRIM(arg) == 0) EXIT
+       !WRITE (*,*) i, TRIM(arg), trim(option_in)
+       if ( trim(arg) .eq. '-' // option_in .or. trim(arg) .eq. '--' // option_in ) then
+          CALL get_command_argument(i+1, arg)
+          IF (LEN_TRIM(arg) == 0) STOP '(i+1) argument not available'
+          res_str = arg
+       endif
+    ENDDO
+  end function
+
+  function get_cli_option_int( option_in, default_in ) result(res_int)
+
+    implicit none
+
+    character(len=*), intent(in) :: option_in
+    integer, intent(in) :: default_in
+
+    integer :: res_int
+
+    character(len=64) :: res_str
+
+    res_str = get_cli_option_str( option_in, 'nil' )
+
+    if ( trim(res_str) .eq. 'nil' ) then
+      res_int = default_in
+    else
+      read(res_str,*) res_int
+    endif
+  end function
+
+  function get_cli_option_real( option_in, default_in ) result(res_real)
+
+    implicit none
+
+    character(len=*), intent(in) :: option_in
+    real*8, intent(in) :: default_in
+
+    real*8 :: res_real
+
+    character(len=64) :: res_str
+
+    res_str = get_cli_option_str( option_in, 'nil' )
+
+    if ( trim(res_str) .eq. 'nil' ) then
+      res_real = default_in
+    else
+      read(res_str,*) res_real
+    endif
+  end function
+
+  function get_cli_option_present( option ) result(is_present)
+
+    implicit none
+
+    character(len=*), intent(in) :: option
+
+    logical :: is_present
+
+    character(len=64) :: arg
+
+    integer :: nargs, i
+
+    nargs = command_argument_count()
+
+    is_present = .false.
+
+    do i = 1, nargs
+       CALL get_command_argument(i, arg)
+       IF ( LEN_TRIM(arg) == 0 ) EXIT
+       WRITE (*,*) i, TRIM(arg)
+       if ( trim(arg) .eq. '-' // option .or. trim(arg) .eq. '--' // option ) then
+          is_present = .true.
+          exit
+       endif
+    ENDDO
+  end function
+
+
+END MODULE
+
+MODULE WTIMER
+
+   TYPE TIMER_TYPE
+     DOUBLE PRECISION :: NOW
+   END TYPE
+
+CONTAINS
+
+   FUNCTION GET_TIMESTAMP() RESULT(T)
+
+     USE OMP_LIB
+
+     TYPE(TIMER_TYPE) :: T
+
+     T%NOW = OMP_GET_WTIME()
+
+   END FUNCTION
+
+   FUNCTION GET_ELAPSED_TIME(T0,T1) RESULT(DT)
+
+     TYPE(TIMER_TYPE), INTENT(IN) :: T0, T1
+     DOUBLE PRECISION :: DT
+
+     DT = T1%NOW - T0%NOW
+
+   END FUNCTION
+
+END MODULE
+
 
 PROGRAM TwoD_Vorticity_Transport
        USE params
        USE variables
        USE APLLES_Solvers_Module
        USE omp_lib
+       USE CLI_options
 
        USE iso_c_binding
 
@@ -206,14 +336,16 @@ PROGRAM TwoD_Vorticity_Transport
        integer Nelx, Nely, Lnod_in, prob_type, HuynhSolver_type, tIntegrator_type, numStep, dumpFreq, fast
        real*8 Reyn, fac, dxrat, dt
        integer i, el, idum, ic
-       character(132) dum, mesh_filename
+       character(132) dum, input_file, mesh_filename
 
        type(APLLES_MatrixHandleType) :: A_handle
        type(APLLES_PreconHandleType) :: P_handle
        type(APLLES_SolverHandleType) :: S_handle
  
+       input_file = get_cli_option_str( 'infile', 'input.dat' )
+ 
        !!!! User Input Data
-       open(unit=2, file='input.dat', status='old')
+       open(unit=2, file=trim(input_file), status='old')
          read(2,'(a)') dum
          read(2,*) Nelx, Nely           ! num. of meshes/elements in x, y dirs (structured grids; must generalize to unstructured)
          read(2,'(a)') dum
@@ -277,7 +409,7 @@ PROGRAM TwoD_Vorticity_Transport
 
        ! Temp hack for generic mesh generation
        IF (prob_type .eq. 10) THEN
-         OPEN (10, File = trim(mesh_filename), Status = 'unknown')
+         OPEN (10, File = trim(mesh_filename), Status = 'old')
 
          NelB = 0
          read(10,'(a6,i10)') dum, idum
@@ -1471,6 +1603,7 @@ SUBROUTINE SolveConvectionDiffusion(HuynhSolver_type, tIntegrator_type, Reyn, dt
        USE omp_lib
 
        USE iso_c_binding
+       USE WTIMER
 
        implicit NONE
        integer HuynhSolver_type, tIntegrator_type, numStep, dumpFreq, prob_type
@@ -1485,6 +1618,8 @@ SUBROUTINE SolveConvectionDiffusion(HuynhSolver_type, tIntegrator_type, Reyn, dt
        type(APLLES_MatrixHandleType) :: A_handle
        type(APLLES_PreconHandleType) :: P_handle
        type(APLLES_SolverHandleType) :: S_handle
+
+       type(timer_type) :: t_start, t_end
 
 INTERFACE
 
@@ -1513,8 +1648,13 @@ END INTERFACE
  tdif = 0.d0
  tcon = 0.d0
 
+       t_start = get_timestamp()
+       t_end = t_start
+
        DO nt = 1, numStep
-        print *,'timestep ',nt
+        print *,'timestep ',nt, get_elapsed_time( t_start, t_end )
+         t_start = get_timestamp()
+
          Vort_tmp = Vort
 
          DO el = 1, Nel
@@ -1675,7 +1815,10 @@ endif
 
          ENDIF 
 
+         t_end = get_timestamp()
+
        ENDDO
+
 print *,'avg tlap ',0.5*tlap/numStep
 print *,'avg tcrl ',0.5*tcrl/numStep
 print *,'avg tdif ',0.5*tdif/numStep
@@ -1764,6 +1907,7 @@ CONTAINS
        USE omp_lib
 
        USE iso_c_binding
+       USE WTIMER
 
        implicit NONE
        integer HuynhSolver_type
@@ -1775,20 +1919,32 @@ CONTAINS
        type(APLLES_SolverHandleType) :: S_handle
 
        integer i, j
+       type(timer_type) :: t_start, t_lap, t_lapgrads, t_convect
 
 print *,'**** CONVECTION **** '
+         t_start = get_timestamp()
 
          BC_Values = BC_Psi
          BC_Switch = DirichletBC
          CALL GetLaplacian(HuynhSolver_type, VortIn, psi, A_handle, P_handle, S_handle)                                ! Stage 1
+
+         t_lap = get_timestamp()
+
          CALL GetLaplacGrads(HuynhSolver_type, psi, 1)
+
+         t_lapgrads = get_timestamp()
 
          BC_Values = BC_VelNorm
          CALL GetConvectedFlux(HuynhSolver_type, VortIn, f_of_Vort)
 
          VortOut =  dt*f_of_Vort
 
+         t_convect = get_timestamp()
+
 print *,'Post Conv Max Vort ',minval(vortin+vortOut),maxval(vortin+vortOut)
+print *, 'conv_time: ', get_elapsed_time( t_start, t_lap ), &
+                        get_elapsed_time( t_lap, t_lapgrads), &
+                        get_elapsed_time( t_lapgrads, t_convect)
 
 print *,'**** DIFFUSION **** '
 
