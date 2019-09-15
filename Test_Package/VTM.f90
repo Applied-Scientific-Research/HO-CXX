@@ -2283,6 +2283,22 @@ function inv(A) result(Ainv)
   integer, dimension(size(A,1)) :: ipiv   ! pivot indices
   integer :: n, info
 end function inv
+
+  subroutine set_laplacian_c( Knod, Nel, Wgt, Vol_Jac, &
+                              NelB, BoundaryPointsElemID, &
+                              BndrySrc, BC_Values, &
+                              A_handle, S_handle, P_handle ) &
+    bind(C,name='setLaplacian')
+
+    use iso_c_binding
+    implicit none
+
+    integer(c_int), value :: Knod, Nel, NelB
+    integer(c_int) :: BoundaryPointsElemID(*)
+    real(c_double), dimension(*) :: Wgt, Vol_Jac, BndrySrc, BC_Values
+    type(c_ptr), value :: A_handle, S_handle, P_handle
+
+  end subroutine
 end interface
 
        Knm = Knod - 1
@@ -2639,6 +2655,11 @@ print *,'MATRIX MAX VALUE ',maxval(abs(values(1:nnz)))
        deAllocate (LaplacianCenter,LaplacianNeigbr)
 
        deAllocate (rowptr_filtered, colidx_filtered, values_filtered)
+
+       call set_laplacian_c( Knod, Nel, wgt, Vol_Jac, &
+                             NelB, BoundaryPointsElemID, &
+                             BndrySrc, BC_Values, &
+                             A_handle%ptr, S_handle%ptr, P_handle%ptr )
 
 END SUBROUTINE SetLaplacian
 

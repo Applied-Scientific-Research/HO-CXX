@@ -79,7 +79,7 @@
          <!-- max_levels: sets the maximum number of levels in the AMG heirarchy. Coarsening will not create more than max_levels levels regardless if the number of rows is > max_coarse_grid_size. (int), default=16 -->
          <max_levels>16</max_levels>
          <!-- coarse_grid_solver: sets the algorithm used to solver the coarsest level. This can be either a direct method (LU or SuperLU) or an iterative method. LU = Lapack direct solver; SLU = SuperLU direct solver; SVD = Lapack direct solver using SVD; ITER = solver with BiCGstab iterative solver. (string), default=SVD -->
-         <coarse_grid_solver>SLU</coarse_grid_solver>
+         <!--coarse_grid_solver>SLU</coarse_grid_solver-->
          <!-- strength: sets the strength-of-connection algorithm used to weight the edges of graph. classical = Classical strength-of-connection; Symmetric = symmetric strength-of-connection. (string), default=classical -->
          <strength>classical</strength>
          <!-- theta: sets the threshold to defined weak vs. strong connections for the edges in the graph. 0.5 is reasonable for 3d mesh poisson problems; 0.25 for 2d. Valid between [0,1). (float), default=0.5 -->
