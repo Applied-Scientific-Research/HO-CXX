@@ -3,7 +3,7 @@ APLLES_DIR ?= ../ApllesSolver
 F90	= gfortran
 F90FLAGS= -g -ggdb -gdwarf-2 -O2 -fopenmp -ffixed-line-length-none #-ffpe-summary='none'
 CXX	= g++
-CXXFLAGS= -g -ggdb -gdwarf-2 -O2 -std=c++11
+CXXFLAGS= -g -ggdb -gdwarf-2 -O2 -std=c++11 -fopenmp
 
 LDFLAGS =
 LIBS    =
@@ -15,7 +15,7 @@ include $(APLLES_DIR)/lib/Makefile.aplles
 F90FLAGS += $(APLLES_F90_MODULE)
 CXXFLAGS += -I $(APLLES_DIR)/user
 
-all: seq
+all: seq omp
 
 %.o : %.cxx
 	$(CXX) $(CXXFLAGS) $< -c -o $@

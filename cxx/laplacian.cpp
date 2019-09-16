@@ -1,6 +1,27 @@
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
+
 #include <type_traits>
+#include <algorithm>
+
+#include <iostream>
+#include <ctime>
+#include <ratio>
+#include <chrono>
+
+typedef std::chrono::high_resolution_clock::time_point TimerType;
+
+TimerType getTimeStamp(void) { return std::chrono::high_resolution_clock::now(); }
+
+double getElapsedTime( const TimerType& a, const TimerType& b )
+{
+   using namespace std::chrono;
+
+   std::chrono::duration<double> t_span = duration_cast< duration<double> >(b - a);
+
+   return t_span.count();
+}
 
 #include "aplles_interface.h"
 
@@ -60,6 +81,9 @@ int reallocate ( const size_t nelems, T* &ptr )
 }
 
 template <typename T>
+struct getBaseValueType;
+
+template <typename T>
 struct DynamicArrayType
 {
    typedef T ValueType;
@@ -70,18 +94,18 @@ struct DynamicArrayType
 
    explicit DynamicArrayType ( ValueType *ptr, const size_t nelems ) : m_ptr( ptr ), m_nelems(nelems), m_owns_data(false)
    {
-      fprintf(stderr,"Instantiated DynamicArrayType %p with existing array %p\n", this, this->m_ptr);
+      //fprintf(stderr,"Instantiated DynamicArrayType %p with existing array %p\n", this, this->m_ptr);
    }
 
    DynamicArrayType (void) : m_ptr(NULL), m_nelems(0), m_owns_data(true)
    {
-      fprintf(stderr,"Instantiated empty DynamicArrayType %p\n", this);
+      //fprintf(stderr,"Instantiated empty DynamicArrayType %p\n", this);
    }
 
    DynamicArrayType ( const size_t nelems ) : m_ptr(NULL), m_nelems(0), m_owns_data(true)
    {
       allocate( nelems, this->m_ptr );
-      fprintf(stderr,"Instantiated DynamicArrayType %p with %lu elements %p\n", this, this->m_nelems, this->m_ptr);
+      //fprintf(stderr,"Instantiated DynamicArrayType %p with %lu elements %p\n", this, this->m_nelems, this->m_ptr);
    }
 
    ~DynamicArrayType (void)
@@ -93,7 +117,7 @@ struct DynamicArrayType
    {
       if ( this->m_owns_data and this->m_nelems > 0 and this->m_ptr )
       {
-         fprintf(stderr,"Clearing object's internal data %p %p %lu\n", this, this->m_ptr, this->m_nelems);
+         //fprintf(stderr,"Clearing object's internal data %p %p %lu\n", this, this->m_ptr, this->m_nelems);
          deallocate( this->m_ptr );
          this->m_nelems = 0;
       }
@@ -105,7 +129,7 @@ struct DynamicArrayType
       this->m_nelems = nelems;
       this->m_owns_data = false;
       this->m_ptr = ptr;
-      fprintf(stderr,"DynamicArrayType::setData %p with existing array %p %lu\n", this, this->m_ptr, this->m_nelems);
+      //fprintf(stderr,"DynamicArrayType::setData %p with existing array %p %lu\n", this, this->m_ptr, this->m_nelems);
    }
 
    void resize ( const size_t nelems )
@@ -120,6 +144,13 @@ struct DynamicArrayType
           reallocate( nelems, this->m_ptr );
           this->m_nelems = nelems;
       }
+   }
+
+   ValueType *getPointer(void) { return this->m_ptr; }
+
+   typename getBaseValueType<ValueType>::type* getRawPointer(void)
+   {
+      return (typename getBaseValueType<ValueType>::type* )(this->m_ptr);
    }
 
          T& operator() (const size_t i)       { return this->m_ptr[i]; }
@@ -209,6 +240,12 @@ struct StaticArrayType
  
 };
 
+template <typename T>
+struct getBaseValueType { typedef typename std::enable_if< std::is_fundamental<T>::value, T >::type type; };
+
+template <typename T>
+struct getBaseValueType< StaticArrayType<T> > { typedef typename StaticArrayType<T>::ValueType type; };
+
 template <int _Knod>
 struct LaplacianDataType
 {
@@ -227,8 +264,8 @@ struct LaplacianDataType
    typedef StaticArrayType< double[Knod*Knod][Knod] > BoundarySourceType;
    DynamicArrayType< BoundarySourceType > BoundarySource;
 
-   typedef StaticArrayType< double[Knod] > BoundaryValueType;
-   DynamicArrayType< BoundaryValueType > BoundaryValues;
+   typedef StaticArrayType< double[Knod] > BoundaryValuesType;
+   DynamicArrayType< BoundaryValuesType > BoundaryValues;
 
    /// APLLES handles
    APLLES_MatrixHandle_t MatrixHandle;
@@ -238,6 +275,9 @@ struct LaplacianDataType
 
 typedef LaplacianDataType<3> LaplacianType;
 LaplacianType LaplacianData;
+
+template <typename T>
+T sqr( const T& x ) { return x*x; }
 
 extern "C"
 {
@@ -268,7 +308,11 @@ void setLaplacian( const int Knod, const int Nel,
    LaplacianData.NelB = NelB;
 
    LaplacianData.BoundarySource.setData( (LaplacianType::BoundarySourceType *) BoundarySource, NelB );
-   LaplacianData.BoundaryValues.setData( (LaplacianType::BoundaryValueType  *) BoundaryValues, NelB );
+   LaplacianData.BoundaryValues.setData( (LaplacianType::BoundaryValuesType  *) BoundaryValues, NelB );
+
+   // Make a copy of this since it changes in the driver code.
+   //LaplacianData.BoundaryValues.resize( NelB );
+   //memcpy( LaplacianData.BoundaryValues.getPointer(), BoundaryValues, sizeof(LaplacianType::BoundaryValuesType)*NelB );
 
    LaplacianData.BoundaryPointElementIDs.resize( NelB );
    for (int i(0); i < NelB; ++i)
@@ -281,10 +325,11 @@ void setLaplacian( const int Knod, const int Nel,
    return;
 }
 
-void getLaplacian( double VorticityIn[], double psiIn[] )
+void getLaplacian( double VorticityIn[], double psiIn[], double* BoundarySourceIn, double *BoundaryValuesIn)
 {
    const int Knod = LaplacianData.Knod;
-   const int Nel = LaplacianData.Nel;
+   const int Nel  = LaplacianData.Nel;
+   const int NelB = LaplacianData.NelB;
 
    const auto& Vol_Jac = LaplacianData.Vol_Jac;
    const auto& wgt = LaplacianData.wgt;
@@ -293,25 +338,95 @@ void getLaplacian( double VorticityIn[], double psiIn[] )
 
    const DynamicArrayType< NodalType > Vorticity( (NodalType *) VorticityIn, Nel );
    const DynamicArrayType< NodalType > psi( (NodalType *) psiIn, Nel );
-         DynamicArrayType< NodalType > psiOut( Nel );
 
    DynamicArrayType< NodalType > x(Nel), b(Nel);
 
+   auto t_start = getTimeStamp();
+
+   /// Evaluate the RHS vorticity for each element's nodes.
+
    double resid = 0, vol = 0;
+
+   #pragma omp parallel for default(shared) //reduction(+: resid, vol)
    for (int el = 0; el < Nel; ++el)
       for (int j = 0; j < Knod; ++j)
          for (int i = 0; i < Knod; ++i)
          {
             auto& vort_el = Vorticity(el);
             auto& jac_el = Vol_Jac(el);
-            resid += wgt(i) * wgt(j) * vort_el(i,j) * jac_el(i,j);
-            vol   += wgt(i) * wgt(j) *                jac_el(i,j);
+
+            //resid += wgt(i) * wgt(j) * vort_el(i,j) * jac_el(i,j);
+            //vol   += wgt(i) * wgt(j) *                jac_el(i,j);
 
             b[el](i,j) = -jac_el(i,j) * vort_el(i,j);
             x[el](i,j) = 0.0;
          }
 
-   printf("Resid, vol, eps: %e %e %e\n", resid, vol, (1.0+resid)/vol);
+   //LaplacianData.BoundarySource.setData( (LaplacianType::BoundarySourceType *) BoundarySourceIn, NelB );
+   //LaplacianData.BoundaryValues.setData( (LaplacianType::BoundaryValuesType  *) BoundaryValuesIn, NelB );
+
+   /// Factor in the boundary face/element.
+
+   //double sum_bnd(0), max_bnd(0);
+   for (int bnd_el_id = 0; bnd_el_id < NelB; ++bnd_el_id)
+   {
+      /// Volumetric element ID
+      const auto el_id = LaplacianData.BoundaryPointElementIDs(bnd_el_id);
+
+      /// References to the element's objects.
+            auto& b_el = b[el_id];
+      const auto& bndry_src = LaplacianData.BoundarySource[bnd_el_id];
+      const auto& bndry_val = LaplacianData.BoundaryValues[bnd_el_id];
+
+      for (int j = 0; j < Knod; ++j)
+         for (int i = 0; i < Knod; ++i)
+         {
+            const auto ij = i + j * Knod;
+
+            double dotp(0);
+            for (int l = 0; l < Knod; ++l)
+               dotp += bndry_src(l,ij) * bndry_val(l);
+
+            b_el(i,j) -= dotp;
+
+            //sum_bnd += sqr( dotp );
+            //max_bnd = std::max( std::fabs( dotp ), max_bnd );
+         }
+   }
+
+   double sum_b(0), max_b(0);
+   //for (int el = 0; el < Nel; ++el)
+   //   for (int j = 0; j < Knod; ++j)
+   //      for (int i = 0; i < Knod; ++i)
+   //      {
+   //         sum_b += sqr( b[el](i,j) );
+   //         max_b = std::max( std::fabs( b[el](i,j) ), max_b );
+   //      }
+
+   //printf("Resid, vol, eps: %e %e %e %e %e %e %e\n", resid, vol, (1.0+resid)/vol, sqrt(sum_bnd), max_bnd, sqrt(sum_b), max_b);
+
+   auto t_middle = getTimeStamp();
+
+   int ierr = APLLES_Solve( LaplacianData.MatrixHandle,
+                            x.getRawPointer(), b.getRawPointer(),
+                            LaplacianData.SolverHandle, LaplacianData.PreconHandle );
+
+   auto t_end = getTimeStamp();
+
+   double sum_x(0), max_x(0), err(0), ref(0);
+   for (int el = 0; el < Nel; ++el)
+      for (int j = 0; j < Knod; ++j)
+         for (int i = 0; i < Knod; ++i)
+         {
+            sum_x += sqr( x[el](i,j) );
+            max_x = std::max( std::fabs( x[el](i,j) ), max_x );
+
+            auto diff = x[el](i,j) - psi[el](i,j);
+            err += sqr( diff );
+            ref += sqr( psi[el](i,j) );
+         }
+
+   printf("cxx solved: %d %e %e %f %f %e %e %e\n", ierr, sqrt(sum_x), max_x, getElapsedTime( t_start, t_middle ), getElapsedTime( t_middle, t_end ), sqrt(err), sqrt(ref), sqrt(err/ref));
 
    return;
 }

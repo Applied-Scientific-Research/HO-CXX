@@ -2658,7 +2658,8 @@ print *,'MATRIX MAX VALUE ',maxval(abs(values(1:nnz)))
 
        call set_laplacian_c( Knod, Nel, wgt, Vol_Jac, &
                              NelB, BoundaryPointsElemID, &
-                             BndrySrc, BC_Values, &
+                            !BndrySrc, BC_Values, &
+                             BndrySrc, BC_Psi, &
                              A_handle%ptr, S_handle%ptr, P_handle%ptr )
 
 END SUBROUTINE SetLaplacian
@@ -2688,13 +2689,13 @@ SUBROUTINE GetLaplacian(HuynhSolver_type, Vortin, psi, A_handle, P_handle, S_han
        type(APLLES_SolverHandleType) :: S_handle
 
 interface
-  subroutine get_laplacian_c( Vort, Psi ) &
+  subroutine get_laplacian_c( Vort, Psi, BndrySrc, BndryVals ) &
     bind(C,name='getLaplacian')
 
     use iso_c_binding
     implicit none
 
-    real(c_double), dimension(*) :: Vort(*), Psi(*)
+    real(c_double), dimension(*) :: Vort, Psi, BndrySrc, BndryVals
 
   end subroutine
 end interface
@@ -2713,6 +2714,7 @@ end interface
            ENDDO
          ENDDO
        ENDDO
+!      print *, 'temp: ', sqrt( sum( temp**2 ) ), maxval( abs(temp) )
 
        residual = 0.d0
        volume = 0.d0
@@ -2726,7 +2728,7 @@ end interface
            ENDDO
          ENDDO
        ENDDO
-       print *,'Res, Vol, eps ', residual, volume, (1+residual)/volume
+!      print *,'Res, Vol, eps ', residual, volume, (1+residual)/volume
 
        x = 0.d0
        b = 0.d0
@@ -2749,8 +2751,11 @@ end interface
            ENDDO
          ENDDO
        ENDDO
+!      print *, 'temp2: ', sqrt( sum( b**2 ) ), maxval( abs(b) )
 
        ierr = APLLES_Solve(A_handle, x, b, S_handle, P_handle)
+
+       print *, 'solved: ', ierr, sqrt( sum( x**2 ) ), maxval( abs(x) )
 
        nrows = 0
        DO el = 1, Nel
@@ -2764,7 +2769,7 @@ end interface
 
        deAllocate (x, b)
 
-       call get_laplacian_c( Vortin, psi )
+       call get_laplacian_c( Vortin, psi, BndrySrc, BC_Values )
   
 END SUBROUTINE GetLaplacian
 
