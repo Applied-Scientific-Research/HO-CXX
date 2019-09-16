@@ -78,7 +78,7 @@ struct DynamicArrayType
       fprintf(stderr,"Instantiated empty DynamicArrayType %p\n", this);
    }
 
-   DynamicArrayType ( const size_t nelems) : m_ptr(NULL), m_nelems(0), m_owns_data(true)
+   DynamicArrayType ( const size_t nelems ) : m_ptr(NULL), m_nelems(0), m_owns_data(true)
    {
       allocate( nelems, this->m_ptr );
       fprintf(stderr,"Instantiated DynamicArrayType %p with %lu elements %p\n", this, this->m_nelems, this->m_ptr);
@@ -124,6 +124,8 @@ struct DynamicArrayType
 
          T& operator() (const size_t i)       { return this->m_ptr[i]; }
    const T& operator() (const size_t i) const { return this->m_ptr[i]; }
+         T& operator[] (const size_t i)       { return this->m_ptr[i]; }
+   const T& operator[] (const size_t i) const { return this->m_ptr[i]; }
 };
 
 template < typename T, int ... dims >
@@ -162,14 +164,14 @@ struct StaticArrayType
 
    /// rank 2
    template <typename Int>
-      typename std::enable_if< std::is_integral<Int>::value and rank == 2, ValueType& >::type
+      typename std::enable_if< std::is_integral<Int>::value and rank == 2, ValueType >::type &
    operator()( const Int i, const Int j )
    {
       return this->m_data[j][i];
    }
 
    template <typename Int>
-     const typename std::enable_if< std::is_integral<Int>::value and rank == 2, ValueType& >::type
+     const typename std::enable_if< std::is_integral<Int>::value and rank == 2, ValueType >::type &
    operator()( const Int i, const Int j ) const
    {
       return this->m_data[j][i];
@@ -177,14 +179,14 @@ struct StaticArrayType
 
    /// rank 1
    template <typename Int>
-      typename std::enable_if< std::is_integral<Int>::value and rank == 1, ValueType& >::type
+      typename std::enable_if< std::is_integral<Int>::value and rank == 1, ValueType >::type &
    operator()( const Int i )
    {
       return this->m_data[i];
    }
 
    template <typename Int>
-     const typename std::enable_if< std::is_integral<Int>::value and rank == 1, ValueType& >::type
+     const typename std::enable_if< std::is_integral<Int>::value and rank == 1, ValueType >::type &
    operator()( const Int i ) const
    {
       return this->m_data[i];
@@ -192,14 +194,14 @@ struct StaticArrayType
 
    /// rank 1 ... to match normal access format.
    template <typename Int>
-      typename std::enable_if< std::is_integral<Int>::value and rank == 1, ValueType& >::type
+      typename std::enable_if< std::is_integral<Int>::value and rank == 1, ValueType >::type &
    operator[]( const Int i )
    {
       return this->m_data[i];
    }
 
    template <typename Int>
-     const typename std::enable_if< std::is_integral<Int>::value and rank == 1, ValueType& >::type
+     const typename std::enable_if< std::is_integral<Int>::value and rank == 1, ValueType >::type &
    operator[]( const Int i ) const
    {
       return this->m_data[i];
@@ -212,12 +214,12 @@ struct LaplacianDataType
 {
    enum { Knod = _Knod };
 
-   typedef StaticArrayType< double[Knod] > ElementNodeType;
+   typedef StaticArrayType< double[Knod][Knod] > ElementNodalType;
 
    int Nel; /// Number of elements in mesh.
-   DynamicArrayType< ElementNodeType > Vol_Jac; /// Volumetric Jacobian of the element.
+   DynamicArrayType< ElementNodalType > Vol_Jac; /// Volumetric Jacobian of the element.
 
-   ElementNodeType wgt;
+   StaticArrayType< double[Knod] > wgt;
 
    int NelB; /// Number of boundary
    DynamicArrayType< int > BoundaryPointElementIDs;
@@ -261,7 +263,7 @@ void setLaplacian( const int Knod, const int Nel,
       printf("wgt[%d]= %f\n", i, LaplacianData.wgt[i]);
    }
 
-   LaplacianData.Vol_Jac.setData( (LaplacianType::ElementNodeType *) Vol_Jac, Nel );
+   LaplacianData.Vol_Jac.setData( (LaplacianType::ElementNodalType *) Vol_Jac, Nel );
 
    LaplacianData.NelB = NelB;
 
@@ -279,8 +281,39 @@ void setLaplacian( const int Knod, const int Nel,
    return;
 }
 
-void getLaplacian( const double Vorticity[], double psi[] )
+void getLaplacian( double VorticityIn[], double psiIn[] )
 {
+   const int Knod = LaplacianData.Knod;
+   const int Nel = LaplacianData.Nel;
+
+   const auto& Vol_Jac = LaplacianData.Vol_Jac;
+   const auto& wgt = LaplacianData.wgt;
+
+   typedef StaticArrayType< double[Knod][Knod] > NodalType;
+
+   const DynamicArrayType< NodalType > Vorticity( (NodalType *) VorticityIn, Nel );
+   const DynamicArrayType< NodalType > psi( (NodalType *) psiIn, Nel );
+         DynamicArrayType< NodalType > psiOut( Nel );
+
+   DynamicArrayType< NodalType > x(Nel), b(Nel);
+
+   double resid = 0, vol = 0;
+   for (int el = 0; el < Nel; ++el)
+      for (int j = 0; j < Knod; ++j)
+         for (int i = 0; i < Knod; ++i)
+         {
+            auto& vort_el = Vorticity(el);
+            auto& jac_el = Vol_Jac(el);
+            resid += wgt(i) * wgt(j) * vort_el(i,j) * jac_el(i,j);
+            vol   += wgt(i) * wgt(j) *                jac_el(i,j);
+
+            b[el](i,j) = -jac_el(i,j) * vort_el(i,j);
+            x[el](i,j) = 0.0;
+         }
+
+   printf("Resid, vol, eps: %e %e %e\n", resid, vol, (1.0+resid)/vol);
+
+   return;
 }
 
 }

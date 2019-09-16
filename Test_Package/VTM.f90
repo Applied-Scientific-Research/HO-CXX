@@ -2687,7 +2687,18 @@ SUBROUTINE GetLaplacian(HuynhSolver_type, Vortin, psi, A_handle, P_handle, S_han
        type(APLLES_PreconHandleType) :: P_handle
        type(APLLES_SolverHandleType) :: S_handle
 
-  
+interface
+  subroutine get_laplacian_c( Vort, Psi ) &
+    bind(C,name='getLaplacian')
+
+    use iso_c_binding
+    implicit none
+
+    real(c_double), dimension(*) :: Vort(*), Psi(*)
+
+  end subroutine
+end interface
+
        nrows = Knod * Knod * Nel
        Allocate (x(nrows), b(nrows))
 
@@ -2753,6 +2764,8 @@ SUBROUTINE GetLaplacian(HuynhSolver_type, Vortin, psi, A_handle, P_handle, S_han
 
        deAllocate (x, b)
 
+       call get_laplacian_c( Vortin, psi )
+  
 END SUBROUTINE GetLaplacian
 
 
