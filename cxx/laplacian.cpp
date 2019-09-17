@@ -180,6 +180,9 @@ struct StaticArrayProperties< T[_I1][_I0] >
    enum { I1 = _I1 };
 };
 
+template <class ArrayType, int _Dim>
+struct SliceType;
+
 template < class DataType >
 struct StaticArrayType
 {
@@ -237,7 +240,76 @@ struct StaticArrayType
    {
       return this->m_data[i];
    }
- 
+
+   template <int Dim>
+   const typename std::enable_if< (Dim < rank), SliceType< StaticArrayType, Dim > >::type slice( const int index = 0 ) const
+   {
+      return SliceType< StaticArrayType, Dim >( *this, index );
+   }
+
+   template <int Dim>
+         typename std::enable_if< (Dim < rank), SliceType< StaticArrayType, Dim > >::type slice( const int index = 0 ) 
+   {
+      return SliceType< StaticArrayType, Dim >( *this, index );
+   }
+};
+
+template <class ArrayType, int _Dim>
+struct SliceType
+{
+   typedef typename getBaseValueType<ArrayType>::type ValueType;
+
+   enum { base_rank = ArrayType::rank };
+   enum { rank = 1 };
+   enum { dim = _Dim };
+
+   enum { I0 = ( _Dim == 0 ) ? int(ArrayType::I0) : int(ArrayType::I1) };
+
+   ArrayType &m_base_array;
+   int m_index;
+
+   SliceType (       ArrayType& array, const int index = 0 ) : m_index(index), m_base_array( array ) {}
+   SliceType ( const ArrayType& array, const int index = 0 ) : m_index(index), m_base_array( const_cast<ArrayType&>(array) ) {}
+
+   template <typename Int>
+      typename std::enable_if< std::is_integral<Int>::value and base_rank == 2, ValueType >::type &
+   operator[]( const Int i )
+   {
+      if ( dim == 0 )
+         return this->m_base_array(i,this->m_index);
+      else
+         return this->m_base_array(this->m_index,i);
+   }
+
+   template <typename Int>
+   const typename std::enable_if< std::is_integral<Int>::value and base_rank == 2, ValueType >::type & 
+   operator[]( const Int i ) const
+   {
+      if ( dim == 0 )
+         return this->m_base_array(i,this->m_index);
+      else
+         return this->m_base_array(this->m_index,i);
+   }
+
+   template <typename Int>
+           typename std::enable_if< std::is_integral<Int>::value and base_rank == 2, ValueType >::type &
+   operator()( const Int i )
+   {
+      if ( dim == 0 )
+         return this->m_base_array(i,this->m_index);
+      else
+         return this->m_base_array(this->m_index,i);
+   }
+
+   template <typename Int>
+     const typename std::enable_if< std::is_integral<Int>::value and base_rank == 2, ValueType >::type &
+   operator()( const Int i ) const
+   {
+      if ( dim == 0 )
+         return this->m_base_array(i,this->m_index);
+      else
+         return this->m_base_array(this->m_index,i);
+   }
 };
 
 template <typename T>
@@ -245,6 +317,9 @@ struct getBaseValueType { typedef typename std::enable_if< std::is_fundamental<T
 
 template <typename T>
 struct getBaseValueType< StaticArrayType<T> > { typedef typename StaticArrayType<T>::ValueType type; };
+
+template <typename T, int Dim>
+struct getBaseValueType< SliceType<T,Dim> > { typedef typename SliceType<T,Dim>::ValueType type; };
 
 template <int _Knod>
 struct LaplacianDataType
@@ -278,6 +353,21 @@ LaplacianType LaplacianData;
 
 template <typename T>
 T sqr( const T& x ) { return x*x; }
+
+template <class A, class B>
+   typename std::enable_if< A::rank == B::rank and A::rank == 1 and A::I0 == B::I0,
+                                   typename getBaseValueType<A>::type >::type
+dot_product ( const A& a, const B& b )
+{
+   typedef typename getBaseValueType<A>::type value_type;
+
+   value_type prod(0);
+   const int len = A::I0;
+   for (int i = 0; i < len; ++i)
+      prod += a(i) * b(i);
+
+   return prod;
+}
 
 extern "C"
 {
@@ -383,9 +473,14 @@ void getLaplacian( double VorticityIn[], double psiIn[], double* BoundarySourceI
          {
             const auto ij = i + j * Knod;
 
-            double dotp(0);
-            for (int l = 0; l < Knod; ++l)
-               dotp += bndry_src(l,ij) * bndry_val(l);
+            //const auto slice = bndry_src.slice<0>( ij );
+
+            //double dotp(0);
+            //for (int l = 0; l < Knod; ++l)
+            //   dotp += slice(l) * bndry_val(l);
+            //   //dotp += bndry_src(l,ij) * bndry_val(l);
+
+            double dotp = dot_product( bndry_src.slice<0>( ij ), bndry_val );
 
             b_el(i,j) -= dotp;
 
