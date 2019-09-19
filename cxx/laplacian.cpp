@@ -5,8 +5,8 @@
 #include <type_traits>
 #include <algorithm>
 
-#include "wtimer.h"
-#include "memory.h"
+#include "wtimer.hpp"
+#include "memory.hpp"
 #include "array.hpp"
 
 #include "aplles_interface.h"

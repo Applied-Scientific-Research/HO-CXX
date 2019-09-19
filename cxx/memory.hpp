@@ -1,6 +1,9 @@
 #ifndef __memory_h
 #define __memory_h
 
+#include <cstdio>
+#include <cstdlib>
+
 namespace HighOrderFEM
 {
 
