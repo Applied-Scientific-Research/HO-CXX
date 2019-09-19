@@ -7,18 +7,25 @@ CXXFLAGS= -g -ggdb -gdwarf-2 -O2 -std=c++11 -fopenmp
 
 LDFLAGS =
 LIBS    =
-OBJS	= ../cxx/laplacian.o
+
+CXXSRC	= $(wildcard ../cxx/*.cpp)
+OBJS	= $(CXXSRC:.cpp=.o)
+DEPS	= $(CXXSRC:.cpp=.d)
 
 #include $(APLLES_DIR)/user/Makefile.aplles
 include $(APLLES_DIR)/lib/Makefile.aplles
 
+-include $(DEPS)
+
 F90FLAGS += $(APLLES_F90_MODULE)
 CXXFLAGS += -I $(APLLES_DIR)/user
+CXXFLAGS += -I ../cxx
 
 all: seq omp
 
-%.o : %.cxx
+%.o : %.cpp
 	$(CXX) $(CXXFLAGS) $< -c -o $@
+	$(CXX) $(CXXFLAGS) -MM -MT $@ $< > $*.d
 
 %.o : %.F90
 	$(F90) $(F90FLAGS) $< -c -o $@
@@ -35,4 +42,4 @@ omp: VTM.o $(OBJS) $(APLLES_OBJS)
 	$(F90) $(F90FLAGS) -o VTM_mp $< $(OBJS) $(APLLES_OBJS) $(LDFLAGS) $(APLLES_MT_LIBS) $(APLLES_LINK_FLAGS)
 
 clean:
-	/bin/rm -fv *.o $(OBJS) *.mod
+	/bin/rm -fv *.o $(OBJS) *.mod $(DEPS)

@@ -5,80 +5,12 @@
 #include <type_traits>
 #include <algorithm>
 
-#include <iostream>
-#include <ctime>
-#include <ratio>
-#include <chrono>
-
-typedef std::chrono::high_resolution_clock::time_point TimerType;
-
-TimerType getTimeStamp(void) { return std::chrono::high_resolution_clock::now(); }
-
-double getElapsedTime( const TimerType& a, const TimerType& b )
-{
-   using namespace std::chrono;
-
-   std::chrono::duration<double> t_span = duration_cast< duration<double> >(b - a);
-
-   return t_span.count();
-}
+#include "wtimer.h"
+#include "memory.h"
 
 #include "aplles_interface.h"
 
-template <typename T>
-T* allocate ( const size_t nelems )
-{
-   T *ptr = (T*) malloc( nelems * sizeof(T) );
-   if (ptr == NULL)
-   {
-      fprintf(stderr,"Allocation error for %lu elements\n", nelems);
-      return NULL;
-   }
-   else
-      return ptr;
-}
-
-template <typename T>
-int allocate ( const size_t nelems, T* &ptr )
-{
-   ptr = allocate<T>( nelems );
-   if (ptr == NULL)
-   {
-      fprintf(stderr,"Allocation error for %lu elements at %d %s\n", nelems, __LINE__, __FILE__);
-      exit(-1);
-      return 1;
-   }
-   else
-      return 0;
-}
-
-template <typename T>
-void deallocate ( T* &ptr )
-{
-   if (ptr)
-   {
-      free(ptr);
-      ptr = NULL;
-   }
-}
-
-template <typename T>
-int reallocate ( const size_t nelems, T* &ptr )
-{
-   T *new_ptr = (T*) realloc( (void *) ptr, nelems * sizeof(T) );
-   if ( new_ptr == NULL )
-   {
-      fprintf(stderr,"Reallocation error for %lu elements at %d %s\n", nelems, __LINE__, __FILE__);
-      deallocate( ptr );
-      exit(-1);
-      return 1;
-   }
-   else
-   {
-      ptr = new_ptr;
-      return 0;
-   }
-}
+using namespace HighOrderFEM;
 
 template <typename T>
 struct getBaseValueType;
