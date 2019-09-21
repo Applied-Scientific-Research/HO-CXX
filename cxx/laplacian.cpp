@@ -4,12 +4,17 @@
 
 #include <type_traits>
 #include <algorithm>
+#include <cmath>
 
 #include "wtimer.hpp"
 #include "memory.hpp"
 #include "array.hpp"
 
 #include "aplles_interface.h"
+#include "splib/csr_matrix.h"
+#include "splib/multiply.h"
+#include "splib/vector.h"
+#include "splib/spblas.h"
 
 using namespace HighOrderFEM;
 
@@ -61,6 +66,184 @@ dot_product ( const A& a, const B& b )
    return prod;
 }
 
+// Test AMGCL
+
+#ifndef SOLVER_BACKEND_BUILTIN
+#  define SOLVER_BACKEND_BUILTIN
+#endif
+
+#include <tuple>
+#include <vector>
+#include <amgcl/backend/builtin.hpp>
+#include <amgcl/make_solver.hpp>
+#include <amgcl/amg.hpp>
+#include <amgcl/coarsening/runtime.hpp>
+#include <amgcl/relaxation/runtime.hpp>
+#include <amgcl/relaxation/as_preconditioner.hpp>
+#include <amgcl/solver/runtime.hpp>
+#include <amgcl/preconditioner/runtime.hpp>
+#include <amgcl/backend/interface.hpp>
+
+#include <boost/program_options.hpp>
+#include <boost/property_tree/ptree.hpp>
+
+template <typename T>
+struct PointerWrapper
+{
+   T *m_data;
+   size_t len;
+
+   typedef T value_type;
+   typedef T type;
+
+   PointerWrapper( T* ptr, size_t len ) : m_data(ptr), len(len) {}
+
+   const T* end(void) const { return m_data + len; }
+   const T* begin(void) const { return m_data; }
+
+   const T operator[](const size_t& i) const { return m_data[i]; }
+};
+
+template <class CSRMatrix, class NodalVector>
+void eval_amgcl ( const CSRMatrix& A, NodalVector& x_ref, const NodalVector& b, const int Knod )
+{
+   typedef amgcl::backend::builtin<double> Backend;
+
+   const size_t nrows = A.num_rows, nnz = A.num_values;
+
+   Backend::params backend_prm;
+   //backend_prm.block_size = 4;
+
+   auto rowptr = &A.rowptr[0];
+   auto colidx = &A.colidx[0];
+   auto values = &A.values[0];
+
+   amgcl::backend::crs< double, int > crs( nrows, nrows, PointerWrapper<int   >(rowptr,nrows+1),
+                                                         PointerWrapper<int   >(colidx,nnz),
+                                                         PointerWrapper<double>(values,nnz) );
+
+   {
+      typedef amgcl::amg<
+           Backend,
+           amgcl::coarsening::smoothed_aggregation,
+           //amgcl::relaxation::spai0
+           //amgcl::relaxation::gauss_seidel
+           amgcl::relaxation::damped_jacobi
+           > AMG;
+
+      AMG::params amg_prm;
+      amg_prm.coarse_enough = 500;
+    //amg_prm.coarsening.aggr.eps_strong = 0;
+    //amg_prm.coarsening.aggr.block_size = 9;
+      amg_prm.npre = 1; amg_prm.npost = 2;
+      amg_prm.relax.damping = 0.53333333;
+
+      AMG P( crs, amg_prm, backend_prm );
+      std::cout << "AMG: " << std::endl;
+      std::cout << P << std::endl;
+
+      typedef amgcl::solver::fgmres<AMG::backend_type> SolverType;
+
+      SolverType::params solver_prms;
+      solver_prms.M = 16;
+      solver_prms.tol = 0; // to get only abstol
+      solver_prms.abstol = 1e-10;
+      solver_prms.maxiter = 500;
+
+      SolverType solver( nrows, solver_prms );
+
+      std::cout << "Solver: " << std::endl;
+      std::cout << solver << std::endl;
+
+      std::vector< double > f( nrows );
+      std::vector< double > x( nrows, 0 );
+
+      double *bptr = (double *) &b[0];
+      for (int i = 0; i < nrows; ++i)
+         f[i] = bptr[i];
+
+      int niters = 0;
+      double resid = 0;
+      std::tie( niters, resid ) = solver( P, f, x );
+
+      std::vector< double > r( nrows );
+      amgcl::backend::residual( f, crs, x, r);
+      auto norm_r = std::sqrt( amgcl::backend::inner_product( r, r ) );
+
+      std::cout << "Iterations: " << niters << std::endl
+                << "Error:      " << resid << std::endl
+                << "Norm(r):    " << norm_r << std::endl
+                << std::endl;
+   }
+
+/*
+   {
+      boost::property_tree::ptree prm;
+
+      typedef amgcl::make_solver<
+                     amgcl::runtime::preconditioner<Backend>,
+                     amgcl::runtime::solver::wrapper<Backend>
+                     > Solver;
+
+      prm.put("solver.type", "fgmres");
+      prm.put("solver.tol", 0);
+      prm.put("solver.abstol", 1e-10);
+      prm.put("solver.maxiter", 100);
+      prm.put("solver.M", 16);
+      prm.put("precond.class", "amg");
+      //prm.put("precond.coarsening.type", "smoothed_aggregation");
+      prm.put("precond.coarsening.type", "aggregation");
+      prm.put("precond.coarse_enough", "500");
+      prm.put("precond.relax.type", "spai0");
+
+      Solver solver( crs, prm, backend_prm );
+      std::cout << "Solver: " << std::endl;
+      std::cout << solver << std::endl;
+   }
+*/
+
+/*
+   {
+      typedef amgcl::relaxation::ilu0< Backend > ilu0Type;
+      typedef amgcl::relaxation::as_preconditioner<
+         Backend,
+         amgcl::relaxation::ilu0
+         > ILU;
+
+      ILU P( crs );
+      std::cout << "ILU: " << std::endl;
+      std::cout << P << std::endl;
+
+      typedef amgcl::solver::fgmres< ILU::backend_type > SolverType;
+
+      SolverType::params solver_prms;
+      solver_prms.M = 16;
+      solver_prms.tol = 0; // to get only abstol
+      solver_prms.abstol = 1e-10;
+
+      SolverType solver( nrows, solver_prms );
+
+      std::cout << "Solver: " << std::endl;
+      std::cout << solver << std::endl;
+
+      std::vector< double > f( nrows );
+      std::vector< double > x( nrows, 0 );
+
+      double *bptr = (double *) &b[0];
+      for (int i = 0; i < nrows; ++i)
+         f[i] = bptr[i];
+
+      int niters = 0;
+      double resid = 0;
+      std::tie( niters, resid ) = solver( P, f, x );
+
+      std::cout << "Iterations: " << niters << std::endl
+                << "Error:      " << resid << std::endl
+                << std::endl;
+   }
+*/
+}
+
 extern "C"
 {
 
@@ -103,6 +286,12 @@ void setLaplacian( const int Knod, const int Nel,
    LaplacianData.MatrixHandle = (APLLES_MatrixHandle_t) A_handle;
    LaplacianData.SolverHandle = (APLLES_SolverHandle_t) S_handle;
    LaplacianData.PreconHandle = (APLLES_PreconHandle_t) P_handle;
+
+   {
+      typedef splib::csr_matrix<double> csr_matrix;
+      csr_matrix *csr = reinterpret_cast< csr_matrix* >( A_handle );
+      printf("CSR matrix: %d %d %d\n", csr->num_rows, csr->num_columns, csr->num_values);
+   }
 
    return;
 }
@@ -214,6 +403,26 @@ void getLaplacian( double VorticityIn[], double psiIn[], double* BoundarySourceI
          }
 
    printf("cxx solved: %d %e %e %f %f %e %e %e\n", ierr, sqrt(sum_x), max_x, getElapsedTime( t_start, t_middle ), getElapsedTime( t_middle, t_end ), sqrt(err), sqrt(ref), sqrt(err/ref));
+
+   {
+      typedef splib::csr_matrix<double> csr_matrix;
+      csr_matrix *csr = reinterpret_cast< csr_matrix* >( LaplacianData.MatrixHandle );
+      printf("CSR matrix: %d %d %d\n", csr->num_rows, csr->num_columns, csr->num_values);
+
+      auto xptr = x.getRawPointer();
+      auto bptr = b.getRawPointer();
+
+      splib::Vector<double> _x( xptr, csr->num_rows );
+      splib::Vector<double> _b( bptr, csr->num_rows );
+      splib::Vector<double> _r( csr->num_rows );
+
+      splib::gemv( 1.0, *csr, _x, -1.0, _b, _r );
+      auto norm = splib::spblas::norm( _r );
+      auto norm_b = splib::spblas::norm( _b );
+      printf("norm: %e %e\n", norm, norm_b);
+
+      eval_amgcl ( *csr, x, b, Knod );
+   }
 
    return;
 }

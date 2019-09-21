@@ -1,4 +1,5 @@
 APLLES_DIR ?= ../ApllesSolver
+AMGCL_DIR ?= ../AMGCL
 
 F90	= gfortran
 F90FLAGS= -g -ggdb -gdwarf-2 -O2 -fopenmp -ffixed-line-length-none #-ffpe-summary='none'
@@ -15,13 +16,16 @@ DEPS	= $(CXXSRC:.cpp=.d)
 #include $(APLLES_DIR)/user/Makefile.aplles
 include $(APLLES_DIR)/lib/Makefile.aplles
 
--include $(DEPS)
-
 F90FLAGS += $(APLLES_F90_MODULE)
 CXXFLAGS += -I $(APLLES_DIR)/user
 CXXFLAGS += -I ../cxx
+CXXFLAGS += -I $(AMGCL_DIR)/include
+CXXFLAGS += -I $(APLLES_DIR)/include
+CXXFLAGS += -Wfatal-errors
 
 all: seq omp
+
+-include $(DEPS)
 
 %.o : %.cpp
 	$(CXX) $(CXXFLAGS) $< -c -o $@
