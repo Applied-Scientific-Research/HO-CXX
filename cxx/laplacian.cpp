@@ -86,9 +86,10 @@ dot_product ( const A& a, const B& b )
 
 #include <boost/program_options.hpp>
 #include <boost/property_tree/ptree.hpp>
+#include <boost/property_tree/json_parser.hpp>
 
 template <typename T>
-struct PointerWrapper
+struct ArrayPointerWrapper
 {
    T *m_data;
    size_t len;
@@ -96,13 +97,48 @@ struct PointerWrapper
    typedef T value_type;
    typedef T type;
 
-   PointerWrapper( T* ptr, size_t len ) : m_data(ptr), len(len) {}
+   ArrayPointerWrapper( T* ptr, size_t len ) : m_data(ptr), len(len) {}
 
-   const T* end(void) const { return m_data + len; }
+   const T* end  (void) const { return m_data + len; }
    const T* begin(void) const { return m_data; }
 
-   const T operator[](const size_t& i) const { return m_data[i]; }
+   const T& operator[](const size_t& i) const { return m_data[i]; }
+         T& operator[](const size_t& i)       { return m_data[i]; }
 };
+
+template < typename U, typename V >
+typename U::value_type norm2( const U& u, const V& v )
+{
+   const int n = u.size();
+   typename U::value_type s(0);
+   for (int i = 0; i < n; ++i)
+      s += u[i] * v[i];
+
+   return std::sqrt(s);
+}
+
+template <typename Solver, typename Vector1, typename Vector2>
+void exec_solver ( Solver& S, const Vector1& f, Vector2& x )
+{
+   std::cout << "Solver: " << std::endl;
+   std::cout << S << std::endl;
+
+   int niters = 0;
+   double resid = 0;
+   std::tie( niters, resid ) = S( f, x );
+
+   //std::vector< double > r( nrows );
+   const int nrows = x.size();
+   Vector2 r( nrows );
+   amgcl::backend::residual( f, S.system_matrix(), x, r);
+   //auto norm_r = std::sqrt( amgcl::backend::inner_product( r, r ) );
+   auto norm_r = norm2( r, r );
+
+   std::cout << "Iterations: " << niters << std::endl
+             << "Error:      " << resid << std::endl
+             << "Norm(r):    " << norm_r << std::endl
+             << std::endl;
+}
 
 template <class CSRMatrix, class NodalVector>
 void eval_amgcl ( const CSRMatrix& A, NodalVector& x_ref, const NodalVector& b, const int Knod )
@@ -118,13 +154,25 @@ void eval_amgcl ( const CSRMatrix& A, NodalVector& x_ref, const NodalVector& b, 
    auto colidx = &A.colidx[0];
    auto values = &A.values[0];
 
-   amgcl::backend::crs< double, int > crs( nrows, nrows, PointerWrapper<int   >(rowptr,nrows+1),
-                                                         PointerWrapper<int   >(colidx,nnz),
-                                                         PointerWrapper<double>(values,nnz) );
+   amgcl::backend::crs< double, int > crs( nrows, nrows, ArrayPointerWrapper<int   >(rowptr,nrows+1),
+                                                         ArrayPointerWrapper<int   >(colidx,nnz),
+                                                         ArrayPointerWrapper<double>(values,nnz) );
 
+   //typedef amgcl::backend::builtin<float> fBackend;
+
+   //std::vector<float> values_f( nnz );
+   //for (int i = 0; i < nnz; ++i)
+   //   values_f[i] = values[i];
+
+   //amgcl::backend::crs< float, int > crs_f( nrows, nrows, ArrayPointerWrapper<int  >(rowptr,nrows+1),
+   //                                                       ArrayPointerWrapper<int  >(colidx,nnz),
+   //                                                       values_f );
+
+/*
    {
       typedef amgcl::amg<
            Backend,
+           //fBackend,
            amgcl::coarsening::smoothed_aggregation,
            //amgcl::relaxation::spai0
            //amgcl::relaxation::gauss_seidel
@@ -138,11 +186,13 @@ void eval_amgcl ( const CSRMatrix& A, NodalVector& x_ref, const NodalVector& b, 
       amg_prm.npre = 1; amg_prm.npost = 2;
       amg_prm.relax.damping = 0.53333333;
 
+      //AMG P( crs_f, amg_prm, backend_prm );
       AMG P( crs, amg_prm, backend_prm );
       std::cout << "AMG: " << std::endl;
       std::cout << P << std::endl;
 
-      typedef amgcl::solver::fgmres<AMG::backend_type> SolverType;
+      //typedef amgcl::solver::fgmres< AMG::backend_type > SolverType;
+      typedef amgcl::solver::fgmres< Backend > SolverType;
 
       SolverType::params solver_prms;
       solver_prms.M = 16;
@@ -175,8 +225,8 @@ void eval_amgcl ( const CSRMatrix& A, NodalVector& x_ref, const NodalVector& b, 
                 << "Norm(r):    " << norm_r << std::endl
                 << std::endl;
    }
+*/
 
-/*
    {
       boost::property_tree::ptree prm;
 
@@ -184,23 +234,82 @@ void eval_amgcl ( const CSRMatrix& A, NodalVector& x_ref, const NodalVector& b, 
                      amgcl::runtime::preconditioner<Backend>,
                      amgcl::runtime::solver::wrapper<Backend>
                      > Solver;
-
-      prm.put("solver.type", "fgmres");
-      prm.put("solver.tol", 0);
-      prm.put("solver.abstol", 1e-10);
-      prm.put("solver.maxiter", 100);
-      prm.put("solver.M", 16);
-      prm.put("precond.class", "amg");
-      //prm.put("precond.coarsening.type", "smoothed_aggregation");
-      prm.put("precond.coarsening.type", "aggregation");
-      prm.put("precond.coarse_enough", "500");
-      prm.put("precond.relax.type", "spai0");
-
-      Solver solver( crs, prm, backend_prm );
-      std::cout << "Solver: " << std::endl;
-      std::cout << solver << std::endl;
-   }
+/*
+      boost::property_tree::write_json( std::cout, prm );
 */
+      //boost::property_tree::read_json( "amgcl.json", prm );
+
+      std::string config_filename = "config.amgcl";
+
+      char *env = getenv("AMGCL_CONFIG_FILE");
+      if ( env )
+         config_filename = std::string(env);
+
+      std::cout << "config " << config_filename << std::endl;
+
+      std::ifstream config_file( config_filename );
+      if ( config_file.fail() )
+      {
+         fprintf(stderr,"Failed to open config.amgcl ... using default options\n");
+
+         prm.put("solver.type", "fgmres");
+         prm.put("solver.tol", 0);
+         prm.put("solver.abstol", 1e-10);
+         prm.put("solver.maxiter", 100);
+         prm.put("solver.M", 16);
+         prm.put("precond.class", "amg");
+         prm.put("precond.coarsening.type", "smoothed_aggregation");
+       //prm.put("precond.coarsening.type", "aggregation");
+         prm.put("precond.coarse_enough", 500);
+       //prm.put("precond.relax.type", "spai0");
+         prm.put("precond.relax.type", "damped_jacobi");
+         prm.put("precond.relax.damping", 0.53333333);
+         prm.put("precond.npre", 1);
+         prm.put("precond.npost", 2);
+      }
+      else
+      {
+         for( std::string line; std::getline( config_file, line ); )
+         {
+            //std::cout << "line " << line << std::endl;
+
+            // Remove whitespaces.
+            auto end_pos = std::remove( line.begin(), line.end(), ' ' );
+            line.erase( end_pos, line.end() );
+
+            // Ignore everything after comment symbol (#)
+            auto comment_pos = line.find( '#' );
+            if ( comment_pos != std::string::npos )
+               line.erase( line.begin() + comment_pos, line.end() );
+            //auto comment_pos = std::remove( line.begin(), line.end(), '#' );
+            //line.erase( comment_pos, line.end() );
+
+            // Find the (key, value) seperator.
+            auto sep = line.find( ',' );
+            if ( sep == std::string::npos )
+               continue;
+
+            std::string key = std::string( line.begin(), line.begin()+sep );
+            std::string val = std::string( line.begin()+sep+1, line.end() );
+
+            //std::cout << "key " << key << std::endl;
+            //std::cout << "val " << val << std::endl;
+            prm.put( key, val );
+         }
+      }
+
+      boost::property_tree::write_json( std::cout, prm );
+
+      Solver S( crs, prm, backend_prm );
+
+      std::vector< double > x( nrows, 0 );
+
+      double *bptr = (double *) &b[0];
+      //ArrayPointerWrapper< double > f( bptr, nrows );
+      std::vector< double > f( bptr, bptr + nrows );
+
+      exec_solver( S, f, x );
+   }
 
 /*
    {
@@ -419,7 +528,7 @@ void getLaplacian( double VorticityIn[], double psiIn[], double* BoundarySourceI
       splib::gemv( 1.0, *csr, _x, -1.0, _b, _r );
       auto norm = splib::spblas::norm( _r );
       auto norm_b = splib::spblas::norm( _b );
-      printf("norm: %e %e\n", norm, norm_b);
+      printf("norm: %e %e %e\n", norm, norm_b, norm / norm_b);
 
       eval_amgcl ( *csr, x, b, Knod );
    }

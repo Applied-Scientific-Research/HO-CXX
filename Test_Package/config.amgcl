@@ -1,0 +1,18 @@
+# Configuration options for make_solver boost::property_tree::ptree type.
+
+#solver.type, fgmres
+#solver.M, 16
+solver.type, bicgstab
+solver.tol, 0
+solver.abstol, 1e-10
+solver.maxiter, 500
+
+precond.class, amg
+precond.coarsening.type, smoothed_aggregation
+#precond.coarsening.type, aggregation
+precond.coarse_enough, 500
+#precond.relax.type, spai0
+precond.relax.type, damped_jacobi
+precond.relax.damping, 0.53333333
+precond.npre, 1
+precond.npost, 2
