@@ -81,8 +81,12 @@ dot_product ( const A& a, const B& b )
 #include <amgcl/relaxation/runtime.hpp>
 #include <amgcl/relaxation/as_preconditioner.hpp>
 #include <amgcl/solver/runtime.hpp>
+#include <amgcl/solver/gmres.hpp>
 #include <amgcl/preconditioner/runtime.hpp>
 #include <amgcl/backend/interface.hpp>
+#include <amgcl/value_type/static_matrix.hpp>
+#include <amgcl/adapter/crs_tuple.hpp>
+#include <amgcl/adapter/block_matrix.hpp>
 
 #include <boost/program_options.hpp>
 #include <boost/property_tree/ptree.hpp>
@@ -106,6 +110,48 @@ struct ArrayPointerWrapper
          T& operator[](const size_t& i)       { return m_data[i]; }
 };
 
+struct IdentityPrecon
+{
+   template <typename Vec1, typename Vec2>
+   void apply( const Vec1& f, Vec2& x ) const
+   {
+      const int n = f.size();
+
+      for (int i = 0; i < n; ++i)
+         x[i] = f[i];
+   }
+};
+
+template <class Solver, class Matrix>
+struct SolverAsPrecon
+{
+   typedef Solver solver_type;
+   typedef Matrix matrix_type;
+
+   solver_type &S;
+   matrix_type &A;
+
+   SolverAsPrecon ( solver_type& solver, matrix_type& matrix ) : S(solver), A(matrix)
+   {
+      std::cout << "SolverAsPrecon" << std::endl
+                << this->S << std::endl
+                << std::endl;
+   }
+
+   template <typename Vec1, typename Vec2>
+   void apply( const Vec1& f, Vec2& x ) const
+   {
+      const int n = f.size();
+
+      int niters = 0;
+      double resid = 0;
+      std::tie( niters, resid ) = this->S( this->A, IdentityPrecon(), f, x );
+      //std::cout << "SolverAsPrecon::apply" << std::endl
+      //          << "Iters " << niters << std::endl
+      //          << "Resid " << resid << std::endl;
+   }
+};
+
 template < typename U, typename V >
 typename U::value_type norm2( const U& u, const V& v )
 {
@@ -123,9 +169,13 @@ void exec_solver ( Solver& S, const Vector1& f, Vector2& x )
    std::cout << "Solver: " << std::endl;
    std::cout << S << std::endl;
 
+   auto t_start = getTimeStamp();
+
    int niters = 0;
    double resid = 0;
    std::tie( niters, resid ) = S( f, x );
+
+   auto t_stop = getTimeStamp();
 
    //std::vector< double > r( nrows );
    const int nrows = x.size();
@@ -137,26 +187,173 @@ void exec_solver ( Solver& S, const Vector1& f, Vector2& x )
    std::cout << "Iterations: " << niters << std::endl
              << "Error:      " << resid << std::endl
              << "Norm(r):    " << norm_r << std::endl
+             << "Solve time: " << getElapsedTime( t_start, t_stop ) << std::endl
              << std::endl;
 }
 
+boost::property_tree::ptree load_amgcl_params (void)
+{
+   boost::property_tree::ptree prm;
+
+   std::string config_filename = "config.amgcl";
+
+   char *env = getenv("AMGCL_CONFIG_FILE");
+   if ( env )
+      config_filename = std::string(env);
+
+   std::cout << "config " << config_filename << std::endl;
+
+   std::ifstream config_file( config_filename );
+   if ( config_file.fail() )
+   {
+      fprintf(stderr,"Failed to open config.amgcl ... using default options\n");
+
+      prm.put("solver.type", "fgmres");
+      prm.put("solver.tol", 0);
+      prm.put("solver.abstol", 1e-10);
+      prm.put("solver.maxiter", 100);
+      prm.put("solver.M", 16);
+      prm.put("precond.class", "amg");
+      prm.put("precond.coarsening.type", "smoothed_aggregation");
+    //prm.put("precond.coarsening.type", "aggregation");
+      prm.put("precond.coarse_enough", 500);
+    //prm.put("precond.relax.type", "spai0");
+      prm.put("precond.relax.type", "damped_jacobi");
+      prm.put("precond.relax.damping", 0.53333333);
+      prm.put("precond.npre", 1);
+      prm.put("precond.npost", 2);
+   }
+   else
+   {
+      for( std::string line; std::getline( config_file, line ); )
+      {
+         //std::cout << "line " << line << std::endl;
+
+         // Remove whitespaces.
+         auto end_pos = std::remove( line.begin(), line.end(), ' ' );
+         line.erase( end_pos, line.end() );
+
+         // Ignore everything after comment symbol (#)
+         auto comment_pos = line.find( '#' );
+         if ( comment_pos != std::string::npos )
+            line.erase( line.begin() + comment_pos, line.end() );
+         //auto comment_pos = std::remove( line.begin(), line.end(), '#' );
+         //line.erase( comment_pos, line.end() );
+
+         // Find the (key, value) seperator.
+         auto sep = line.find( ',' );
+         if ( sep == std::string::npos )
+            continue;
+
+         std::string key = std::string( line.begin(), line.begin()+sep );
+         std::string val = std::string( line.begin()+sep+1, line.end() );
+
+         //std::cout << "key " << key << std::endl;
+         //std::cout << "val " << val << std::endl;
+         prm.put( key, val );
+      }
+   }
+
+   boost::property_tree::write_json( std::cout, prm );
+
+   return prm;
+}
+
+template <typename ColType, typename ValType>
+struct RowSorter
+{
+   size_t n;
+   std::vector<ColType> m_col;
+   std::vector<ValType> m_val;
+
+   template <typename T>
+   bool operator() ( const T& i, const T& j ) const
+   {
+      return this->m_col[i] < this->m_col[j];
+   }
+
+   RowSorter( ColType *col, ValType *val, const size_t n ) : m_col(col,col+n), m_val(val,val+n), n(n)
+   {
+      std::vector<int> index(n);
+
+      for (int i(0); i < n; ++i)
+         index[i] = i;
+
+      std::sort( index.begin(), index.end(), *this );
+
+      for (int i = 0; i < n; ++i)
+      {
+         col[i] = this->m_col[ index[i] ];
+         val[i] = this->m_val[ index[i] ];
+      }
+   }
+};
+
+template <typename R, typename C, typename V>
+void sort_crs_rows( const int nrows, const R *rowptr, C *colidx, V *values )
+{
+   for (int i = 0; i < nrows; ++i)
+   {
+      const int j = rowptr[i];
+      const int nnz = rowptr[i+1] - j;
+
+      //printf("%lu, %lu\n", i, nnz);
+      //for (int k = j; k < (j+nnz); ++k)
+      //{
+      //   std::cout << colidx[k];
+      //   if ((k-j) % 9 == 8 or k == (j+nnz-1))
+      //      std::cout << std::endl;
+      //   else
+      //      std::cout << ",";
+      //}
+
+      RowSorter<C,V> sorter( colidx + j, values + j, nnz );
+
+      //printf("sorted\n");
+      //for (int k = j; k < (j+nnz); ++k)
+      //{
+      //   std::cout << colidx[k];
+      //   if ((k-j) % 9 == 8 or k == (j+nnz-1))
+      //      std::cout << std::endl;
+      //   else
+      //      std::cout << ",";
+      //}
+   }
+}
+
 template <class CSRMatrix, class NodalVector>
-void eval_amgcl ( const CSRMatrix& A, NodalVector& x_ref, const NodalVector& b, const int Knod )
+void eval_amgcl ( const CSRMatrix& A_in, NodalVector& x_ref, const NodalVector& b, const int Knod )
 {
    typedef amgcl::backend::builtin<double> Backend;
 
-   const size_t nrows = A.num_rows, nnz = A.num_values;
+   const size_t nrows = A_in.num_rows, nnz = A_in.num_values;
 
    Backend::params backend_prm;
    //backend_prm.block_size = 4;
 
-   auto rowptr = &A.rowptr[0];
-   auto colidx = &A.colidx[0];
-   auto values = &A.values[0];
+   auto rowptr = &A_in.rowptr[0];
+   auto colidx = &A_in.colidx[0];
+   auto values = &A_in.values[0];
 
-   amgcl::backend::crs< double, int > crs( nrows, nrows, ArrayPointerWrapper<int   >(rowptr,nrows+1),
-                                                         ArrayPointerWrapper<int   >(colidx,nnz),
-                                                         ArrayPointerWrapper<double>(values,nnz) );
+#if 0
+   std::vector<int> A_rowptr( rowptr, rowptr + nrows+1 );
+   std::vector<int> A_colidx( colidx, colidx + nnz );
+   std::vector<double> A_values( values, values + nnz );
+
+   sort_crs_rows( nrows, A_rowptr.data(), A_colidx.data(), A_values.data() );
+#else
+   //amgcl::backend::crs< double, int > A( nrows, nrows, ArrayPointerWrapper<int   >(rowptr,nrows+1),
+   //                                                      ArrayPointerWrapper<int   >(colidx,nnz),
+   //                                                      ArrayPointerWrapper<double>(values,nnz) );
+
+   ArrayPointerWrapper<int   > A_rowptr(rowptr,nrows+1);
+   ArrayPointerWrapper<int   > A_colidx(colidx,nnz);
+   ArrayPointerWrapper<double> A_values(values,nnz);
+#endif
+
+   auto A = std::tie( nrows, A_rowptr,
+                             A_colidx,
+                             A_values );
 
    //typedef amgcl::backend::builtin<float> fBackend;
 
@@ -164,7 +361,7 @@ void eval_amgcl ( const CSRMatrix& A, NodalVector& x_ref, const NodalVector& b, 
    //for (int i = 0; i < nnz; ++i)
    //   values_f[i] = values[i];
 
-   //amgcl::backend::crs< float, int > crs_f( nrows, nrows, ArrayPointerWrapper<int  >(rowptr,nrows+1),
+   //amgcl::backend::crs< float, int > A_f( nrows, nrows, ArrayPointerWrapper<int  >(rowptr,nrows+1),
    //                                                       ArrayPointerWrapper<int  >(colidx,nnz),
    //                                                       values_f );
 
@@ -186,8 +383,8 @@ void eval_amgcl ( const CSRMatrix& A, NodalVector& x_ref, const NodalVector& b, 
       amg_prm.npre = 1; amg_prm.npost = 2;
       amg_prm.relax.damping = 0.53333333;
 
-      //AMG P( crs_f, amg_prm, backend_prm );
-      AMG P( crs, amg_prm, backend_prm );
+      //AMG P( A_f, amg_prm, backend_prm );
+      AMG P( A, amg_prm, backend_prm );
       std::cout << "AMG: " << std::endl;
       std::cout << P << std::endl;
 
@@ -217,7 +414,7 @@ void eval_amgcl ( const CSRMatrix& A, NodalVector& x_ref, const NodalVector& b, 
       std::tie( niters, resid ) = solver( P, f, x );
 
       std::vector< double > r( nrows );
-      amgcl::backend::residual( f, crs, x, r);
+      amgcl::backend::residual( f, A, x, r);
       auto norm_r = std::sqrt( amgcl::backend::inner_product( r, r ) );
 
       std::cout << "Iterations: " << niters << std::endl
@@ -227,80 +424,24 @@ void eval_amgcl ( const CSRMatrix& A, NodalVector& x_ref, const NodalVector& b, 
    }
 */
 
+   auto prm = load_amgcl_params();
+
    {
-      boost::property_tree::ptree prm;
+      typedef amgcl::backend::builtin<float> fBackend;
 
       typedef amgcl::make_solver<
                      amgcl::runtime::preconditioner<Backend>,
+                   //amgcl::runtime::preconditioner<fBackend>,
                      amgcl::runtime::solver::wrapper<Backend>
                      > Solver;
-/*
-      boost::property_tree::write_json( std::cout, prm );
-*/
-      //boost::property_tree::read_json( "amgcl.json", prm );
 
-      std::string config_filename = "config.amgcl";
+      auto t_build_start = getTimeStamp();
 
-      char *env = getenv("AMGCL_CONFIG_FILE");
-      if ( env )
-         config_filename = std::string(env);
+      Solver S( A, prm, backend_prm );
 
-      std::cout << "config " << config_filename << std::endl;
+      auto t_build_stop = getTimeStamp();
 
-      std::ifstream config_file( config_filename );
-      if ( config_file.fail() )
-      {
-         fprintf(stderr,"Failed to open config.amgcl ... using default options\n");
-
-         prm.put("solver.type", "fgmres");
-         prm.put("solver.tol", 0);
-         prm.put("solver.abstol", 1e-10);
-         prm.put("solver.maxiter", 100);
-         prm.put("solver.M", 16);
-         prm.put("precond.class", "amg");
-         prm.put("precond.coarsening.type", "smoothed_aggregation");
-       //prm.put("precond.coarsening.type", "aggregation");
-         prm.put("precond.coarse_enough", 500);
-       //prm.put("precond.relax.type", "spai0");
-         prm.put("precond.relax.type", "damped_jacobi");
-         prm.put("precond.relax.damping", 0.53333333);
-         prm.put("precond.npre", 1);
-         prm.put("precond.npost", 2);
-      }
-      else
-      {
-         for( std::string line; std::getline( config_file, line ); )
-         {
-            //std::cout << "line " << line << std::endl;
-
-            // Remove whitespaces.
-            auto end_pos = std::remove( line.begin(), line.end(), ' ' );
-            line.erase( end_pos, line.end() );
-
-            // Ignore everything after comment symbol (#)
-            auto comment_pos = line.find( '#' );
-            if ( comment_pos != std::string::npos )
-               line.erase( line.begin() + comment_pos, line.end() );
-            //auto comment_pos = std::remove( line.begin(), line.end(), '#' );
-            //line.erase( comment_pos, line.end() );
-
-            // Find the (key, value) seperator.
-            auto sep = line.find( ',' );
-            if ( sep == std::string::npos )
-               continue;
-
-            std::string key = std::string( line.begin(), line.begin()+sep );
-            std::string val = std::string( line.begin()+sep+1, line.end() );
-
-            //std::cout << "key " << key << std::endl;
-            //std::cout << "val " << val << std::endl;
-            prm.put( key, val );
-         }
-      }
-
-      boost::property_tree::write_json( std::cout, prm );
-
-      Solver S( crs, prm, backend_prm );
+      std::cout << "Build time: " << getElapsedTime( t_build_start, t_build_stop ) << std::endl;
 
       std::vector< double > x( nrows, 0 );
 
@@ -308,49 +449,181 @@ void eval_amgcl ( const CSRMatrix& A, NodalVector& x_ref, const NodalVector& b, 
       //ArrayPointerWrapper< double > f( bptr, nrows );
       std::vector< double > f( bptr, bptr + nrows );
 
-      exec_solver( S, f, x );
+      //for (int j = 0; j < 3; ++j)
+      //{
+      //   for (int i = 0; i < nrows; ++i)
+      //      x[i] = 0.0;
+
+         exec_solver( S, f, x );
+      //}
    }
 
 /*
    {
-      typedef amgcl::relaxation::ilu0< Backend > ilu0Type;
       typedef amgcl::relaxation::as_preconditioner<
          Backend,
-         amgcl::relaxation::ilu0
-         > ILU;
+         //amgcl::relaxation::ilu0
+         amgcl::solver::gmres
+         > Precon;
 
-      ILU P( crs );
-      std::cout << "ILU: " << std::endl;
+      Precon P( A );
+      std::cout << "Precon: " << std::endl;
       std::cout << P << std::endl;
 
-      typedef amgcl::solver::fgmres< ILU::backend_type > SolverType;
+      typedef amgcl::solver::fgmres< Backend > Solver;
 
-      SolverType::params solver_prms;
+      Solver::params solver_prms;
       solver_prms.M = 16;
       solver_prms.tol = 0; // to get only abstol
       solver_prms.abstol = 1e-10;
 
-      SolverType solver( nrows, solver_prms );
+      Solver solver( nrows, solver_prms );
 
       std::cout << "Solver: " << std::endl;
       std::cout << solver << std::endl;
 
-      std::vector< double > f( nrows );
       std::vector< double > x( nrows, 0 );
 
       double *bptr = (double *) &b[0];
-      for (int i = 0; i < nrows; ++i)
-         f[i] = bptr[i];
+
+      std::vector< double > f( bptr, bptr + nrows );
+
+      exec_solver( solver, f, x );
+   }
+*/
+
+   if (0)
+   {
+      IdentityPrecon P;
+
+      typedef amgcl::solver::fgmres< Backend > Solver;
+
+      Solver::params solver_prms;
+      solver_prms.M = 16;
+      solver_prms.tol = 0; // to get only abstol
+      solver_prms.abstol = 1e-10;
+      solver_prms.maxiter = 500;
+
+      Solver solver( nrows, solver_prms );
+
+      std::cout << "Solver: " << std::endl;
+      std::cout << solver << std::endl;
+
+      std::vector< double > x( nrows, 0 );
+
+      double *bptr = (double *) &b[0];
+
+      std::vector< double > f( bptr, bptr + nrows );
 
       int niters = 0;
       double resid = 0;
-      std::tie( niters, resid ) = solver( P, f, x );
+
+      std::tie( niters, resid ) = solver( A, P, f, x );
 
       std::cout << "Iterations: " << niters << std::endl
                 << "Error:      " << resid << std::endl
+                //<< "Norm(r):    " << norm_r << std::endl
+                //<< "Solve time: " << getElapsedTime( t_start, t_stop ) << std::endl
                 << std::endl;
    }
-*/
+
+   if (0)
+   {
+      IdentityPrecon P;
+
+      const int BS = 9;
+
+      typedef amgcl::static_matrix<double, BS, BS> value_type;
+      typedef amgcl::static_matrix<double, BS,  1> rhs_type;
+
+      typedef amgcl::backend::builtin< value_type > BBackend;
+
+      typedef amgcl::solver::fgmres< BBackend > Solver;
+      //typedef amgcl::make_solver<
+      //               amgcl::runtime::preconditioner<BBackend>,
+      //               amgcl::runtime::solver::wrapper<BBackend>
+      //            > Solver;
+
+      auto Ab = amgcl::adapter::block_matrix< value_type >(std::tie( nrows, A_rowptr, A_colidx, A_values ));
+
+      Solver::params solver_prms;
+      solver_prms.M = 16;
+      solver_prms.tol = 0; // to get only abstol
+      solver_prms.abstol = 1e-10;
+      solver_prms.maxiter = 500;
+
+      Solver solver( nrows/BS, solver_prms );
+      //Solver solver( Ab, prm );
+
+      std::cout << "Solver: " << std::endl;
+      std::cout << solver << std::endl;
+
+      std::vector< double > x( nrows, 0 );
+
+      rhs_type const *fptr = reinterpret_cast<rhs_type const *>( &b[0] );
+      rhs_type       *xptr = reinterpret_cast<rhs_type       *>( &x[0] );
+
+      amgcl::backend::numa_vector<rhs_type> F(fptr, fptr + nrows/BS);
+      amgcl::backend::numa_vector<rhs_type> X(xptr, xptr + nrows/BS);
+
+      int niters = 0;
+      double resid = 0;
+
+      std::tie( niters, resid ) = solver( Ab, P, F, X );
+      //std::tie( niters, resid ) = solver( F, X );
+
+      std::cout << "Iterations: " << niters << std::endl
+                << "Error:      " << resid << std::endl
+                //<< "Norm(r):    " << norm_r << std::endl
+                //<< "Solve time: " << getElapsedTime( t_start, t_stop ) << std::endl
+                << std::endl;
+   }
+
+   if (0)
+   {
+      typedef amgcl::solver::gmres< Backend > PreconSolver;
+      //typedef amgcl::solver::bicgstab< Backend > PreconSolver;
+      typedef SolverAsPrecon< PreconSolver, decltype(A) > Precon;
+
+      PreconSolver::params precon_solver_prms;
+      precon_solver_prms.M = 16;
+      precon_solver_prms.tol = 0.1;
+      precon_solver_prms.maxiter = 32;
+
+      PreconSolver precon_solver( nrows, precon_solver_prms );
+
+      Precon P( precon_solver, A );
+
+      typedef amgcl::solver::fgmres< Backend > Solver;
+
+      Solver::params solver_prms;
+      solver_prms.M = 16;
+      solver_prms.tol = 0; // to get only abstol
+      solver_prms.abstol = 1e-10;
+      solver_prms.maxiter = 500;
+
+      Solver solver( nrows, solver_prms );
+
+      std::cout << "Solver: " << std::endl;
+      std::cout << solver << std::endl;
+
+      std::vector< double > x( nrows, 0 );
+
+      double *bptr = (double *) &b[0];
+
+      std::vector< double > f( bptr, bptr + nrows );
+
+      int niters = 0;
+      double resid = 0;
+
+      std::tie( niters, resid ) = solver( A, P, f, x );
+
+      std::cout << "Iterations: " << niters << std::endl
+                << "Error:      " << resid << std::endl
+                //<< "Norm(r):    " << norm_r << std::endl
+                //<< "Solve time: " << getElapsedTime( t_start, t_stop ) << std::endl
+                << std::endl;
+   }
 }
 
 extern "C"

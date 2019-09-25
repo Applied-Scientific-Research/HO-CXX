@@ -2632,6 +2632,13 @@ print *,'MATRIX MAX VALUE ',maxval(abs(values(1:nnz)))
        rowptr_filtered = rowptr_filtered - 1
        colidx_filtered = colidx_filtered - 1
 
+       !do i = 1, min(k4,nrows)
+       !   j = rowptr(i)
+       !   nnz = rowptr(i+1) - rowptr(i)
+       !   print *, i, nnz
+       !   print "(9(i7,',',1x))", colidx(j:j+nnz-1)
+       !enddo
+
 ! Convert Fortran 1-index to C/C++ 0-index
        rowptr = rowptr - 1
        colidx = colidx - 1
