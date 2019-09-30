@@ -152,6 +152,70 @@ struct SolverAsPrecon
    }
 };
 
+template <class Precon>
+struct MixedPrecisionPrecon
+{
+   typedef Precon precon_type;
+   typedef amgcl::backend::numa_vector<float> vector_type;
+
+   precon_type &P;
+   vector_type f, x;
+
+   MixedPrecisionPrecon ( precon_type& precon ) : P(precon)
+   {
+      size_t nrows = amgcl::backend::rows(P.system_matrix());
+      this->f.resize(nrows);
+      this->x.resize(nrows);
+
+      //std::cout << "MixedPrecisionPrecon" << std::endl
+      //          << this->P << std::endl
+      //          << nrows << std::endl
+      //          << std::endl;
+   }
+
+   ~MixedPrecisionPrecon()
+   {
+      std::cout << "~MixedPrecisionPrecon" << std::endl;
+   }
+
+   friend std::ostream& operator<<(std::ostream &os, const MixedPrecisionPrecon &p)
+   {
+      os << "MixedPrecisionPrecon of ... " << std::endl;
+      os << p.P << std::endl;
+
+      return os;
+   }
+
+   template <typename Vec1, typename Vec2>
+   void apply( const Vec1& f, Vec2& x ) const
+   {
+      const size_t n = f.size();
+
+      auto &fout = const_cast<vector_type&>(this->f);
+      auto &xout = const_cast<vector_type&>(this->x);
+
+      int niters = 0;
+      double resid = 0;
+
+      #pragma omp parallel for
+      for (int i = 0; i < n; ++i) {
+         fout[i] = f[i];
+         xout[i] = x[i];
+      }
+
+      this->P.apply( fout, xout );
+
+      //this->P.apply( f, x );
+      //std::cout << "MixedPrecisionPrecon::apply" << std::endl
+      //          << "typeid(f): " << typeid(f).name() << std::endl
+      //          << "typeid(x): " << typeid(x).name() << std::endl;
+
+      #pragma omp parallel for
+      for (int i = 0; i < n; ++i)
+         x[i] = xout[i];
+   }
+};
+
 template < typename U, typename V >
 typename U::value_type norm2( const U& u, const V& v )
 {
@@ -163,17 +227,26 @@ typename U::value_type norm2( const U& u, const V& v )
    return std::sqrt(s);
 }
 
-template <typename Solver, typename Vector1, typename Vector2>
-void exec_solver ( Solver& S, const Vector1& f, Vector2& x )
+template <typename Solver, typename Vector1, typename Vector2, typename Precon>
+void exec_solver ( Solver& S, const Vector1& f, Vector2& x, Precon* P)
 {
    std::cout << "Solver: " << std::endl;
    std::cout << S << std::endl;
+
+   if (P) {
+      std::cout << "Precon: " << std::endl;
+      std::cout << *P << std::endl;
+   }
 
    auto t_start = getTimeStamp();
 
    int niters = 0;
    double resid = 0;
-   std::tie( niters, resid ) = S( f, x );
+
+//   if (P)
+//      std::tie( niters, resid ) = S( *P, f, x );
+//   else
+      std::tie( niters, resid ) = S( f, x );
 
    auto t_stop = getTimeStamp();
 
@@ -189,6 +262,13 @@ void exec_solver ( Solver& S, const Vector1& f, Vector2& x )
              << "Norm(r):    " << norm_r << std::endl
              << "Solve time: " << getElapsedTime( t_start, t_stop ) << std::endl
              << std::endl;
+}
+
+template <typename Solver, typename Vector1, typename Vector2>
+void exec_solver ( Solver& S, const Vector1& f, Vector2& x)
+{
+   int *P = NULL;
+   exec_solver(S, f, x, P);
 }
 
 boost::property_tree::ptree load_amgcl_params (void)
@@ -426,6 +506,7 @@ void eval_amgcl ( const CSRMatrix& A_in, NodalVector& x_ref, const NodalVector& 
 
    auto prm = load_amgcl_params();
 
+   if (0)
    {
       typedef amgcl::backend::builtin<float> fBackend;
 
@@ -456,6 +537,129 @@ void eval_amgcl ( const CSRMatrix& A_in, NodalVector& x_ref, const NodalVector& 
 
          exec_solver( S, f, x );
       //}
+   }
+
+   if (1)
+   {
+      typedef amgcl::backend::builtin<float> fBackend;
+
+      typedef amgcl::make_solver<
+                     amgcl::runtime::preconditioner<fBackend>,
+                     amgcl::runtime::solver::wrapper<Backend>
+                     > Solver;
+
+      auto t_build_start = getTimeStamp();
+
+      Solver S( A, prm, backend_prm );
+
+      auto &P = S.precond();
+      MixedPrecisionPrecon< decltype(P) > P_f(P);
+
+      auto t_build_stop = getTimeStamp();
+
+      std::cout << "Build time: " << getElapsedTime( t_build_start, t_build_stop ) << std::endl;
+
+      std::vector< double > x( nrows, 0 );
+
+      double *bptr = (double *) &b[0];
+      //ArrayPointerWrapper< double > f( bptr, nrows );
+      std::vector< double > f( bptr, bptr + nrows );
+
+      //exec_solver( S, f, x, &P_f );
+      std::cout << "Solver: " << std::endl << S.solver() << std::endl;
+      std::cout << "Precon: " << std::endl << P_f << std::endl;
+
+      auto t_start = getTimeStamp();
+
+      int niters = 0;
+      double resid = 0;
+
+      std::tie( niters, resid ) = S.solver()( A, P_f, f, x );
+
+      auto t_stop = getTimeStamp();
+
+      decltype(x) r(nrows);
+      amgcl::backend::residual( f, A, x, r);
+      auto norm_r = norm2( r, r );
+
+      std::cout << "Iterations: " << niters << std::endl
+                << "Error:      " << resid << std::endl
+                << "Norm(r):    " << norm_r << std::endl
+                << "Solve time: " << getElapsedTime( t_start, t_stop ) << std::endl
+                << std::endl;
+   }
+
+   if (0)
+   {
+      typedef amgcl::backend::builtin<float> fBackend;
+
+      typedef amgcl::amg<
+           fBackend,
+           amgcl::coarsening::smoothed_aggregation,
+           amgcl::relaxation::damped_jacobi
+           > Precon;
+
+      typedef amgcl::solver::fgmres< Backend > Solver;
+
+      Precon::params precon_prms;
+      precon_prms.coarse_enough = 500;
+    //precon_prms.coarsening.aggr.eps_strong = 0;
+    //precon_prms.coarsening.aggr.block_size = 9;
+      precon_prms.npre = 1; precon_prms.npost = 2;
+      precon_prms.relax.damping = 0.53333333;
+
+      Solver::params solver_prms;
+      solver_prms.M = 16;
+      solver_prms.tol = 0; // to get only abstol
+      solver_prms.abstol = 1e-10;
+      solver_prms.maxiter = 500;
+
+      auto t_build_start = getTimeStamp();
+
+      auto A = std::tie( nrows, A_rowptr,
+                                A_colidx,
+                                A_values );
+
+      std::vector<float> A_values_f( nnz );
+      for (int i = 0; i < nnz; ++i)
+         A_values_f[i] = A_values[i];
+
+      auto A_f = std::tie( nrows, A_rowptr, A_colidx, A_values_f );
+
+      Precon P( A_f, precon_prms, backend_prm );
+      MixedPrecisionPrecon<Precon> P_f(P);
+
+      Solver S( nrows, solver_prms, backend_prm );
+
+      auto t_build_stop = getTimeStamp();
+
+      std::cout << "Build time: " << getElapsedTime( t_build_start, t_build_stop ) << std::endl;
+      std::cout << "Solver: " << std::endl << S << std::endl;
+      std::cout << "Precon: " << std::endl << P << std::endl;
+
+      std::vector< double > x( nrows, 0 );
+
+      double *bptr = (double *) &b[0];
+      std::vector< double > f( bptr, bptr + nrows );
+
+      auto t_start = getTimeStamp();
+
+      int niters = 0;
+      double resid = 0;
+
+      std::tie( niters, resid ) = S( A, P_f, f, x );
+
+      auto t_stop = getTimeStamp();
+
+      decltype(x) r(nrows);
+      amgcl::backend::residual( f, A, x, r);
+      auto norm_r = norm2( r, r );
+
+      std::cout << "Iterations: " << niters << std::endl
+                << "Error:      " << resid << std::endl
+                << "Norm(r):    " << norm_r << std::endl
+                << "Solve time: " << getElapsedTime( t_start, t_stop ) << std::endl
+                << std::endl;
    }
 
 /*
