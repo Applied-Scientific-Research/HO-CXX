@@ -96,13 +96,14 @@ struct BasisFunctions
          gps(0) = -gps(3);
       }
 
-      for (int i = 0; i < K; ++i)
-         printf("sps[%d]= %e %e\n", i, sps(i), wgt(i));
+      //for (int i = 0; i < K; ++i)
+      //   printf("sps[%d]= %e %e\n", i, sps(i), wgt(i));
 
-      for (int i = 0; i < L; ++i)
-         printf("gps[%d]= %e\n", i, gps(i));
+      //for (int i = 0; i < L; ++i)
+      //   printf("gps[%d]= %e\n", i, gps(i));
 
       this->getRadauBasis();
+      this->getSolnLagrangianBasis();
    }
 
 private:
@@ -131,10 +132,80 @@ private:
          }
       }
 
-      for (int i = 0; i < K; ++i)
-         printf("NodesRadau(%d,:)= %e %e\n", i, NodesRadau(i,0), NodesRadau(i,1));
-      for (int i = 0; i < K; ++i)
-         printf("NodesGradRadau(%d,:)= %e %e\n", i, NodesGradRadau(i,0), NodesGradRadau(i,1));
+      //for (int i = 0; i < K; ++i)
+      //   printf("NodesRadau(%d,:)= %e %e\n", i, NodesRadau(i,0), NodesRadau(i,1));
+      //for (int i = 0; i < K; ++i)
+      //   printf("NodesGradRadau(%d,:)= %e %e\n", i, NodesGradRadau(i,0), NodesGradRadau(i,1));
+   }
+
+   //! Get Lagrange extrapolation basis for internal nodes, the Left (-1.0) and Right (1.0) boundaries
+   //!   as well as derivatives at the boudaries and internal nodes
+   void getSolnLagrangianBasis(void)
+   {
+      SolnBndryLgrangeBasis.set(0.0);
+      SolnBndryGradLgrangeBasis.set(0.0);
+      SolnNodesGradLgrangeBasis.set(0.0);
+
+      for (int k = 0; k < K; ++k)
+      {
+         SolnBndryLgrangeBasis(k,0) = SolnBndryLgrangeBasis(k,1) = 1.0;
+
+         double denom = 1.0;
+
+         for (int j = 0; j < K; ++j)
+         {
+            if ( j == k ) continue;
+
+            denom *= (sps(k) - sps(j));      // Basis denominator is common to all evaluations
+
+            // Get the numerators for the extrapolations to L+R
+            SolnBndryLgrangeBasis(k,1) *= ( 1.0 - sps(j));
+            SolnBndryLgrangeBasis(k,0) *= (-1.0 - sps(j));
+
+            double GradNumer[2] = { 1.0,1.0 };
+
+            StaticArrayType< double[K] > NodesGradNumer;
+            NodesGradNumer.set(1.0);
+
+            for (int i = 0; i < K; ++i)
+            {
+               if (i == k or i == j) continue;
+
+               // Get the numerators for derivatives of extrpolations to L+R
+               GradNumer[1] = GradNumer[1] * ( 1.0 - sps(i));
+               GradNumer[0] = GradNumer[0] * (-1.0 - sps(i));
+
+               // Get the numerators for derivatives of interpolation to interior nodes
+               for (int l = 0; l < K; ++l)
+                  NodesGradNumer(l) *= (sps(l) - sps(i));
+            }
+
+            SolnBndryGradLgrangeBasis(k,0) += GradNumer[0];
+            SolnBndryGradLgrangeBasis(k,1) += GradNumer[1];
+
+            for (int i = 0; i < K; ++i)
+               SolnNodesGradLgrangeBasis(k,i) += NodesGradNumer(i);
+         }
+
+         for (int j = 0; j < 2; ++j) {
+            SolnBndryLgrangeBasis(k,j) /= denom;
+            SolnBndryGradLgrangeBasis(k,j) /= denom;
+         }
+
+         // Get grads DOT_PROD[SolnNodesGradLgrangeBasis(k,j),u(k)] at a node/point j using data values u(k) at nodes k
+         for (int j = 0; j < K; ++j)
+            SolnNodesGradLgrangeBasis(k,j) /= denom;
+      }
+
+      //for (int k = 0; k < K; ++k)
+      //   for (int j = 0; j < K; ++j)
+      //      printf("SolnNodesGradLgrangeBasis(%d,%d): %e\n", k, j, SolnNodesGradLgrangeBasis(k,j));
+
+      //for (int k = 0; k < K; ++k)
+      //   printf("SolnBndryLgrangeBasis(%d,:): %e, %e\n", k, SolnBndryLgrangeBasis(k,0), SolnBndryLgrangeBasis(k,1));
+
+      //for (int k = 0; k < K; ++k)
+      //   printf("SolnBndryGradLgrangeBasis(%d,:): %e, %e\n", k, SolnBndryGradLgrangeBasis(k,0), SolnBndryGradLgrangeBasis(k,1));
    }
 
 
