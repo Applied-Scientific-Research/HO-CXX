@@ -9,6 +9,7 @@
 #include "wtimer.hpp"
 #include "memory.hpp"
 #include "array.hpp"
+#include "basis.hpp"
 
 #include "aplles_interface.h"
 #include "splib/csr_matrix.h"
@@ -877,6 +878,10 @@ void setLaplacian( const int Knod, const int Nel,
       typedef splib::csr_matrix<double> csr_matrix;
       csr_matrix *csr = reinterpret_cast< csr_matrix* >( A_handle );
       printf("CSR matrix: %d %d %d\n", csr->num_rows, csr->num_columns, csr->num_values);
+   }
+
+   {
+      BasisFunctions<3,4> basis;
    }
 
    return;
