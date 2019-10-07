@@ -1,6 +1,8 @@
 #ifndef __array_hpp
 #define __array_hpp
 
+#include "forall.hpp"
+
 namespace HighOrderFEM
 {
 
@@ -177,39 +179,20 @@ struct StaticArrayType
       return SliceType< StaticArrayType, Dim >( *this, index );
    }
 
-   template <class Func>
-     typename std::enable_if< std::is_class<Func>::value and rank == 1, void >::type
-   forall( Func& func )
-   {
-      for (int i = 0; i < I0; ++i)
-         (*this)(i) = func(i);
-   }
-
-   template <class Func>
-     typename std::enable_if< std::is_class<Func>::value and rank == 2, void >::type
-   forall( Func& func )
-   {
-      for (int i = 0; i < I0; ++i)
-         for (int j = 0; j < I1; ++j)
-            (*this)(i,j) = func(i,j);
-   }
-
    template <typename T>
       typename std::enable_if< std::is_scalar<T>::value and rank == 1, void >::type
    set( const T& val )
    {
-      auto f = [&](const int) { return val; };
-
-      this->forall( f );
+      auto f = [&](const int& i) { (*this)(i) = val; };
+      forall( I0, f );
    }
 
    template <typename T>
       typename std::enable_if< std::is_scalar<T>::value and rank == 2, void >::type
    set( const T& val )
    {
-      auto f = [&](const int, const int) { return val; };
-
-      this->forall( f );
+      auto f = [&](const int& i, const int& j) { (*this)(i,j) = val; };
+      forall( I0, I1, f );
    }
 };
 

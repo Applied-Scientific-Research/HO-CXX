@@ -2,6 +2,7 @@
 #define __basis_hpp
 
 #include "array.hpp"
+#include "forall.hpp"
 
 namespace HighOrderFEM
 {
@@ -104,6 +105,7 @@ struct BasisFunctions
 
       this->getRadauBasis();
       this->getSolnLagrangianBasis();
+      this->getGeomLagrangianBases();
    }
 
 private:
@@ -132,10 +134,11 @@ private:
          }
       }
 
-      //for (int i = 0; i < K; ++i)
-      //   printf("NodesRadau(%d,:)= %e %e\n", i, NodesRadau(i,0), NodesRadau(i,1));
-      //for (int i = 0; i < K; ++i)
-      //   printf("NodesGradRadau(%d,:)= %e %e\n", i, NodesGradRadau(i,0), NodesGradRadau(i,1));
+      //forall(K, [&](const int& i) {
+      //      printf("NodesRadau(%d,:)= %e %e\n", i, NodesRadau(i,0), NodesRadau(i,1));
+      //      printf("NodesGradRadau(%d,:)= %e %e\n", i, NodesGradRadau(i,0), NodesGradRadau(i,1));
+      //   }
+      //);
    }
 
    //! Get Lagrange extrapolation basis for internal nodes, the Left (-1.0) and Right (1.0) boundaries
@@ -197,17 +200,80 @@ private:
             SolnNodesGradLgrangeBasis(k,j) /= denom;
       }
 
-      //for (int k = 0; k < K; ++k)
-      //   for (int j = 0; j < K; ++j)
-      //      printf("SolnNodesGradLgrangeBasis(%d,%d): %e\n", k, j, SolnNodesGradLgrangeBasis(k,j));
+      //forall( K, K, [&](int k, int j){ printf("SolnNodesGradLgrangeBasis(%d,%d): %e\n", k, j, SolnNodesGradLgrangeBasis(k,j)); } );
 
-      //for (int k = 0; k < K; ++k)
-      //   printf("SolnBndryLgrangeBasis(%d,:): %e, %e\n", k, SolnBndryLgrangeBasis(k,0), SolnBndryLgrangeBasis(k,1));
+      //forall( K, [&](int k){ printf("SolnBndryLgrangeBasis(%d,:): %e, %e\n", k, SolnBndryLgrangeBasis(k,0), SolnBndryLgrangeBasis(k,1)); });
 
-      //for (int k = 0; k < K; ++k)
-      //   printf("SolnBndryGradLgrangeBasis(%d,:): %e, %e\n", k, SolnBndryGradLgrangeBasis(k,0), SolnBndryGradLgrangeBasis(k,1));
+      //forall( K, [&](int k){ printf("SolnBndryGradLgrangeBasis(%d,:): %e, %e\n", k, SolnBndryGradLgrangeBasis(k,0), SolnBndryGradLgrangeBasis(k,1)); });
    }
 
+   void getGeomLagrangianBases(void)
+   {
+      // Get Lagrange extrapolation basis for internal nodes, the Left (-1.0) and Right (1.0) boundaries
+      //    as well as derivatives at the boudaries and internal nodes
+
+      this->GeomBndryLgrangeBasis.set(0.0);
+      this->GeomBndryGradLgrangeBasis.set(0.0);
+      this->GeomNodesLgrangeBasis.set(0.0);
+      this->GeomNodesGradLgrangeBasis.set(0.0);
+
+      for (int k = 0; k < L; ++k)
+      {
+         GeomBndryLgrangeBasis(k,0) = GeomBndryLgrangeBasis(k,1) = 1.;
+         forall( K, [&](int j) { GeomNodesLgrangeBasis(k,j) = 1.; } );
+
+         double denom = 1.;
+
+         for (int j = 0; j < L; ++j)
+         {
+            if (j == k) continue;
+            denom *= (gps(k) - gps(j));       // Basis denominator is common to all evaluations
+
+            // Get the numerators for the extrapolations to L+R
+            GeomBndryLgrangeBasis(k,1) *= ( 1. - gps(j));
+            GeomBndryLgrangeBasis(k,0) *= (-1. - gps(j));
+            forall( K, [&](int i){ GeomNodesLgrangeBasis(k,i) *= (sps(i) - gps(j)); } );
+
+            double GradNumer[] = {1., 1.};
+            StaticArrayType< double[K] > NodesGradNumer; NodesGradNumer.set(1.0);
+
+            for (int i = 0; i < L; ++i)
+            {
+               if (i == k or i == j) continue;
+
+               // Get the numerators for derivatives of extrpolations to L+R
+               GradNumer[1] *= ( 1. - gps(i));
+               GradNumer[0] *= (-1. - gps(i));
+
+               // Get the numerators for derivatives of interpolation to interior nodes
+               forall( K, [&](int l){ NodesGradNumer(l) *= (sps(l) - gps(i)); } );
+            }
+
+            GeomBndryGradLgrangeBasis(k,0) += GradNumer[0];
+            GeomBndryGradLgrangeBasis(k,1) += GradNumer[1];
+            forall( K, [&](int i){ GeomNodesGradLgrangeBasis(k,i) += NodesGradNumer(i); } );
+         }
+
+         forall( 2, [&]( int j ) {
+               GeomBndryLgrangeBasis(k,j) /= denom;
+               GeomBndryGradLgrangeBasis(k,j) /= denom;
+            } );
+
+         forall( K, [&]( int j ) {
+               GeomNodesLgrangeBasis(k,j) /= denom;
+               GeomNodesGradLgrangeBasis(k,j) /= denom;
+            } );
+      }
+
+      //forall( L, [&](int k){
+      //      printf("GeomBndryLgrangeBasis(%d,:)= %e, %e\n", k, GeomBndryLgrangeBasis(k,0), GeomBndryLgrangeBasis(k,1));
+      //      printf("GeomBndryGradLgrangeBasis(%d,:)= %e, %e\n", k, GeomBndryGradLgrangeBasis(k,0), GeomBndryGradLgrangeBasis(k,1));
+      //   } );
+      //forall( L, K, [&](int l, int k){
+      //      printf("GeomNodesLgrangeBasis(%d,%d)= %e\n", l, k, GeomNodesLgrangeBasis(l,k));
+      //      printf("GeomNodesGradLgrangeBasis(%d,%d)= %e\n", l, k, GeomNodesGradLgrangeBasis(l,k));
+      //   } );
+   }
 
 };
 
