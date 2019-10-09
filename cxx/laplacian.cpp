@@ -5,6 +5,8 @@
 #include <type_traits>
 #include <algorithm>
 #include <cmath>
+#include <map>
+#include <tuple>
 
 #include "wtimer.hpp"
 #include "memory.hpp"
@@ -882,6 +884,156 @@ void setLaplacian( const int Knod, const int Nel,
 
    {
       BasisFunctions<3,4> basis;
+   }
+
+   return;
+}
+
+void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
+                        double Vol_Jac_in[], double Vol_Dx_iDxsi_j_in[],
+                        double Face_Acoef_in[], double Face_Bcoef_in[], double Face_Jac_in[], double Face_Norm_in[],
+                        double lapCenter_in[], double lapNghbor_in[], double bndrySrc_in[],
+                        int elemID_in[], int BC_Switch_in[]
+                      )
+{
+   printf("Inside assembleLaplacian\n");
+   printf("Knod: %d\n", _Knod);
+   printf("Nel: %d\n", Nel);
+   printf("NelB: %d\n", NelB);
+
+   if (_Knod != 3) {
+      fprintf(stderr,"Knod != 3 %d\n", _Knod);
+      exit(-1);
+   }
+
+   const int K = 3, L = 4;
+   const int Ksq = K*K;
+
+   typedef StaticArrayType< double[K][K] > KxK_ArrayType;
+   typedef StaticArrayType< double[2][2][K][K] > KxKx2x2_ArrayType;
+   typedef StaticArrayType< double[4][K] > Kx4_ArrayType;
+   typedef StaticArrayType< double[Ksq][Ksq] > KsqxKsq_ArrayType;
+   typedef StaticArrayType< double[4][Ksq][Ksq] > KsqxKsqx4_ArrayType;
+   typedef StaticArrayType< double[Ksq][K] > KsqxK_ArrayType;
+   typedef StaticArrayType< double[Ksq][K] > KsqxK_ArrayType;
+
+   DynamicArrayType< KxK_ArrayType > Vol_Jac( (KxK_ArrayType*)Vol_Jac_in, Nel ) ;
+   DynamicArrayType< KxKx2x2_ArrayType > Vol_Dx_iDxsi_j( (KxKx2x2_ArrayType*)Vol_Dx_iDxsi_j_in, Nel ) ;
+   DynamicArrayType< Kx4_ArrayType > Face_Jac( (Kx4_ArrayType*)Face_Jac_in, Nel ) ;
+   DynamicArrayType< Kx4_ArrayType > Face_Acoef( (Kx4_ArrayType*)Face_Acoef_in, Nel ) ;
+   DynamicArrayType< Kx4_ArrayType > Face_Bcoef( (Kx4_ArrayType*)Face_Bcoef_in, Nel ) ;
+   DynamicArrayType< Kx4_ArrayType > Face_Norm( (Kx4_ArrayType*)Face_Norm_in, Nel ) ;
+   DynamicArrayType< KsqxKsq_ArrayType > lapCenter_ref( (KsqxKsq_ArrayType*)lapCenter_in, Nel ) ;
+   DynamicArrayType< KsqxKsqx4_ArrayType > lapNghbor_ref( (KsqxKsqx4_ArrayType*)lapNghbor_in, Nel ) ;
+
+   DynamicArrayType< KsqxK_ArrayType > bndrySrc_ref( (KsqxK_ArrayType*)bndrySrc_in, NelB );
+
+   DynamicArrayType< StaticArrayType< int[4] > > elemNghborID(Nel);
+
+   enum class BndryTypes : int { Default = 0, Dirichlet = 1, Neumann };
+
+   DynamicArrayType< StaticArrayType< double[Ksq][K] > > bndrySrc( NelB );
+   DynamicArrayType< BndryTypes > bndryType(NelB);
+
+   for (int bel(0); bel < NelB; ++bel)
+      bndrySrc(bel).set(0.0);
+
+   for (int el(0); el < Nel; ++el)
+      for (int f(0); f < 4; ++f)
+      {
+         const int nghbor = elemID_in[ f + 4*el ];
+         if ( nghbor < 0 )
+         {
+            // Boundary element id.
+            const int bel = (-nghbor) - 1;
+            elemNghborID(el)[f] = bel + Nel; // append the boundary id's *after* the elements so both lists can be 0-based (more easily).
+            bndryType(bel) = ( BC_Switch_in[bel] == 1 ) ? BndryTypes::Dirichlet :
+                             ( BC_Switch_in[bel] == 2 ) ? BndryTypes::Neumann   :
+                                                          BndryTypes::Default;
+         }
+         else
+         {
+            // Normal element-to-element connectivity
+            elemNghborID(el)[f] = nghbor - 1;
+         }
+      }
+
+   // Build up some common basis function terms first.
+   KxK_ArrayType E00, E01, E10, E11, E, C, D, F00, F01, F10, F11;
+
+   const double gLprime[] = { -0.25*K*(K+1),
+                               0.25*K*(K+1) };
+
+   BasisFunctions<K,L> Basis;
+
+   forall( K, K, [&]( const int i, const int j )
+      {
+         E00(i,j) = 0.5 * (Basis.SolnBndryLgrangeBasis(i,0) * Basis.NodesGradRadau(j,0));
+         E01(i,j) = 0.5 * (Basis.SolnBndryLgrangeBasis(i,0) * Basis.NodesGradRadau(j,1));
+         E10(i,j) = 0.5 * (Basis.SolnBndryLgrangeBasis(i,1) * Basis.NodesGradRadau(j,0));
+         E11(i,j) = 0.5 * (Basis.SolnBndryLgrangeBasis(i,1) * Basis.NodesGradRadau(j,1));
+         E  (i,j) = 2.0 * (E00(i,j) + E11(i,j));
+         C  (i,j) = Basis.SolnNodesGradLgrangeBasis(i,j) - (E00(i,j) + E11(i,j));
+         D  (i,j) = C(i,j) - (E00(i,j) + E11(i,j));
+         F00(i,j) = 0.5 * (Basis.SolnBndryGradLgrangeBasis(i,0) - gLprime[0] * Basis.SolnBndryLgrangeBasis(i,0)) * Basis.NodesGradRadau(j,0);
+         F01(i,j) = 0.5 * (Basis.SolnBndryGradLgrangeBasis(i,0) - gLprime[0] * Basis.SolnBndryLgrangeBasis(i,0)) * Basis.NodesGradRadau(j,1);
+         F10(i,j) = 0.5 * (Basis.SolnBndryGradLgrangeBasis(i,1) - gLprime[1] * Basis.SolnBndryLgrangeBasis(i,1)) * Basis.NodesGradRadau(j,0);
+         F11(i,j) = 0.5 * (Basis.SolnBndryGradLgrangeBasis(i,1) - gLprime[1] * Basis.SolnBndryLgrangeBasis(i,1)) * Basis.NodesGradRadau(j,1);
+      });
+
+   // Now build up the matrix coefficients on a per-element basis. This will look like a block-matrix.
+   auto blk_idx = [&]( const size_t blk_row, const size_t blk_col ) -> size_t { return blk_row * size_t(Nel) + blk_col; };
+   auto blk_ij  = [&]( const size_t blk_idx ) -> std::pair<size_t,size_t> {
+         size_t blk_row = blk_idx / size_t(Nel);
+         size_t blk_col = ( blk_idx - blk_row * size_t(Nel) );
+         return std::make_pair( blk_row, blk_col );
+      };
+
+   std::map<size_t, KsqxKsq_ArrayType > coefs;
+
+   for (int el(0); el < Nel; ++el)
+   {
+   DynamicArrayType< KxKx2x2_ArrayType > Vol_Dx_iDxsi_j( (KxKx2x2_ArrayType*)Vol_Dx_iDxsi_j_in, Nel ) ;
+      // 2nd-order volumetric and boundary metrics
+      auto xxsi = [&]( const int i, const int j ) { return Vol_Dx_iDxsi_j[el](i,j,1-1,1-1); };
+      auto yxsi = [&]( const int i, const int j ) { return Vol_Dx_iDxsi_j[el](i,j,2-1,1-1); };
+      auto xeta = [&]( const int i, const int j ) { return Vol_Dx_iDxsi_j[el](i,j,1-1,2-1); };
+      auto yeta = [&]( const int i, const int j ) { return Vol_Dx_iDxsi_j[el](i,j,2-1,2-1); };
+      auto jac  = [&]( const int i, const int j ) { return Vol_Jac[el](i,j); };
+
+      KxK_ArrayType Ax, Ay, B;
+
+      forall( K, K, [&] ( const int i, const int j ) {
+            Ax(i,j) = ( xeta(i,j)*xeta(i,j) + yeta(i,j)*yeta(i,j) ) / jac(i,j);
+            Ay(i,j) = ( xxsi(i,j)*xxsi(i,j) + yxsi(i,j)*yxsi(i,j) ) / jac(i,j);
+            B (i,j) = ( xxsi(i,j)*xeta(i,j) + yxsi(i,j)*yeta(i,j) ) / jac(i,j);
+         });
+
+      auto faceA = [&]( const int i, const int j ) { return Face_Acoef[el](i,j) / Face_Jac[el](i,j); };
+      auto faceB = [&]( const int i, const int j ) { return Face_Bcoef[el](i,j) / Face_Jac[el](i,j); };
+      auto faceN = [&]( const int i, const int j ) { return Face_Norm[el](i,j); };
+
+      auto& diag = coefs[ blk_idx(el,el) ];
+
+      diag.set(0.0);
+
+      forall( K, K, K, [&]( const int i, const int j, const int k ) {
+            const int ij = i + j * K;
+            const int kj = k + j * K;
+            const int ik = i + k * K;
+
+            auto sumx = [&]( const int l ) -> double { return Ax(l,j) * D(l,i) * C(k,l); };
+            auto sumy = [&]( const int l ) -> double { return Ay(l,j) * D(l,j) * C(k,l); };
+
+            diag(kj,ij) += forall_reduce( K, sumx );
+            diag(ik,ij) += forall_reduce( K, sumy );
+
+            forall( K, [&]( const int l ) {
+                  const int lk = l + k * K;
+                  diag(lk,ij) -= ( B(l,j) * D(l,i) * C(k,j) +
+                                   B(k,i) * D(k,j) * C(l,i) );
+               });
+         });
    }
 
    return;

@@ -95,6 +95,8 @@ struct StaticArrayProperties< T[_I0] >
    typedef T ValueType;
    enum { I0 = _I0 };
    enum { I1 = 0 };
+   enum { I2 = 0 };
+   enum { I3 = 0 };
 };
 
 template < typename T, int _I0, int _I1 >
@@ -104,6 +106,30 @@ struct StaticArrayProperties< T[_I1][_I0] >
    typedef T ValueType;
    enum { I0 = _I0 };
    enum { I1 = _I1 };
+   enum { I2 = 0   };
+   enum { I3 = 0   };
+};
+
+template < typename T, int _I0, int _I1, int _I2>
+struct StaticArrayProperties< T[_I2][_I1][_I0] >
+{
+   enum { rank = 3 };
+   typedef T ValueType;
+   enum { I0 = _I0 };
+   enum { I1 = _I1 };
+   enum { I2 = _I2 };
+   enum { I3 = 0   };
+};
+
+template < typename T, int _I0, int _I1, int _I2, int _I3>
+struct StaticArrayProperties< T[_I3][_I2][_I1][_I0] >
+{
+   enum { rank = 4 };
+   typedef T ValueType;
+   enum { I0 = _I0 };
+   enum { I1 = _I1 };
+   enum { I2 = _I2 };
+   enum { I3 = _I3 };
 };
 
 template <class ArrayType, int _Dim>
@@ -117,10 +143,42 @@ struct StaticArrayType
    enum { rank = properties::rank };
    enum { I0   = properties::I0 };
    enum { I1   = properties::I1 };
+   enum { I2   = properties::I2 };
+   enum { I3   = properties::I3 };
 
    typedef typename properties::ValueType ValueType;
 
    DataType m_data;
+
+   /// rank 4
+   template <typename Int>
+      typename std::enable_if< std::is_integral<Int>::value and rank == 4, ValueType >::type &
+   operator()( const Int i, const Int j, const Int k, const Int m)
+   {
+      return this->m_data[m][k][j][i];
+   }
+
+   template <typename Int>
+     const typename std::enable_if< std::is_integral<Int>::value and rank == 4, ValueType >::type &
+   operator()( const Int i, const Int j, const Int k, const Int m ) const
+   {
+      return this->m_data[m][k][j][i];
+   }
+
+   /// rank 3
+   template <typename Int>
+      typename std::enable_if< std::is_integral<Int>::value and rank == 3, ValueType >::type &
+   operator()( const Int i, const Int j, const Int k )
+   {
+      return this->m_data[k][j][i];
+   }
+
+   template <typename Int>
+     const typename std::enable_if< std::is_integral<Int>::value and rank == 3, ValueType >::type &
+   operator()( const Int i, const Int j, const Int k ) const
+   {
+      return this->m_data[k][j][i];
+   }
 
    /// rank 2
    template <typename Int>
@@ -255,7 +313,13 @@ struct SliceType
 };
 
 template <typename T>
-struct getBaseValueType { typedef typename std::enable_if< std::is_fundamental<T>::value, T >::type type; };
+struct getBaseValueType
+{
+   typedef typename std::enable_if< std::is_fundamental<T>::value ||
+                                    std::is_enum<T>::value
+                                    , T
+                                  >::type type;
+};
 
 template <typename T>
 struct getBaseValueType< StaticArrayType<T> > { typedef typename StaticArrayType<T>::ValueType type; };

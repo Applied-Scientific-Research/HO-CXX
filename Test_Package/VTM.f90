@@ -499,13 +499,22 @@ PROGRAM TwoD_Vorticity_Transport
        ! Nothing to do here: Set up bases for Lagrangian (and derivative) inter/extrapolation
        !                     at solution and boundary nodes using these nodes as collocation points
        CALL GetSolnLagrangianBases
+       !print *, 'SolnNodesGradLgrangeBasis: ', SolnNodesGradLgrangeBasis
+       !print *, 'SolnBndryGradLgrangeBasis: ', SolnBndryGradLgrangeBasis
+       !print *, 'SolnBndryLgrangeBasis: ', SolnBndryLgrangeBasis
 
        ! Nothing to do here: Set up bases for Lagrangian (and derivative) inter/extrapolation
        !                     at geometry nodes using these nodes as collocation points
        CALL GetGeomLagrangianBases
+       !print *, 'GeomBndryLgrangeBasis: ', GeomBndryLgrangeBasis
+       !print *, 'GeomBndryGradLgrangeBasis: ', GeomBndryGradLgrangeBasis
+       !print *, 'GeomNodesLgrangeBasis: ', GeomNodesLgrangeBasis
+       !print *, 'GeomNodesGradLgrangeBasis: ', GeomNodesGradLgrangeBasis
 
        ! Nothing to do here: Set up values and derivatives of Right Radau function at solution points
        CALL GetRadauBases
+       !print *, 'NodesRadau: ', NodesRadau
+       !print *, 'NodesGradRadau: ', NodesGradRadau
 
        ! Nothing to do here: Set up nodes and element meshes
        IF (prob_type .eq. 10) THEN
@@ -2299,6 +2308,25 @@ end function inv
     type(c_ptr), value :: A_handle, S_handle, P_handle
 
   end subroutine
+
+  subroutine assemble_laplacian_c( Knod, Nel, NelB, &
+                              Vol_Jac, Vol_Dx_iDxsi_j, &
+                              Face_Acoef, Face_Bcoef, Face_Jac, Face_Norm, &
+                              LaplacianCenter, LaplacianNeighbor, &
+                              BndrySrc, &
+                              elemID, BC_Switch ) &
+    bind(C,name='assembleLaplacian')
+
+    use iso_c_binding
+    implicit none
+
+    integer(c_int), value :: Knod, Nel, NelB
+    real(c_double), dimension(*) :: Vol_Jac, Vol_Dx_iDxsi_j, &
+                              Face_Acoef, Face_Bcoef, Face_Jac, Face_Norm, &
+                              LaplacianCenter, LaplacianNeighbor, BndrySrc
+    integer(c_int), dimension(*) :: elemID, BC_Switch
+
+  end subroutine
 end interface
 
        Knm = Knod - 1
@@ -2668,6 +2696,13 @@ print *,'MATRIX MAX VALUE ',maxval(abs(values(1:nnz)))
                             !BndrySrc, BC_Values, &
                              BndrySrc, BC_Psi, &
                              A_handle%ptr, S_handle%ptr, P_handle%ptr )
+
+       call assemble_laplacian_c( Knod, Nel, NelB, &
+                              Vol_Jac, Vol_Dx_iDxsi_j, &
+                              Face_Acoef, Face_Bcoef, Face_Jac, Face_Norm, &
+                              LaplacianCenter, LaplacianNeigbr, &
+                              BndrySrc, &
+                              elemID, BC_Switch )
 
 END SUBROUTINE SetLaplacian
 

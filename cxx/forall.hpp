@@ -22,6 +22,16 @@ void forall( const int I, const int J, const Functor& f )
          f(i,j);
 }
 
+template <class Functor>
+void forall( const int I, const int J, const int K, const Functor& f )
+{
+   for (int k = 0; k < K; ++k)
+      for (int j = 0; j < J; ++j)
+         for (int i = 0; i < I; ++i)
+            f(i,j,k);
+}
+
+
 /*
 template < typename Int, class Functor, class BinaryOp >
    typename std::enable_if< std::is_integral<Int>::value and std::is_class<Functor>::value,
