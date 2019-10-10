@@ -909,6 +909,7 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
    const int K = 3, L = 4;
    const int Ksq = K*K;
 
+   typedef StaticArrayType< double[K] > K_ArrayType;
    typedef StaticArrayType< double[K][K] > KxK_ArrayType;
    typedef StaticArrayType< double[2][2][K][K] > KxKx2x2_ArrayType;
    typedef StaticArrayType< double[4][K] > Kx4_ArrayType;
@@ -953,7 +954,7 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
          }
          else
          {
-            // Normal element-to-element connectivity
+            // Normal element-to-element connectivity in FEM format.
             elemNghborID(el)[f] = nghbor - 1;
          }
       }
@@ -989,11 +990,13 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
          return std::make_pair( blk_row, blk_col );
       };
 
+   const int nghbrFace[] = { 1, 0, 3, 2 }; // reflect across the shared face.
+   const int tensor2fem[] = { 3, 1, 0, 2 }; // switch from indexed (WESN) to FEM CCW notation with S=0
+
    std::map<size_t, KsqxKsq_ArrayType > coefs;
 
    for (int el(0); el < Nel; ++el)
    {
-   DynamicArrayType< KxKx2x2_ArrayType > Vol_Dx_iDxsi_j( (KxKx2x2_ArrayType*)Vol_Dx_iDxsi_j_in, Nel ) ;
       // 2nd-order volumetric and boundary metrics
       auto xxsi = [&]( const int i, const int j ) { return Vol_Dx_iDxsi_j[el](i,j,1-1,1-1); };
       auto yxsi = [&]( const int i, const int j ) { return Vol_Dx_iDxsi_j[el](i,j,2-1,1-1); };
@@ -1009,13 +1012,14 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
             B (i,j) = ( xxsi(i,j)*xeta(i,j) + yxsi(i,j)*yeta(i,j) ) / jac(i,j);
          });
 
-      auto faceA = [&]( const int i, const int j ) { return Face_Acoef[el](i,j) / Face_Jac[el](i,j); };
-      auto faceB = [&]( const int i, const int j ) { return Face_Bcoef[el](i,j) / Face_Jac[el](i,j); };
-      auto faceN = [&]( const int i, const int j ) { return Face_Norm[el](i,j); };
+      auto faceA = [&]( const int i, const int fid, const int elid) { return Face_Acoef[elid](i,fid) / Face_Jac[elid](i,fid); };
+      auto faceB = [&]( const int i, const int fid, const int elid) { return Face_Bcoef[elid](i,fid) / Face_Jac[elid](i,fid); };
+      auto faceN = [&]( const int i, const int fid, const int elid) { return Face_Norm[elid](i,fid); };
 
-      auto& diag = coefs[ blk_idx(el,el) ];
+      // Form diagonal terms (self element dependencies)
+      auto& diag_coef = coefs[ blk_idx(el,el) ];
 
-      diag.set(0.0);
+      diag_coef.set(0.0);
 
       forall( K, K, K, [&]( const int i, const int j, const int k ) {
             const int ij = i + j * K;
@@ -1025,16 +1029,189 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
             auto sumx = [&]( const int l ) -> double { return Ax(l,j) * D(l,i) * C(k,l); };
             auto sumy = [&]( const int l ) -> double { return Ay(l,j) * D(l,j) * C(k,l); };
 
-            diag(kj,ij) += forall_reduce( K, sumx );
-            diag(ik,ij) += forall_reduce( K, sumy );
+            diag_coef(kj,ij) += forall_reduce( K, sumx );
+            diag_coef(ik,ij) += forall_reduce( K, sumy );
 
             forall( K, [&]( const int l ) {
                   const int lk = l + k * K;
-                  diag(lk,ij) -= ( B(l,j) * D(l,i) * C(k,j) +
-                                   B(k,i) * D(k,j) * C(l,i) );
+                  diag_coef(lk,ij) -= (  B(l,j) * D(l,i) * C(k,j)
+                                       + B(k,i) * D(k,j) * C(l,i) );
                });
          });
+
+      // Add in neighbor terms (and boundary terms) in WESN order.
+      for (int f = 0; f < 4; ++f)
+      {
+         const int LorR = f % 2; // 0 = left, 1 = right
+         const int XorY = f / 2; // 0 is x, 1 is y;
+
+         const auto nghbr_elem_id = elemNghborID(el)[ tensor2fem[f] ];
+
+       //if (el < 10) printf("el: %d nghbr %d %d\n", el, nghbr_elem_id, f);
+
+         if ( nghbr_elem_id < Nel )
+         {
+            auto& nghbr_coef = coefs[ blk_idx(el,nghbr_elem_id) ];
+            nghbr_coef.set(0.0);
+
+            /// Element neighbor on the f^th boundary.
+            const int nghbr_face_id = nghbrFace[f];
+
+            // Form the common geometric terms between the elements.
+            typedef decltype(E00) Etype;
+            typedef decltype(Ax)  Atype;
+            auto kernel = [&] ( const Etype& Ebb, const Etype& Eab, const Etype& Fbb, const Etype& Fab, const Atype& A )
+               {
+                  forall( K, K, K, [&] ( const int i, const int j, const int k )
+                  {
+                     auto Aj = faceA(i, nghbr_face_id, nghbr_elem_id);
+                     auto Bj = 0.5 * ( faceB(i, f, el) + faceB(i, nghbr_face_id, nghbr_elem_id) );
+
+                     const int ij = i + j * K + XorY * (K-1) * (i-j);
+                     const int kj = k + j * K + XorY * (K-1) * (k-j);
+
+                     {
+                        auto sumx = [&] ( const int l ) -> double { return A(l,j) * D(l,i) * Eab(k,l); };
+
+                        nghbr_coef(kj,ij) += (  forall_reduce( K, sumx )
+                                              + Aj * Fab(k,i)
+                                              + gLprime[LorR] * faceA(j,f,el) * Eab(k,i) );
+                        diag_coef(kj,ij) += (  faceA(j,f,el) * Fbb(k,i)
+                                             - gLprime[LorR] * Aj * Ebb(k,i) );
+                     }
+
+                     {
+                        auto tmp = Bj * Basis.SolnNodesGradLgrangeBasis(k,j);
+                        auto tmpy = tmp + B(i,k) * D(k,j);
+
+                        forall( K, [&] ( const int l ) {
+                              const int lk = k * K + l + XorY * (K-1) * (l-k);
+                              nghbr_coef(lk,ij) -= tmpy * Eab(l,i);
+                              diag_coef(lk,ij)  -= tmp  * Ebb(l,i);
+                           });
+                     }
+                  });
+               };
+
+            if ( XorY == 0 )
+               if ( LorR == 0 ) kernel( E00, E10, F00, F10, Ax );
+               else             kernel( E11, E01, F11, F01, Ax );
+            else
+               if ( LorR == 0 ) kernel( E00, E10, F00, F10, Ay );
+               else             kernel( E11, E01, F11, F01, Ay );
+         }
+         else
+         {
+            /// No element neighbor on the f^th surface. It's a boundary surface.
+            /// Apply Neumann or Dirichlet conditions.
+
+            const int bel = nghbr_elem_id - Nel;
+
+            auto& bndry_src = bndrySrc[bel];
+
+            if ( bndryType(bel) == BndryTypes::Dirichlet )
+            {
+               forall( K, K, [&] ( const int i, const int j ) {
+                     const int ij = i + j * K + XorY * (K-1) * (i-j); // this transposes the storage for the x or y direction.
+                     bndry_src(j,ij) += ( 2.0 * gLprime[LorR] * faceA(j,f,el) ) * Basis.NodesGradRadau(i,LorR);
+
+                     forall( K, [&] ( const int k )
+                        {
+                           const int kj = k + j * K + XorY * (K-1) * (k-j);
+                           const auto& A = ( XorY ) ? Ax : Ay;
+                           const auto& Eaa = ( LorR ) ? E00 : E11;
+                           const auto& Faa = ( LorR ) ? F00 : F11;
+
+                           bndry_src(j,ij) += ( A(k,j) * D(k,j) * Basis.NodesGradRadau(k,LorR) );
+                           bndry_src(k,ij) -= ( Basis.NodesGradRadau(i,LorR)
+                                                  * (  B(i,k) * D(k,j)
+                                                     + faceB(j,f,el) * Basis.SolnNodesGradLgrangeBasis(k,j) ) );
+
+                           auto sumx = [&]( const int l ) { return A(l,j) * D(l,i) * Eaa(k,l); };
+
+                           diag_coef(kj,ij) += ( 2.0 * faceA(j,f,el) * ( Faa(k,i) - gLprime[LorR] * Eaa(k,i) )
+                                                  - forall_reduce( K, sumx ) );
+
+                           forall( K, [&]( const int l ) {
+                                 const int lk = l + k * K + XorY * (K-1) * (l-k);
+                                 diag_coef(lk,ij) += ( B(i,k) * D(k,j) * Eaa(l,i) );
+                              });
+                        });
+                  });
+            }
+            else if ( bndryType(bel) == BndryTypes::Neumann )
+            {
+               fprintf(stderr,"BC == Neumann not implemented\n");
+               exit(1);
+            }
+            else
+            {
+               fprintf(stderr,"BC == default invalid\n");
+               exit(1);
+            }
+         }
+      }
    }
+
+   // Convert block-matrix to scalar matrix for now.
+
+   const size_t nrows = Nel * Ksq;
+   const size_t maxnnz = Nel * 5 * (Ksq * Ksq);
+
+   std::vector<int   > rowptr( nrows+1, 0 );
+   std::vector<double> values; values.reserve( maxnnz );
+   std::vector<int   > colidx; colidx.reserve( maxnnz );
+
+   for (int el(0); el < Nel; ++el)
+   {
+      const int row0 = el * Ksq;
+
+      // insert the diagonal block.
+      auto it = coefs.find( blk_idx(el,el) );
+      if ( it == coefs.end() )
+      {
+         fprintf(stderr,"Diagonal block at %d not found\n", el);
+         exit(1);
+      }
+
+      const auto& diag_coef = it->second;
+
+      for (int b_row(0); b_row < Ksq; b_row++)
+      {
+         rowptr[row0 + b_row] = values.size();
+
+         // Add all central terms directly.
+         for (int b_col(0); b_col < Ksq; b_col++)
+         {
+            values.push_back( diag_coef(b_col,b_row) ); // This seems transposed. Was the original storage backwards?
+            colidx.push_back( row0 + b_col );
+         }
+
+         // Now add any neighbor terms.
+         for (int f(0); f < 4; ++f)
+         {
+            const auto nghbr_elem_id = elemNghborID(el)[ tensor2fem[f] ];
+            const auto nghbr_col0 = nghbr_elem_id * Ksq;
+
+            const auto idx = blk_idx(el,nghbr_elem_id);
+
+            auto nghbr_it = coefs.find( idx );
+            if ( nghbr_it == coefs.end() ) continue;
+
+            const auto& nghbr_coef = it->second;
+
+            for (int b_col(0); b_col < Ksq; b_col++)
+            {
+               values.push_back( nghbr_coef(b_col,b_row) ); // This seems transposed. Was the original storage backwards?
+               colidx.push_back( nghbr_col0 + b_col );
+            }
+         }
+      }
+   }
+
+   rowptr[nrows] = values.size();
+   std::cout << "nrows: " << nrows << std::endl;
+   std::cout << "nnz:   " << values.size() << std::endl;
 
    return;
 }
