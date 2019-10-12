@@ -995,6 +995,8 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
 
    std::map<size_t, KsqxKsq_ArrayType > coefs;
 
+   auto t_start = getTimeStamp();
+
    for (int el(0); el < Nel; ++el)
    {
       // 2nd-order volumetric and boundary metrics
@@ -1019,29 +1021,29 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
       face_func_type faceB = [&]( const int i, const int fid, const int elid) { return Face_Bcoef[elid](i,fid) / Face_Jac[elid](i,fid); };
       face_func_type faceN = [&]( const int i, const int fid, const int elid) { return Face_Norm[elid](i,fid); };
 
-      if (el < 10) {
-         auto print_array = [&]( const KxK_ArrayType& A, const char* S ) {
-               std::cout << S << std::endl;
-               forall( K, K, [&]( const int i, const int j ) { printf("%d %d %e\n", i, j, A(i,j)); });
-            };
+      //if (el < 10) {
+      //   auto print_array = [&]( const KxK_ArrayType& A, const char* S ) {
+      //         std::cout << S << std::endl;
+      //         forall( K, K, [&]( const int i, const int j ) { printf("%d %d %e\n", i, j, A(i,j)); });
+      //      };
 
-         std::cout << "el metrics " << el << std::endl;
-         print_array( Ax, "Ax");
-         print_array( Ay, "Ay");
-         print_array( Bx, "Bx");
-         print_array( By, "By");
+      //   std::cout << "el metrics " << el << std::endl;
+      //   print_array( Ax, "Ax");
+      //   print_array( Ay, "Ay");
+      //   print_array( Bx, "Bx");
+      //   print_array( By, "By");
 
-         auto print_face = [&]( const face_func_type& A, const char *S ) {
-               std::cout << S << std::endl;
-               forall( K, [&](const int i) {
-                     printf("%e %e %e %e\n", A(i,0,el), A(i,1,el), A(i,2,el), A(i,3,el));
-                  });
-            };
+      //   auto print_face = [&]( const face_func_type& A, const char *S ) {
+      //         std::cout << S << std::endl;
+      //         forall( K, [&](const int i) {
+      //               printf("%e %e %e %e\n", A(i,0,el), A(i,1,el), A(i,2,el), A(i,3,el));
+      //            });
+      //      };
 
-         print_face( faceA, "faceA" );
-         print_face( faceB, "faceB" );
-         print_face( faceN, "faceN" );
-      }
+      //   print_face( faceA, "faceA" );
+      //   print_face( faceB, "faceB" );
+      //   print_face( faceN, "faceN" );
+      //}
 
       // Form diagonal terms (self element dependencies)
       auto& diag_coef = coefs[ blk_idx(el,el) ];
@@ -1131,11 +1133,11 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
          }
          else
          {
-#if 0
             /// No element neighbor on the f^th surface. It's a boundary surface.
             /// Apply Neumann or Dirichlet conditions.
 
             const int bel = nghbr_elem_id - Nel;
+          //if (el < 10) printf("bel: %d %d %d %d %d\n", f, nghbr_elem_id, el, bel, bndryType(bel));
 
             auto& bndry_src = bndrySrc[bel];
 
@@ -1148,12 +1150,12 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
                      forall( K, [&] ( const int k )
                         {
                            const int kj = k + j * K + XorY * (K-1) * (k-j);
-                           const auto& A = ( XorY ) ? Ax : Ay;
-                           const auto& B = ( XorY ) ? Bx : By;
-                           const auto& Eaa = ( LorR ) ? E00 : E11;
-                           const auto& Faa = ( LorR ) ? F00 : F11;
+                           const auto& A = ( XorY == 0 ) ? Ax : Ay;
+                           const auto& B = ( XorY == 0 ) ? Bx : By;
+                           const auto& Eaa = ( LorR == 0 ) ? E00 : E11;
+                           const auto& Faa = ( LorR == 0 ) ? F00 : F11;
 
-                           bndry_src(j,ij) += ( A(k,j) * D(k,j) * Basis.NodesGradRadau(k,LorR) );
+                           bndry_src(j,ij) += ( A(k,j) * D(k,i) * Basis.NodesGradRadau(k,LorR) );
                            bndry_src(k,ij) -= ( Basis.NodesGradRadau(i,LorR)
                                                   * (  B(i,k) * D(k,j)
                                                      + faceB(j,f,el) * Basis.SolnNodesGradLgrangeBasis(k,j) ) );
@@ -1180,10 +1182,12 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
                fprintf(stderr,"BC == default invalid\n");
                exit(1);
             }
-#endif
          }
       }
    }
+
+   auto t_end = getTimeStamp();
+   std::cout << "Laplacian assembly 1 time: " << getElapsedTime( t_start, t_end ) << std::endl;
 
    for (int el(0); el < 10; ++el)
    {
@@ -1200,7 +1204,7 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
 
          const auto& diag_coef = it->second;
 
-         printf("diag %d\n", el);
+         printf("diag: %d\n", el);
          forall( Ksq, [&](const int i) {
                printf("%d,", i);
                forall( Ksq, [&](const int j){ printf("%20.13e%c", diag_coef(i,j), (j == Ksq-1) ? '\n' : ','); });
@@ -1228,6 +1232,18 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
                forall( Ksq, [&](const int j){ printf("%20.13e%c", nghbr_coef(i,j), (j == Ksq-1) ? '\n' : ','); });
             });
       }
+   }
+
+   std::cout << "bndrySrc: " << std::endl;
+   for (int bel = 0; bel < NelB; bel++)
+   {
+      auto& bndry_src = bndrySrc[bel];
+
+      std::cout << "bnd: " << bel << std::endl;
+      forall( Ksq, [&](const int j) {
+            printf("%d, ", j);
+            forall( K, [&](const int i) { printf("%20.13e%c", bndry_src(i,j), (i == K-1) ? '\n' : ','); });
+         });
    }
 
    // Convert block-matrix to scalar matrix for now.
