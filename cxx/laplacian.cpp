@@ -1004,17 +1004,44 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
       auto yeta = [&]( const int i, const int j ) { return Vol_Dx_iDxsi_j[el](i,j,2-1,2-1); };
       auto jac  = [&]( const int i, const int j ) { return Vol_Jac[el](i,j); };
 
-      KxK_ArrayType Ax, Ay, B;
+      KxK_ArrayType Ax, Ay, Bx, By;
 
       forall( K, K, [&] ( const int i, const int j ) {
             Ax(i,j) = ( xeta(i,j)*xeta(i,j) + yeta(i,j)*yeta(i,j) ) / jac(i,j);
-            Ay(i,j) = ( xxsi(i,j)*xxsi(i,j) + yxsi(i,j)*yxsi(i,j) ) / jac(i,j);
-            B (i,j) = ( xxsi(i,j)*xeta(i,j) + yxsi(i,j)*yeta(i,j) ) / jac(i,j);
+          //Ay(i,j) = ( xxsi(i,j)*xxsi(i,j) + yxsi(i,j)*yxsi(i,j) ) / jac(i,j);
+            Ay(j,i) = ( xxsi(i,j)*xxsi(i,j) + yxsi(i,j)*yxsi(i,j) ) / jac(i,j);
+            Bx(i,j) = ( xxsi(i,j)*xeta(i,j) + yxsi(i,j)*yeta(i,j) ) / jac(i,j);
+            By(j,i) = Bx(i,j); // tranposed only
          });
 
-      auto faceA = [&]( const int i, const int fid, const int elid) { return Face_Acoef[elid](i,fid) / Face_Jac[elid](i,fid); };
-      auto faceB = [&]( const int i, const int fid, const int elid) { return Face_Bcoef[elid](i,fid) / Face_Jac[elid](i,fid); };
-      auto faceN = [&]( const int i, const int fid, const int elid) { return Face_Norm[elid](i,fid); };
+      typedef std::function<double(const int, const int, const int)> face_func_type;
+      face_func_type faceA = [&]( const int i, const int fid, const int elid) { return Face_Acoef[elid](i,fid) / Face_Jac[elid](i,fid); };
+      face_func_type faceB = [&]( const int i, const int fid, const int elid) { return Face_Bcoef[elid](i,fid) / Face_Jac[elid](i,fid); };
+      face_func_type faceN = [&]( const int i, const int fid, const int elid) { return Face_Norm[elid](i,fid); };
+
+      if (el < 10) {
+         auto print_array = [&]( const KxK_ArrayType& A, const char* S ) {
+               std::cout << S << std::endl;
+               forall( K, K, [&]( const int i, const int j ) { printf("%d %d %e\n", i, j, A(i,j)); });
+            };
+
+         std::cout << "el metrics " << el << std::endl;
+         print_array( Ax, "Ax");
+         print_array( Ay, "Ay");
+         print_array( Bx, "Bx");
+         print_array( By, "By");
+
+         auto print_face = [&]( const face_func_type& A, const char *S ) {
+               std::cout << S << std::endl;
+               forall( K, [&](const int i) {
+                     printf("%e %e %e %e\n", A(i,0,el), A(i,1,el), A(i,2,el), A(i,3,el));
+                  });
+            };
+
+         print_face( faceA, "faceA" );
+         print_face( faceB, "faceB" );
+         print_face( faceN, "faceN" );
+      }
 
       // Form diagonal terms (self element dependencies)
       auto& diag_coef = coefs[ blk_idx(el,el) ];
@@ -1027,15 +1054,15 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
             const int ik = i + k * K;
 
             auto sumx = [&]( const int l ) -> double { return Ax(l,j) * D(l,i) * C(k,l); };
-            auto sumy = [&]( const int l ) -> double { return Ay(l,j) * D(l,j) * C(k,l); };
+            auto sumy = [&]( const int l ) -> double { return Ay(l,i) * D(l,j) * C(k,l); };
 
             diag_coef(kj,ij) += forall_reduce( K, sumx );
             diag_coef(ik,ij) += forall_reduce( K, sumy );
 
             forall( K, [&]( const int l ) {
                   const int lk = l + k * K;
-                  diag_coef(lk,ij) -= (  B(l,j) * D(l,i) * C(k,j)
-                                       + B(k,i) * D(k,j) * C(l,i) );
+                  diag_coef(lk,ij) -= (  Bx(l,j) * D(l,i) * C(k,j)
+                                       + By(k,i) * D(k,j) * C(l,i) );
                });
          });
 
@@ -1056,16 +1083,18 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
 
             /// Element neighbor on the f^th boundary.
             const int nghbr_face_id = nghbrFace[f];
+            //printf("%d %d %d %d\n", f, nghbr_face_id, nghbr_elem_id, el);
 
             // Form the common geometric terms between the elements.
             typedef decltype(E00) Etype;
             typedef decltype(Ax)  Atype;
-            auto kernel = [&] ( const Etype& Ebb, const Etype& Eab, const Etype& Fbb, const Etype& Fab, const Atype& A )
+            auto kernel = [&] ( const Etype& Ebb, const Etype& Eab, const Etype& Fbb, const Etype& Fab, const Atype& A, const Atype& B)
                {
                   forall( K, K, K, [&] ( const int i, const int j, const int k )
                   {
-                     auto Aj = faceA(i, nghbr_face_id, nghbr_elem_id);
-                     auto Bj = 0.5 * ( faceB(i, f, el) + faceB(i, nghbr_face_id, nghbr_elem_id) );
+                     auto Aj = faceA(j, nghbr_face_id, nghbr_elem_id);
+                     auto Bj = 0.5 * ( faceB(j, f, el) + faceB(j, nghbr_face_id, nghbr_elem_id) );
+                     //if (el == 0 and i == 0 and k == 0) printf("Aj %e %e\n", Aj, Bj);
 
                      const int ij = i + j * K + XorY * (K-1) * (i-j);
                      const int kj = k + j * K + XorY * (K-1) * (k-j);
@@ -1085,7 +1114,7 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
                         auto tmpy = tmp + B(i,k) * D(k,j);
 
                         forall( K, [&] ( const int l ) {
-                              const int lk = k * K + l + XorY * (K-1) * (l-k);
+                              const int lk = l + k * K + XorY * (K-1) * (l-k);
                               nghbr_coef(lk,ij) -= tmpy * Eab(l,i);
                               diag_coef(lk,ij)  -= tmp  * Ebb(l,i);
                            });
@@ -1094,14 +1123,15 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
                };
 
             if ( XorY == 0 )
-               if ( LorR == 0 ) kernel( E00, E10, F00, F10, Ax );
-               else             kernel( E11, E01, F11, F01, Ax );
+               if ( LorR == 0 ) kernel( E00, E10, F00, F10, Ax, Bx );
+               else             kernel( E11, E01, F11, F01, Ax, Bx );
             else
-               if ( LorR == 0 ) kernel( E00, E10, F00, F10, Ay );
-               else             kernel( E11, E01, F11, F01, Ay );
+               if ( LorR == 0 ) kernel( E00, E10, F00, F10, Ay, By );
+               else             kernel( E11, E01, F11, F01, Ay, By );
          }
          else
          {
+#if 0
             /// No element neighbor on the f^th surface. It's a boundary surface.
             /// Apply Neumann or Dirichlet conditions.
 
@@ -1119,6 +1149,7 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
                         {
                            const int kj = k + j * K + XorY * (K-1) * (k-j);
                            const auto& A = ( XorY ) ? Ax : Ay;
+                           const auto& B = ( XorY ) ? Bx : By;
                            const auto& Eaa = ( LorR ) ? E00 : E11;
                            const auto& Faa = ( LorR ) ? F00 : F11;
 
@@ -1149,7 +1180,53 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
                fprintf(stderr,"BC == default invalid\n");
                exit(1);
             }
+#endif
          }
+      }
+   }
+
+   for (int el(0); el < 10; ++el)
+   {
+      printf("el: %d\n", el);
+
+      {
+         // insert the diagonal block.
+         auto it = coefs.find( blk_idx(el,el) );
+         if ( it == coefs.end() )
+         {
+            fprintf(stderr,"Diagonal block at %d not found\n", el);
+            exit(1);
+         }
+
+         const auto& diag_coef = it->second;
+
+         printf("diag %d\n", el);
+         forall( Ksq, [&](const int i) {
+               printf("%d,", i);
+               forall( Ksq, [&](const int j){ printf("%20.13e%c", diag_coef(i,j), (j == Ksq-1) ? '\n' : ','); });
+            });
+      }
+
+      // Now add any neighbor terms.
+      for (int f(0); f < 4; ++f)
+      {
+         const auto nghbr_elem_id = elemNghborID(el)[ tensor2fem[f] ];
+
+         const auto idx = blk_idx(el,nghbr_elem_id);
+
+         auto it = coefs.find( idx );
+         if ( it == coefs.end() ) continue;
+
+         const auto& nghbr_coef = it->second;
+         const auto ij = blk_ij(it->first);
+
+         //std::cout << "neigh: " << f << ", " << nghbr_elem_id << ", (" << ij.first << ", " << ij.second << "), " << idx << ", " << it->first << std::endl;
+         std::cout << "neigh: " << f << " " << nghbr_elem_id << std::endl;
+
+         forall( Ksq, [&](const int i) {
+               printf("%d,", i);
+               forall( Ksq, [&](const int j){ printf("%20.13e%c", nghbr_coef(i,j), (j == Ksq-1) ? '\n' : ','); });
+            });
       }
    }
 
