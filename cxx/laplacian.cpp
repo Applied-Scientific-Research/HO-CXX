@@ -161,19 +161,27 @@ struct MixedPrecisionPrecon
    typedef Precon precon_type;
    typedef amgcl::backend::numa_vector<float> vector_type;
 
-   precon_type &P;
+   const precon_type &P;
    vector_type f, x;
 
-   MixedPrecisionPrecon ( precon_type& precon ) : P(precon)
+   MixedPrecisionPrecon ( const precon_type& precon ) : P(precon)
    {
       size_t nrows = amgcl::backend::rows(P.system_matrix());
       this->f.resize(nrows);
       this->x.resize(nrows);
 
-      //std::cout << "MixedPrecisionPrecon" << std::endl
-      //          << this->P << std::endl
-      //          << nrows << std::endl
-      //          << std::endl;
+      std::cout << "MixedPrecisionPrecon(const precon&)" << std::endl
+                << this->P << std::endl
+                << nrows << std::endl
+                << std::endl;
+   }
+
+   MixedPrecisionPrecon ( MixedPrecisionPrecon&& other ) : P(other.P), f( std::move(other.f) ), x( std::move(other.x) )
+   {
+      std::cout << "MixedPrecisionPrecon(&&)" << std::endl
+                << this->P << std::endl
+                << this->x.size() << std::endl
+                << std::endl;
    }
 
    ~MixedPrecisionPrecon()
@@ -403,6 +411,85 @@ void sort_crs_rows( const int nrows, const R *rowptr, C *colidx, V *values )
       //}
    }
 }
+
+struct AMGCL_SolverType
+{
+   typedef amgcl::backend::builtin<double> BackendType;
+   typedef amgcl::backend::builtin<float > mixed_BackendType;
+
+   typedef amgcl::runtime::preconditioner< mixed_BackendType > PreconditionerType;
+   typedef amgcl::runtime::solver::wrapper< BackendType >      IterativeSolverType;
+   typedef MixedPrecisionPrecon< PreconditionerType > MixedPreconditionerType;
+   
+   typedef amgcl::make_solver< PreconditionerType, IterativeSolverType > MakeSolverType;
+
+   typedef typename MakeSolverType::build_matrix build_matrix;
+
+   std::shared_ptr< MakeSolverType > shared_solver;
+   std::shared_ptr< MixedPreconditionerType > shared_mixed_precon;
+
+   template <typename Matrix>
+   AMGCL_SolverType ( const Matrix& A )
+   {
+      std::cout << "typeid(build_matrix): " << typeid(build_matrix).name() << std::endl;
+
+      auto prm = load_amgcl_params();
+
+      auto t_build_start = getTimeStamp();
+
+      shared_solver = std::make_shared< MakeSolverType >( A, prm );
+
+      auto &P = shared_solver->precond();
+    //MixedPreconditionerType m_precon(P);
+      shared_mixed_precon = std::make_shared< MixedPreconditionerType > ( P );
+
+      auto t_build_stop = getTimeStamp();
+
+      std::cout << "Build time: " << getElapsedTime( t_build_start, t_build_stop ) << std::endl;
+
+      std::cout << "Solver: " << std::endl << shared_solver->solver() << std::endl;
+      std::cout << "Precon: " << std::endl << *shared_mixed_precon << std::endl;
+   }
+
+   ~AMGCL_SolverType()
+   {
+      std::cout << "~AMGCL_SolverType" << std::endl;
+   }
+
+   template <typename VectorX, typename VectorF>
+   void apply( VectorX& x, const VectorF& f )
+   {
+      auto t_start = getTimeStamp();
+
+      int niters = 0;
+      double resid = 0;
+
+      auto& A = this->shared_solver->system_matrix();
+
+      std::tie< niters, resid > = this->shared_solver->solver()( A, this->shared_mixed_precon.get(), f, x );
+
+      auto t_stop = getTimeStamp();
+
+      size_t nrows = amgcl::backend::rows(A);
+      decltype(x) r(nrows);
+      amgcl::backend::residual( f, A, x, r);
+      auto norm_r = norm2( r, r );
+
+      std::cout << "Iterations: " << niters << std::endl
+                << "Error:      " << resid << std::endl
+                << "Norm(r):    " << norm_r << std::endl
+                << "Solve time: " << getElapsedTime( t_start, t_stop ) << std::endl
+                << std::endl;
+   }
+
+   template <typename X, typename F>
+   void operator()( X& x, const F& f )
+   {
+      this->apply( x, f );
+   }
+};
+
+std::shared_ptr< AMGCL_SolverType > amgcl_solver;
 
 template <class CSRMatrix, class NodalVector>
 void eval_amgcl ( const CSRMatrix& A_in, NodalVector& x_ref, const NodalVector& b, const int Knod )
@@ -1189,61 +1276,67 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
    auto t_end = getTimeStamp();
    std::cout << "Laplacian assembly 1 time: " << getElapsedTime( t_start, t_end ) << std::endl;
 
-   for (int el(0); el < 10; ++el)
+   if (false)
    {
-      printf("el: %d\n", el);
+      FILE *fp = fopen("cxx_assembly.out","w");
 
+      for (int el(0); el < Nel; ++el)
       {
-         // insert the diagonal block.
-         auto it = coefs.find( blk_idx(el,el) );
-         if ( it == coefs.end() )
+         fprintf(fp, "el: %d\n", el);
+
          {
-            fprintf(stderr,"Diagonal block at %d not found\n", el);
-            exit(1);
+            // insert the diagonal block.
+            auto it = coefs.find( blk_idx(el,el) );
+            if ( it == coefs.end() )
+            {
+               fprintf(stderr,"Diagonal block at %d not found\n", el);
+               exit(1);
+            }
+
+            const auto& diag_coef = it->second;
+
+            fprintf(fp,"diag: %d\n", el);
+            forall( Ksq, [&](const int i) {
+                  fprintf(fp,"%d,", i);
+                  forall( Ksq, [&](const int j){ fprintf(fp,"%20.13e%c", diag_coef(i,j), (j == Ksq-1) ? '\n' : ','); });
+               });
          }
 
-         const auto& diag_coef = it->second;
+         // Now add any neighbor terms.
+         for (int f(0); f < 4; ++f)
+         {
+            const auto nghbr_elem_id = elemNghborID(el)[ tensor2fem[f] ];
 
-         printf("diag: %d\n", el);
-         forall( Ksq, [&](const int i) {
-               printf("%d,", i);
-               forall( Ksq, [&](const int j){ printf("%20.13e%c", diag_coef(i,j), (j == Ksq-1) ? '\n' : ','); });
-            });
+            const auto idx = blk_idx(el,nghbr_elem_id);
+
+            auto it = coefs.find( idx );
+            if ( it == coefs.end() ) continue;
+
+            const auto& nghbr_coef = it->second;
+            const auto ij = blk_ij(it->first);
+
+            fprintf(fp,"neigh: %d %d\n", f, nghbr_elem_id);
+
+            forall( Ksq, [&](const int i) {
+                  fprintf(fp,"%d,", i);
+                  forall( Ksq, [&](const int j){ fprintf(fp,"%20.13e%c", nghbr_coef(i,j), (j == Ksq-1) ? '\n' : ','); });
+               });
+         }
       }
 
-      // Now add any neighbor terms.
-      for (int f(0); f < 4; ++f)
+      fprintf(fp, "bndrySrc: \n");
+      for (int bel = 0; bel < NelB; bel++)
       {
-         const auto nghbr_elem_id = elemNghborID(el)[ tensor2fem[f] ];
+         auto& bndry_src = bndrySrc[bel];
 
-         const auto idx = blk_idx(el,nghbr_elem_id);
-
-         auto it = coefs.find( idx );
-         if ( it == coefs.end() ) continue;
-
-         const auto& nghbr_coef = it->second;
-         const auto ij = blk_ij(it->first);
-
-         //std::cout << "neigh: " << f << ", " << nghbr_elem_id << ", (" << ij.first << ", " << ij.second << "), " << idx << ", " << it->first << std::endl;
-         std::cout << "neigh: " << f << " " << nghbr_elem_id << std::endl;
-
-         forall( Ksq, [&](const int i) {
-               printf("%d,", i);
-               forall( Ksq, [&](const int j){ printf("%20.13e%c", nghbr_coef(i,j), (j == Ksq-1) ? '\n' : ','); });
+         fprintf(fp, "bnd: %d\n", bel);
+         forall( Ksq, [&](const int j) {
+               fprintf(fp,"%d, ", j);
+               forall( K, [&](const int i) { fprintf(fp,"%20.13e%c", bndry_src(i,j), (i == K-1) ? '\n' : ','); });
             });
       }
-   }
 
-   std::cout << "bndrySrc: " << std::endl;
-   for (int bel = 0; bel < NelB; bel++)
-   {
-      auto& bndry_src = bndrySrc[bel];
-
-      std::cout << "bnd: " << bel << std::endl;
-      forall( Ksq, [&](const int j) {
-            printf("%d, ", j);
-            forall( K, [&](const int i) { printf("%20.13e%c", bndry_src(i,j), (i == K-1) ? '\n' : ','); });
-         });
+      fclose(fp);
    }
 
    // Convert block-matrix to scalar matrix for now.
@@ -1291,7 +1384,7 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
             auto nghbr_it = coefs.find( idx );
             if ( nghbr_it == coefs.end() ) continue;
 
-            const auto& nghbr_coef = it->second;
+            const auto& nghbr_coef = nghbr_it->second;
 
             for (int b_col(0); b_col < Ksq; b_col++)
             {
@@ -1303,8 +1396,19 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
    }
 
    rowptr[nrows] = values.size();
+   const size_t nnz = values.size();
+
    std::cout << "nrows: " << nrows << std::endl;
-   std::cout << "nnz:   " << values.size() << std::endl;
+   std::cout << "nnz:   " << nnz << std::endl;
+
+   // Construct the AMGCL solver/preconditioner.
+   {
+      auto A = std::tie( nrows, rowptr,
+                                colidx,
+                                values );
+
+      amgcl_solver = std::make_shared<AMGCL_SolverType>( A );
+   }
 
    return;
 }

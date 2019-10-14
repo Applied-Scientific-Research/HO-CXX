@@ -84,6 +84,9 @@ for i in range(n):
                 else:
                     maxerr = max(maxerr, err)
 
+    if not passed:
+        break
+
 if passed:
     print("max error: {}".format(maxerr))
     sys.exit(0)
