@@ -12,6 +12,7 @@
 #include "memory.hpp"
 #include "array.hpp"
 #include "basis.hpp"
+#include "geometry.hpp"
 
 #include "aplles_interface.h"
 #include "splib/csr_matrix.h"
@@ -542,6 +543,7 @@ struct AMGCL_SolverType
 
 std::shared_ptr< AMGCL_SolverType > amgcl_solver;
 
+#if 0
 template <class CSRMatrix, class NodalVector>
 void eval_amgcl ( const CSRMatrix& A_in, NodalVector& x_ref, const NodalVector& b, const int Knod )
 {
@@ -970,6 +972,7 @@ void eval_amgcl ( const CSRMatrix& A_in, NodalVector& x_ref, const NodalVector& 
                 << std::endl;
    }
 }
+#endif
 
 extern "C"
 {
@@ -1062,6 +1065,10 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
    DynamicArrayType< Kx4_ArrayType > Face_Acoef( (Kx4_ArrayType*)Face_Acoef_in, Nel ) ;
    DynamicArrayType< Kx4_ArrayType > Face_Bcoef( (Kx4_ArrayType*)Face_Bcoef_in, Nel ) ;
    DynamicArrayType< Kx4_ArrayType > Face_Norm( (Kx4_ArrayType*)Face_Norm_in, Nel ) ;
+
+   /// Create an access point for the metric data.
+   GeometryType<K,L> geometry( Nel, Vol_Jac_in, Vol_Dx_iDxsi_j_in, Face_Jac_in, Face_Acoef_in, Face_Bcoef_in, Face_Norm_in );
+
    DynamicArrayType< KsqxKsq_ArrayType > lapCenter_ref( (KsqxKsq_ArrayType*)lapCenter_in, Nel ) ;
    DynamicArrayType< KsqxKsqx4_ArrayType > lapNghbor_ref( (KsqxKsqx4_ArrayType*)lapNghbor_in, Nel ) ;
 
@@ -1133,31 +1140,39 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
 
    std::map<size_t, KsqxKsq_ArrayType > coefs;
 
+   std::cout << "sizeof(geometry.getElementMetrics(0)): " << sizeof(geometry.getElementMetrics(0)) << std::endl;
+
    auto t_start = getTimeStamp();
 
    for (int el(0); el < Nel; ++el)
    {
       // 2nd-order volumetric and boundary metrics
-      auto xxsi = [&]( const int i, const int j ) { return Vol_Dx_iDxsi_j[el](i,j,1-1,1-1); };
-      auto yxsi = [&]( const int i, const int j ) { return Vol_Dx_iDxsi_j[el](i,j,2-1,1-1); };
-      auto xeta = [&]( const int i, const int j ) { return Vol_Dx_iDxsi_j[el](i,j,1-1,2-1); };
-      auto yeta = [&]( const int i, const int j ) { return Vol_Dx_iDxsi_j[el](i,j,2-1,2-1); };
-      auto jac  = [&]( const int i, const int j ) { return Vol_Jac[el](i,j); };
+
+      const auto& metrics = geometry.getElementMetrics(el);
+
+      // Shorthand to avoid object name.
+      auto xxsi  = [&]( const int i, const int j ) { return metrics.xxsi(i,j); };
+      auto yxsi  = [&]( const int i, const int j ) { return metrics.yxsi(i,j); };
+      auto xeta  = [&]( const int i, const int j ) { return metrics.xeta(i,j); };
+      auto yeta  = [&]( const int i, const int j ) { return metrics.yeta(i,j); };
+      auto jac   = [&]( const int i, const int j ) { return metrics.jac (i,j); };
+      auto faceA = [&]( const int i, const int f, const int elid) { return metrics.faceA(i,f,elid); };
+      auto faceB = [&]( const int i, const int f, const int elid) { return metrics.faceB(i,f,elid); };
+      auto faceN = [&]( const int i, const int f, const int elid) { return metrics.faceN(i,f,elid); };
 
       KxK_ArrayType Ax, Ay, Bx, By;
 
       forall( K, K, [&] ( const int i, const int j ) {
             Ax(i,j) = ( xeta(i,j)*xeta(i,j) + yeta(i,j)*yeta(i,j) ) / jac(i,j);
-          //Ay(i,j) = ( xxsi(i,j)*xxsi(i,j) + yxsi(i,j)*yxsi(i,j) ) / jac(i,j);
-            Ay(j,i) = ( xxsi(i,j)*xxsi(i,j) + yxsi(i,j)*yxsi(i,j) ) / jac(i,j);
+            Ay(j,i) = ( xxsi(i,j)*xxsi(i,j) + yxsi(i,j)*yxsi(i,j) ) / jac(i,j); // tranposed indexes!!!
             Bx(i,j) = ( xxsi(i,j)*xeta(i,j) + yxsi(i,j)*yeta(i,j) ) / jac(i,j);
             By(j,i) = Bx(i,j); // tranposed only
          });
 
-      typedef std::function<double(const int, const int, const int)> face_func_type;
-      face_func_type faceA = [&]( const int i, const int fid, const int elid) { return Face_Acoef[elid](i,fid) / Face_Jac[elid](i,fid); };
-      face_func_type faceB = [&]( const int i, const int fid, const int elid) { return Face_Bcoef[elid](i,fid) / Face_Jac[elid](i,fid); };
-      face_func_type faceN = [&]( const int i, const int fid, const int elid) { return Face_Norm[elid](i,fid); };
+      //typedef std::function<double(const int, const int, const int)> face_func_type;
+      //face_func_type faceA = [&]( const int i, const int fid, const int elid) { return Face_Acoef[elid](i,fid) / Face_Jac[elid](i,fid); };
+      //face_func_type faceB = [&]( const int i, const int fid, const int elid) { return Face_Bcoef[elid](i,fid) / Face_Jac[elid](i,fid); };
+      //face_func_type faceN = [&]( const int i, const int fid, const int elid) { return Face_Norm[elid](i,fid); };
 
       //if (el < 10) {
       //   auto print_array = [&]( const KxK_ArrayType& A, const char* S ) {
@@ -1221,6 +1236,8 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
             auto& nghbr_coef = coefs[ blk_idx(el,nghbr_elem_id) ];
             nghbr_coef.set(0.0);
 
+            const auto& nghbr_metrics = geometry.getElementMetrics(nghbr_elem_id);
+
             /// Element neighbor on the f^th boundary.
             const int nghbr_face_id = nghbrFace[f];
             //printf("%d %d %d %d\n", f, nghbr_face_id, nghbr_elem_id, el);
@@ -1232,8 +1249,10 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
                {
                   forall( K, K, K, [&] ( const int i, const int j, const int k )
                   {
-                     auto Aj = faceA(j, nghbr_face_id, nghbr_elem_id);
-                     auto Bj = 0.5 * ( faceB(j, f, el) + faceB(j, nghbr_face_id, nghbr_elem_id) );
+                   //auto Aj = faceA(j, nghbr_face_id, nghbr_elem_id);
+                   //auto Bj = 0.5 * ( faceB(j, f, el) + faceB(j, nghbr_face_id, nghbr_elem_id) );
+                     auto Aj = nghbr_metrics.faceA(j, nghbr_face_id);
+                     auto Bj = 0.5 * ( faceB(j, f, el) + nghbr_metrics.faceB(j, nghbr_face_id) );
                      //if (el == 0 and i == 0 and k == 0) printf("Aj %e %e\n", Aj, Bj);
 
                      const int ij = i + j * K + XorY * (K-1) * (i-j);
