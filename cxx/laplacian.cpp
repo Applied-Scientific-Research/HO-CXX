@@ -1059,31 +1059,36 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
    typedef StaticArrayType< double[Ksq][K] > KsqxK_ArrayType;
    typedef StaticArrayType< double[Ksq][K] > KsqxK_ArrayType;
 
-   DynamicArrayType< KxK_ArrayType > Vol_Jac( (KxK_ArrayType*)Vol_Jac_in, Nel ) ;
-   DynamicArrayType< KxKx2x2_ArrayType > Vol_Dx_iDxsi_j( (KxKx2x2_ArrayType*)Vol_Dx_iDxsi_j_in, Nel ) ;
-   DynamicArrayType< Kx4_ArrayType > Face_Jac( (Kx4_ArrayType*)Face_Jac_in, Nel ) ;
-   DynamicArrayType< Kx4_ArrayType > Face_Acoef( (Kx4_ArrayType*)Face_Acoef_in, Nel ) ;
-   DynamicArrayType< Kx4_ArrayType > Face_Bcoef( (Kx4_ArrayType*)Face_Bcoef_in, Nel ) ;
-   DynamicArrayType< Kx4_ArrayType > Face_Norm( (Kx4_ArrayType*)Face_Norm_in, Nel ) ;
+   //DynamicArrayType< KxK_ArrayType > Vol_Jac( (KxK_ArrayType*)Vol_Jac_in, Nel ) ;
+   //DynamicArrayType< KxKx2x2_ArrayType > Vol_Dx_iDxsi_j( (KxKx2x2_ArrayType*)Vol_Dx_iDxsi_j_in, Nel ) ;
+   //DynamicArrayType< Kx4_ArrayType > Face_Jac( (Kx4_ArrayType*)Face_Jac_in, Nel ) ;
+   //DynamicArrayType< Kx4_ArrayType > Face_Acoef( (Kx4_ArrayType*)Face_Acoef_in, Nel ) ;
+   //DynamicArrayType< Kx4_ArrayType > Face_Bcoef( (Kx4_ArrayType*)Face_Bcoef_in, Nel ) ;
+   //DynamicArrayType< Kx4_ArrayType > Face_Norm( (Kx4_ArrayType*)Face_Norm_in, Nel ) ;
 
    /// Create an access point for the metric data.
-   GeometryType<K,L> geometry( Nel, Vol_Jac_in, Vol_Dx_iDxsi_j_in, Face_Jac_in, Face_Acoef_in, Face_Bcoef_in, Face_Norm_in );
+   GeometryType<K,L> geometry( Nel, NelB,
+                               Vol_Jac_in, Vol_Dx_iDxsi_j_in,
+                               Face_Jac_in, Face_Acoef_in, Face_Bcoef_in, Face_Norm_in,
+                               elemID_in, BC_Switch_in );
 
    DynamicArrayType< KsqxKsq_ArrayType > lapCenter_ref( (KsqxKsq_ArrayType*)lapCenter_in, Nel ) ;
    DynamicArrayType< KsqxKsqx4_ArrayType > lapNghbor_ref( (KsqxKsqx4_ArrayType*)lapNghbor_in, Nel ) ;
 
    DynamicArrayType< KsqxK_ArrayType > bndrySrc_ref( (KsqxK_ArrayType*)bndrySrc_in, NelB );
 
-   DynamicArrayType< StaticArrayType< int[4] > > elemNghborID(Nel);
+ //DynamicArrayType< StaticArrayType< int[4] > > elemNghborID(Nel);
 
-   enum class BndryTypes : int { Default = 0, Dirichlet = 1, Neumann };
+ //enum class BndryType : int { Default = 0, Dirichlet = 1, Neumann };
+
+ //DynamicArrayType< BndryType > bndryType(NelB);
 
    DynamicArrayType< StaticArrayType< double[Ksq][K] > > bndrySrc( NelB );
-   DynamicArrayType< BndryTypes > bndryType(NelB);
 
    for (int bel(0); bel < NelB; ++bel)
       bndrySrc(bel).set(0.0);
 
+#if 0
    for (int el(0); el < Nel; ++el)
       for (int f(0); f < 4; ++f)
       {
@@ -1092,17 +1097,18 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
          {
             // Boundary element id.
             const int bel = (-nghbor) - 1;
-            elemNghborID(el)[f] = bel + Nel; // append the boundary id's *after* the elements so both lists can be 0-based (more easily).
-            bndryType(bel) = ( BC_Switch_in[bel] == 1 ) ? BndryTypes::Dirichlet :
-                             ( BC_Switch_in[bel] == 2 ) ? BndryTypes::Neumann   :
-                                                          BndryTypes::Default;
+          //elemNghborID(el)[f] = bel + Nel; // append the boundary id's *after* the elements so both lists can be 0-based (more easily).
+            bndryType(bel) = ( BC_Switch_in[bel] == 1 ) ? BndryType::Dirichlet :
+                             ( BC_Switch_in[bel] == 2 ) ? BndryType::Neumann   :
+                                                          BndryType::Default;
          }
          else
          {
             // Normal element-to-element connectivity in FEM format.
-            elemNghborID(el)[f] = nghbor - 1;
+          //elemNghborID(el)[f] = nghbor - 1;
          }
       }
+#endif
 
    // Build up some common basis function terms first.
    KxK_ArrayType E00, E01, E10, E11, E, C, D, F00, F01, F10, F11;
@@ -1135,8 +1141,8 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
          return std::make_pair( blk_row, blk_col );
       };
 
-   const int nghbrFace[] = { 1, 0, 3, 2 }; // reflect across the shared face.
-   const int tensor2fem[] = { 3, 1, 0, 2 }; // switch from indexed (WESN) to FEM CCW notation with S=0
+ //const int nghbrFace[] = { 1, 0, 3, 2 }; // reflect across the shared face.
+ //const int tensor2fem[] = { 3, 1, 0, 2 }; // switch from indexed (WESN) to FEM CCW notation with S=0
 
    std::map<size_t, KsqxKsq_ArrayType > coefs;
 
@@ -1146,8 +1152,6 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
 
    for (int el(0); el < Nel; ++el)
    {
-      // 2nd-order volumetric and boundary metrics
-
       const auto& metrics = geometry.getElementMetrics(el);
 
       // Shorthand to avoid object name.
@@ -1156,9 +1160,11 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
       auto xeta  = [&]( const int i, const int j ) { return metrics.xeta(i,j); };
       auto yeta  = [&]( const int i, const int j ) { return metrics.yeta(i,j); };
       auto jac   = [&]( const int i, const int j ) { return metrics.jac (i,j); };
-      auto faceA = [&]( const int i, const int f, const int elid) { return metrics.faceA(i,f,elid); };
-      auto faceB = [&]( const int i, const int f, const int elid) { return metrics.faceB(i,f,elid); };
-      auto faceN = [&]( const int i, const int f, const int elid) { return metrics.faceN(i,f,elid); };
+      auto faceA = [&]( const int i, const int f ) { return metrics.faceA(i,f); };
+      auto faceB = [&]( const int i, const int f ) { return metrics.faceB(i,f); };
+      auto faceN = [&]( const int i, const int f ) { return metrics.faceN(i,f); };
+
+      // 2nd-order volumetric and boundary metric terms
 
       KxK_ArrayType Ax, Ay, Bx, By;
 
@@ -1168,11 +1174,6 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
             Bx(i,j) = ( xxsi(i,j)*xeta(i,j) + yxsi(i,j)*yeta(i,j) ) / jac(i,j);
             By(j,i) = Bx(i,j); // tranposed only
          });
-
-      //typedef std::function<double(const int, const int, const int)> face_func_type;
-      //face_func_type faceA = [&]( const int i, const int fid, const int elid) { return Face_Acoef[elid](i,fid) / Face_Jac[elid](i,fid); };
-      //face_func_type faceB = [&]( const int i, const int fid, const int elid) { return Face_Bcoef[elid](i,fid) / Face_Jac[elid](i,fid); };
-      //face_func_type faceN = [&]( const int i, const int fid, const int elid) { return Face_Norm[elid](i,fid); };
 
       //if (el < 10) {
       //   auto print_array = [&]( const KxK_ArrayType& A, const char* S ) {
@@ -1203,7 +1204,8 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
 
       diag_coef.set(0.0);
 
-      forall( K, K, K, [&]( const int i, const int j, const int k ) {
+      forall( K, K, K, [&]( const int i, const int j, const int k )
+         {
             const int ij = i + j * K;
             const int kj = k + j * K;
             const int ik = i + k * K;
@@ -1227,16 +1229,18 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
          const int LorR = f % 2; // 0 = left, 1 = right
          const int XorY = f / 2; // 0 is x, 1 is y;
 
-         const auto nghbr_elem_id = elemNghborID(el)[ tensor2fem[f] ];
+       //const auto nghbr_elem_id = elemNghborID(el)[ tensor2fem[f] ];
+         const auto nghbr_elem_id = geometry.getNeighborID(el,f);
+
+         const auto& nghbr_metrics = geometry.getElementMetrics(nghbr_elem_id);
 
        //if (el < 10) printf("el: %d nghbr %d %d\n", el, nghbr_elem_id, f);
 
-         if ( nghbr_elem_id < Nel )
+       //if ( nghbr_elem_id < Nel )
+         if ( geometry.isBoundaryElement( nghbr_elem_id ) )
          {
             auto& nghbr_coef = coefs[ blk_idx(el,nghbr_elem_id) ];
             nghbr_coef.set(0.0);
-
-            const auto& nghbr_metrics = geometry.getElementMetrics(nghbr_elem_id);
 
             /// Element neighbor on the f^th boundary.
             const int nghbr_face_id = nghbrFace[f];
@@ -1249,10 +1253,8 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
                {
                   forall( K, K, K, [&] ( const int i, const int j, const int k )
                   {
-                   //auto Aj = faceA(j, nghbr_face_id, nghbr_elem_id);
-                   //auto Bj = 0.5 * ( faceB(j, f, el) + faceB(j, nghbr_face_id, nghbr_elem_id) );
                      auto Aj = nghbr_metrics.faceA(j, nghbr_face_id);
-                     auto Bj = 0.5 * ( faceB(j, f, el) + nghbr_metrics.faceB(j, nghbr_face_id) );
+                     auto Bj = 0.5 * ( faceB(j, f) + nghbr_metrics.faceB(j, nghbr_face_id) );
                      //if (el == 0 and i == 0 and k == 0) printf("Aj %e %e\n", Aj, Bj);
 
                      const int ij = i + j * K + XorY * (K-1) * (i-j);
@@ -1263,8 +1265,8 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
 
                         nghbr_coef(kj,ij) += (  forall_reduce( K, sumx )
                                               + Aj * Fab(k,i)
-                                              + gLprime[LorR] * faceA(j,f,el) * Eab(k,i) );
-                        diag_coef(kj,ij) += (  faceA(j,f,el) * Fbb(k,i)
+                                              + gLprime[LorR] * faceA(j,f) * Eab(k,i) );
+                        diag_coef(kj,ij) += (  faceA(j,f) * Fbb(k,i)
                                              - gLprime[LorR] * Aj * Ebb(k,i) );
                      }
 
@@ -1293,16 +1295,20 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
             /// No element neighbor on the f^th surface. It's a boundary surface.
             /// Apply Neumann or Dirichlet conditions.
 
-            const int bel = nghbr_elem_id - Nel;
+          //const int bel = nghbr_elem_id - Nel;
+            const auto bel = geometry.getBoundaryID( nghbr_elem_id );
+            const BndryType bndry_type = geometry.getBoundaryType(bel);
+
           //if (el < 10) printf("bel: %d %d %d %d %d\n", f, nghbr_elem_id, el, bel, bndryType(bel));
 
             auto& bndry_src = bndrySrc[bel];
 
-            if ( bndryType(bel) == BndryTypes::Dirichlet )
+          //if ( bndryType(bel) == BndryType::Dirichlet )
+            if ( bndry_type == BndryType::Dirichlet )
             {
                forall( K, K, [&] ( const int i, const int j ) {
                      const int ij = i + j * K + XorY * (K-1) * (i-j); // this transposes the storage for the x or y direction.
-                     bndry_src(j,ij) += ( 2.0 * gLprime[LorR] * faceA(j,f,el) ) * Basis.NodesGradRadau(i,LorR);
+                     bndry_src(j,ij) += ( 2.0 * gLprime[LorR] * faceA(j,f) ) * Basis.NodesGradRadau(i,LorR);
 
                      forall( K, [&] ( const int k )
                         {
@@ -1315,11 +1321,11 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
                            bndry_src(j,ij) += ( A(k,j) * D(k,i) * Basis.NodesGradRadau(k,LorR) );
                            bndry_src(k,ij) -= ( Basis.NodesGradRadau(i,LorR)
                                                   * (  B(i,k) * D(k,j)
-                                                     + faceB(j,f,el) * Basis.SolnNodesGradLgrangeBasis(k,j) ) );
+                                                     + faceB(j,f) * Basis.SolnNodesGradLgrangeBasis(k,j) ) );
 
                            auto sumx = [&]( const int l ) { return A(l,j) * D(l,i) * Eaa(k,l); };
 
-                           diag_coef(kj,ij) += ( 2.0 * faceA(j,f,el) * ( Faa(k,i) - gLprime[LorR] * Eaa(k,i) )
+                           diag_coef(kj,ij) += ( 2.0 * faceA(j,f) * ( Faa(k,i) - gLprime[LorR] * Eaa(k,i) )
                                                   - forall_reduce( K, sumx ) );
 
                            forall( K, [&]( const int l ) {
@@ -1329,7 +1335,7 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
                         });
                   });
             }
-            else if ( bndryType(bel) == BndryTypes::Neumann )
+            else if ( bndry_type == BndryType::Neumann )
             {
                fprintf(stderr,"BC == Neumann not implemented\n");
                exit(1);
@@ -1375,7 +1381,8 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
          // Now add any neighbor terms.
          for (int f(0); f < 4; ++f)
          {
-            const auto nghbr_elem_id = elemNghborID(el)[ tensor2fem[f] ];
+          //const auto nghbr_elem_id = elemNghborID(el)[ tensor2fem[f] ];
+            const auto nghbr_elem_id = geometry.getNeighborID(el,f);
 
             const auto idx = blk_idx(el,nghbr_elem_id);
 
@@ -1446,7 +1453,8 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
          // Now add any neighbor terms.
          for (int f(0); f < 4; ++f)
          {
-            const auto nghbr_elem_id = elemNghborID(el)[ tensor2fem[f] ];
+          //const auto nghbr_elem_id = elemNghborID(el)[ tensor2fem[f] ];
+            const auto nghbr_elem_id = geometry.getNeighborID(el,f);
             const auto nghbr_col0 = nghbr_elem_id * Ksq;
 
             const auto idx = blk_idx(el,nghbr_elem_id);
