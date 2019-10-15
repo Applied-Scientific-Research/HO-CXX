@@ -170,23 +170,23 @@ struct MixedPrecisionPrecon
       this->f.resize(nrows);
       this->x.resize(nrows);
 
-      std::cout << "MixedPrecisionPrecon(const precon&)" << std::endl
-                << this->P << std::endl
-                << nrows << std::endl
-                << std::endl;
+      //std::cout << "MixedPrecisionPrecon(const precon&)" << std::endl
+      //          << this->P << std::endl
+      //          << nrows << std::endl
+      //          << std::endl;
    }
 
    MixedPrecisionPrecon ( MixedPrecisionPrecon&& other ) : P(other.P), f( std::move(other.f) ), x( std::move(other.x) )
    {
-      std::cout << "MixedPrecisionPrecon(&&)" << std::endl
-                << this->P << std::endl
-                << this->x.size() << std::endl
-                << std::endl;
+      //std::cout << "MixedPrecisionPrecon(&&)" << std::endl
+      //          << this->P << std::endl
+      //          << this->x.size() << std::endl
+      //          << std::endl;
    }
 
    ~MixedPrecisionPrecon()
    {
-      std::cout << "~MixedPrecisionPrecon" << std::endl;
+      //std::cout << "~MixedPrecisionPrecon" << std::endl;
    }
 
    friend std::ostream& operator<<(std::ostream &os, const MixedPrecisionPrecon &p)
@@ -412,10 +412,14 @@ void sort_crs_rows( const int nrows, const R *rowptr, C *colidx, V *values )
    }
 }
 
+/* Hold the preconditioner and iterative solver for the AMGCL library.
+ */
 struct AMGCL_SolverType
 {
-   typedef amgcl::backend::builtin<double> BackendType;
-   typedef amgcl::backend::builtin<float > mixed_BackendType;
+   typedef double value_type;
+
+   typedef amgcl::backend::builtin<value_type> BackendType;		///< Primary back-end
+   typedef amgcl::backend::builtin<float > mixed_BackendType;	///< Secondary back-end for the lower precision operations.
 
    typedef amgcl::runtime::preconditioner< mixed_BackendType > PreconditionerType;
    typedef amgcl::runtime::solver::wrapper< BackendType >      IterativeSolverType;
@@ -427,11 +431,30 @@ struct AMGCL_SolverType
 
    std::shared_ptr< MakeSolverType > shared_solver;
    std::shared_ptr< MixedPreconditionerType > shared_mixed_precon;
-   build_matrix system_matrix;
 
+   build_matrix system_matrix; //!< A native copy of the system matrix since the internal
+                               //!< storage will be lower precision.
+
+   //!< Maximum # of iterations allowed by the iterative solver.
    int maxiters;
-   double reltol, abstol;
 
+   /*! Target tolerance normalized by the RHS norm:
+    * @f[
+    * \frac{|| Ax - f ||}{||f||} < relTol
+    * @f]
+    */
+   double reltol;
+
+   /*! Target absolute tolerance.
+    * @f[
+    * || Ax - f || < absTol
+    * @f]
+    */
+   double abstol;
+
+   bool verbose;
+
+   /// Constructor accepts any valid input matrix format.
    template <typename Matrix>
    AMGCL_SolverType ( const Matrix& A ) : system_matrix(A)
    {
@@ -439,25 +462,27 @@ struct AMGCL_SolverType
 
       auto prm = load_amgcl_params();
 
-      this->maxiters = prm.get("solver.maxiter", -1 );
+      this->maxiters = prm.get("solver.maxiter", 0 );
       this->reltol   = prm.get("solver.tol", 0.0 );
       this->abstol   = prm.get("solver.abstol", 0.0 );
+      this->verbose  = prm.get("verbosity", 0 );
 
       auto t_build_start = getTimeStamp();
 
-    //shared_solver = std::make_shared< MakeSolverType >( A, prm );
       shared_solver = std::make_shared< MakeSolverType >( system_matrix, prm );
 
       auto &P = shared_solver->precond();
-    //MixedPreconditionerType m_precon(P);
       shared_mixed_precon = std::make_shared< MixedPreconditionerType > ( P );
 
-      auto t_build_stop = getTimeStamp();
+      if ( this->verbose )
+      {
+         auto t_build_stop = getTimeStamp();
 
-      std::cout << "Build time: " << getElapsedTime( t_build_start, t_build_stop ) << std::endl;
+         std::cout << "Build time: " << getElapsedTime( t_build_start, t_build_stop ) << std::endl;
 
-      std::cout << "Solver: " << std::endl << shared_solver->solver() << std::endl;
-      std::cout << "Precon: " << std::endl << *shared_mixed_precon << std::endl;
+         std::cout << "Solver: " << std::endl << shared_solver->solver() << std::endl;
+         std::cout << "Precon: " << std::endl << *shared_mixed_precon << std::endl;
+      }
    }
 
    ~AMGCL_SolverType()
@@ -490,20 +515,22 @@ struct AMGCL_SolverType
       auto niters = std::get<0>(ret);
       auto resid  = std::get<1>(ret);
 
-      size_t nrows = amgcl::backend::rows(A);
-      //decltype(x) r(nrows);
-      //std::vector<decltype(x[0])> r(nrows);
-      std::vector<double> r(nrows);
-      amgcl::backend::residual( f, A, x, r);
-      auto norm_r = norm2( r, r );
+      if (verbose)
+      {
+         size_t nrows = amgcl::backend::rows(A);
+         std::vector<value_type> r(nrows);
+         amgcl::backend::residual( f, A, x, r );
+         auto norm_r = norm2( r, r );
 
-      std::cout << "Iterations: " << niters << std::endl
-                << "Error:      " << resid << std::endl
-                << "Norm(r):    " << norm_r << std::endl
-                << "Solve time: " << getElapsedTime( t_start, t_stop ) << std::endl
-                << std::endl;
+         std::cout << "Iterations: " << niters << std::endl
+                   << "Error:      " << resid << std::endl
+                   << "Norm(r):    " << norm_r << std::endl
+                   << "Solve time: " << getElapsedTime( t_start, t_stop ) << std::endl
+                   << std::endl;
+      }
 
-      return niters < this->maxiters;
+      int iret = ( this->maxiters > 0 ) ? ( niters < this->maxiters ) : 1;
+      return iret;
    }
 
    template <typename X, typename F>
@@ -1577,7 +1604,6 @@ void getLaplacian( double VorticityIn[], double psiIn[], double* BoundarySourceI
    const int NelB = LaplacianData.NelB;
 
    const auto& Jac = LaplacianData.Vol_Jac;
-   const auto& wgt = LaplacianData.wgt;
 
    typedef StaticArrayType< double[K][K] > NodeArrayType;
 
