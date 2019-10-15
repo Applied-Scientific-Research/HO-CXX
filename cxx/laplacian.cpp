@@ -1059,13 +1059,6 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
    typedef StaticArrayType< double[Ksq][K] > KsqxK_ArrayType;
    typedef StaticArrayType< double[Ksq][K] > KsqxK_ArrayType;
 
-   //DynamicArrayType< KxK_ArrayType > Vol_Jac( (KxK_ArrayType*)Vol_Jac_in, Nel ) ;
-   //DynamicArrayType< KxKx2x2_ArrayType > Vol_Dx_iDxsi_j( (KxKx2x2_ArrayType*)Vol_Dx_iDxsi_j_in, Nel ) ;
-   //DynamicArrayType< Kx4_ArrayType > Face_Jac( (Kx4_ArrayType*)Face_Jac_in, Nel ) ;
-   //DynamicArrayType< Kx4_ArrayType > Face_Acoef( (Kx4_ArrayType*)Face_Acoef_in, Nel ) ;
-   //DynamicArrayType< Kx4_ArrayType > Face_Bcoef( (Kx4_ArrayType*)Face_Bcoef_in, Nel ) ;
-   //DynamicArrayType< Kx4_ArrayType > Face_Norm( (Kx4_ArrayType*)Face_Norm_in, Nel ) ;
-
    /// Create an access point for the metric data.
    GeometryType<K,L> geometry( Nel, NelB,
                                Vol_Jac_in, Vol_Dx_iDxsi_j_in,
@@ -1077,38 +1070,10 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
 
    DynamicArrayType< KsqxK_ArrayType > bndrySrc_ref( (KsqxK_ArrayType*)bndrySrc_in, NelB );
 
- //DynamicArrayType< StaticArrayType< int[4] > > elemNghborID(Nel);
-
- //enum class BndryType : int { Default = 0, Dirichlet = 1, Neumann };
-
- //DynamicArrayType< BndryType > bndryType(NelB);
-
    DynamicArrayType< StaticArrayType< double[Ksq][K] > > bndrySrc( NelB );
 
    for (int bel(0); bel < NelB; ++bel)
       bndrySrc(bel).set(0.0);
-
-#if 0
-   for (int el(0); el < Nel; ++el)
-      for (int f(0); f < 4; ++f)
-      {
-         const int nghbor = elemID_in[ f + 4*el ];
-         if ( nghbor < 0 )
-         {
-            // Boundary element id.
-            const int bel = (-nghbor) - 1;
-          //elemNghborID(el)[f] = bel + Nel; // append the boundary id's *after* the elements so both lists can be 0-based (more easily).
-            bndryType(bel) = ( BC_Switch_in[bel] == 1 ) ? BndryType::Dirichlet :
-                             ( BC_Switch_in[bel] == 2 ) ? BndryType::Neumann   :
-                                                          BndryType::Default;
-         }
-         else
-         {
-            // Normal element-to-element connectivity in FEM format.
-          //elemNghborID(el)[f] = nghbor - 1;
-         }
-      }
-#endif
 
    // Build up some common basis function terms first.
    KxK_ArrayType E00, E01, E10, E11, E, C, D, F00, F01, F10, F11;
@@ -1141,9 +1106,6 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
          return std::make_pair( blk_row, blk_col );
       };
 
- //const int nghbrFace[] = { 1, 0, 3, 2 }; // reflect across the shared face.
- //const int tensor2fem[] = { 3, 1, 0, 2 }; // switch from indexed (WESN) to FEM CCW notation with S=0
-
    std::map<size_t, KsqxKsq_ArrayType > coefs;
 
    std::cout << "sizeof(geometry.getElementMetrics(0)): " << sizeof(geometry.getElementMetrics(0)) << std::endl;
@@ -1175,30 +1137,6 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
             By(j,i) = Bx(i,j); // tranposed only
          });
 
-      //if (el < 10) {
-      //   auto print_array = [&]( const KxK_ArrayType& A, const char* S ) {
-      //         std::cout << S << std::endl;
-      //         forall( K, K, [&]( const int i, const int j ) { printf("%d %d %e\n", i, j, A(i,j)); });
-      //      };
-
-      //   std::cout << "el metrics " << el << std::endl;
-      //   print_array( Ax, "Ax");
-      //   print_array( Ay, "Ay");
-      //   print_array( Bx, "Bx");
-      //   print_array( By, "By");
-
-      //   auto print_face = [&]( const face_func_type& A, const char *S ) {
-      //         std::cout << S << std::endl;
-      //         forall( K, [&](const int i) {
-      //               printf("%e %e %e %e\n", A(i,0,el), A(i,1,el), A(i,2,el), A(i,3,el));
-      //            });
-      //      };
-
-      //   print_face( faceA, "faceA" );
-      //   print_face( faceB, "faceB" );
-      //   print_face( faceN, "faceN" );
-      //}
-
       // Form diagonal terms (self element dependencies)
       auto& diag_coef = coefs[ blk_idx(el,el) ];
 
@@ -1229,14 +1167,10 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
          const int LorR = f % 2; // 0 = left, 1 = right
          const int XorY = f / 2; // 0 is x, 1 is y;
 
-       //const auto nghbr_elem_id = elemNghborID(el)[ tensor2fem[f] ];
          const auto nghbr_elem_id = geometry.getNeighborID(el,f);
 
          const auto& nghbr_metrics = geometry.getElementMetrics(nghbr_elem_id);
 
-       //if (el < 10) printf("el: %d nghbr %d %d\n", el, nghbr_elem_id, f);
-
-       //if ( nghbr_elem_id < Nel )
          if ( geometry.isBoundaryElement( nghbr_elem_id ) )
          {
             auto& nghbr_coef = coefs[ blk_idx(el,nghbr_elem_id) ];
@@ -1244,7 +1178,6 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
 
             /// Element neighbor on the f^th boundary.
             const int nghbr_face_id = nghbrFace[f];
-            //printf("%d %d %d %d\n", f, nghbr_face_id, nghbr_elem_id, el);
 
             // Form the common geometric terms between the elements.
             typedef decltype(E00) Etype;
@@ -1255,7 +1188,6 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
                   {
                      auto Aj = nghbr_metrics.faceA(j, nghbr_face_id);
                      auto Bj = 0.5 * ( faceB(j, f) + nghbr_metrics.faceB(j, nghbr_face_id) );
-                     //if (el == 0 and i == 0 and k == 0) printf("Aj %e %e\n", Aj, Bj);
 
                      const int ij = i + j * K + XorY * (K-1) * (i-j);
                      const int kj = k + j * K + XorY * (K-1) * (k-j);
@@ -1295,15 +1227,11 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
             /// No element neighbor on the f^th surface. It's a boundary surface.
             /// Apply Neumann or Dirichlet conditions.
 
-          //const int bel = nghbr_elem_id - Nel;
             const auto bel = geometry.getBoundaryID( nghbr_elem_id );
             const BndryType bndry_type = geometry.getBoundaryType(bel);
 
-          //if (el < 10) printf("bel: %d %d %d %d %d\n", f, nghbr_elem_id, el, bel, bndryType(bel));
-
             auto& bndry_src = bndrySrc[bel];
 
-          //if ( bndryType(bel) == BndryType::Dirichlet )
             if ( bndry_type == BndryType::Dirichlet )
             {
                forall( K, K, [&] ( const int i, const int j ) {
@@ -1381,7 +1309,6 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
          // Now add any neighbor terms.
          for (int f(0); f < 4; ++f)
          {
-          //const auto nghbr_elem_id = elemNghborID(el)[ tensor2fem[f] ];
             const auto nghbr_elem_id = geometry.getNeighborID(el,f);
 
             const auto idx = blk_idx(el,nghbr_elem_id);
@@ -1453,7 +1380,6 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
          // Now add any neighbor terms.
          for (int f(0); f < 4; ++f)
          {
-          //const auto nghbr_elem_id = elemNghborID(el)[ tensor2fem[f] ];
             const auto nghbr_elem_id = geometry.getNeighborID(el,f);
             const auto nghbr_col0 = nghbr_elem_id * Ksq;
 
@@ -1638,10 +1564,10 @@ void getLaplacian( double VorticityIn[], double psiIn[], double* BoundarySourceI
    const DynamicArrayType< NodeArrayType > psi( (NodeArrayType *) psiIn, Nel );
 
    const size_t nrows = Nel * (K*K);
-   std::vector<double> xv(nrows), bv(nrows);
+   std::vector<double> xflat(nrows), bflat(nrows);
 
-   DynamicArrayType< NodeArrayType > x( (NodeArrayType*) xv.data(), Nel),
-                                     b( (NodeArrayType*) bv.data(), Nel);
+   DynamicArrayType< NodeArrayType > x( (NodeArrayType*) xflat.data(), Nel),
+                                     b( (NodeArrayType*) bflat.data(), Nel);
 
    auto t_start = getTimeStamp();
 
@@ -1686,28 +1612,9 @@ void getLaplacian( double VorticityIn[], double psiIn[], double* BoundarySourceI
 
    } // end parallel
 
-   //double sum_b(0), max_b(0);
-   //for (int el = 0; el < Nel; ++el)
-   //   for (int j = 0; j < Knod; ++j)
-   //      for (int i = 0; i < Knod; ++i)
-   //      {
-   //         sum_b += sqr( b[el](i,j) );
-   //         max_b = std::max( std::fabs( b[el](i,j) ), max_b );
-   //      }
-
-   //printf("Resid, vol, eps: %e %e %e %e %e %e %e\n", resid, vol, (1.0+resid)/vol, sqrt(sum_bnd), max_bnd, sqrt(sum_b), max_b);
-
    auto t_middle = getTimeStamp();
 
-   int ierr = -1;
-
-// ierr = APLLES_Solve( LaplacianData.MatrixHandle,
-//                      x.getRawPointer(), b.getRawPointer(),
-//                      LaplacianData.SolverHandle, LaplacianData.PreconHandle );
-
-   {
-      ierr = (*amgcl_solver)( xv, bv );
-   }
+   int ierr = (*amgcl_solver)( xflat, bflat );
 
    auto t_end = getTimeStamp();
 
