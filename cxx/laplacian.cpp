@@ -427,17 +427,26 @@ struct AMGCL_SolverType
 
    std::shared_ptr< MakeSolverType > shared_solver;
    std::shared_ptr< MixedPreconditionerType > shared_mixed_precon;
+   build_matrix system_matrix;
+
+   int maxiters;
+   double reltol, abstol;
 
    template <typename Matrix>
-   AMGCL_SolverType ( const Matrix& A )
+   AMGCL_SolverType ( const Matrix& A ) : system_matrix(A)
    {
-      std::cout << "typeid(build_matrix): " << typeid(build_matrix).name() << std::endl;
+      //std::cout << "typeid(build_matrix): " << typeid(build_matrix).name() << std::endl;
 
       auto prm = load_amgcl_params();
 
+      this->maxiters = prm.get("solver.maxiter", -1 );
+      this->reltol   = prm.get("solver.tol", 0.0 );
+      this->abstol   = prm.get("solver.abstol", 0.0 );
+
       auto t_build_start = getTimeStamp();
 
-      shared_solver = std::make_shared< MakeSolverType >( A, prm );
+    //shared_solver = std::make_shared< MakeSolverType >( A, prm );
+      shared_solver = std::make_shared< MakeSolverType >( system_matrix, prm );
 
       auto &P = shared_solver->precond();
     //MixedPreconditionerType m_precon(P);
@@ -457,21 +466,34 @@ struct AMGCL_SolverType
    }
 
    template <typename VectorX, typename VectorF>
-   void apply( VectorX& x, const VectorF& f )
+   int apply( VectorX& x, const VectorF& f )
    {
       auto t_start = getTimeStamp();
 
-      int niters = 0;
-      double resid = 0;
+      auto& _A = this->shared_solver->system_matrix();
+      auto& A = this->system_matrix;
+      auto& P = *(this->shared_mixed_precon.get());
 
-      auto& A = this->shared_solver->system_matrix();
+      auto& solver = this->shared_solver->solver();
 
-      std::tie< niters, resid > = this->shared_solver->solver()( A, this->shared_mixed_precon.get(), f, x );
+    //std::cout << "typeid(solver) " << typeid(solver).name() << std::endl;
+    //std::cout << "typeid(_A) " << typeid(_A).name() << std::endl;
+    //std::cout << "typeid(A) " << typeid(A).name() << std::endl;
+    //std::cout << "typeid(P) " << typeid(P).name() << std::endl;
+    //std::cout << "typeid(x) " << typeid(x).name() << std::endl;
+    //std::cout << "typeid(f) " << typeid(f).name() << std::endl;
+
+      auto ret = solver.operator()( A, P, f, x );
 
       auto t_stop = getTimeStamp();
 
+      auto niters = std::get<0>(ret);
+      auto resid  = std::get<1>(ret);
+
       size_t nrows = amgcl::backend::rows(A);
-      decltype(x) r(nrows);
+      //decltype(x) r(nrows);
+      //std::vector<decltype(x[0])> r(nrows);
+      std::vector<double> r(nrows);
       amgcl::backend::residual( f, A, x, r);
       auto norm_r = norm2( r, r );
 
@@ -480,12 +502,14 @@ struct AMGCL_SolverType
                 << "Norm(r):    " << norm_r << std::endl
                 << "Solve time: " << getElapsedTime( t_start, t_stop ) << std::endl
                 << std::endl;
+
+      return niters < this->maxiters;
    }
 
    template <typename X, typename F>
-   void operator()( X& x, const F& f )
+   int operator()( X& x, const F& f )
    {
-      this->apply( x, f );
+      return this->apply( x, f );
    }
 };
 
@@ -1413,6 +1437,7 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
    return;
 }
 
+#if 0
 void getLaplacian( double VorticityIn[], double psiIn[], double* BoundarySourceIn, double *BoundaryValuesIn)
 {
    const int Knod = LaplacianData.Knod;
@@ -1540,6 +1565,115 @@ void getLaplacian( double VorticityIn[], double psiIn[], double* BoundarySourceI
 
       eval_amgcl ( *csr, x, b, Knod );
    }
+
+   return;
+}
+#endif
+
+void getLaplacian( double VorticityIn[], double psiIn[], double* BoundarySourceIn, double *BoundaryValuesIn)
+{
+   const int K = LaplacianData.Knod;
+   const int Nel  = LaplacianData.Nel;
+   const int NelB = LaplacianData.NelB;
+
+   const auto& Jac = LaplacianData.Vol_Jac;
+   const auto& wgt = LaplacianData.wgt;
+
+   typedef StaticArrayType< double[K][K] > NodeArrayType;
+
+   const DynamicArrayType< NodeArrayType > Vorticity( (NodeArrayType *) VorticityIn, Nel );
+   const DynamicArrayType< NodeArrayType > psi( (NodeArrayType *) psiIn, Nel );
+
+   const size_t nrows = Nel * (K*K);
+   std::vector<double> xv(nrows), bv(nrows);
+
+   DynamicArrayType< NodeArrayType > x( (NodeArrayType*) xv.data(), Nel),
+                                     b( (NodeArrayType*) bv.data(), Nel);
+
+   auto t_start = getTimeStamp();
+
+   /// Evaluate the RHS vorticity for each element's nodes.
+
+   #pragma omp parallel default(shared)
+   {
+
+   #pragma omp for nowait
+   for (int el = 0; el < Nel; ++el)
+   {
+      const auto& vort = Vorticity(el);
+      const auto& jac = Jac(el);
+
+      forall( K, K, [&]( const int i, const int j )
+         {
+            b[el](i,j) = -jac(i,j) * vort(i,j);
+            x[el](i,j) = 0.0;
+         });
+   }
+
+   /// Factor in the boundary face/element.
+
+   #pragma omp for nowait
+   for (int bel = 0; bel < NelB; ++bel)
+   {
+      /// Volumetric element ID
+      const auto el_id = LaplacianData.BoundaryPointElementIDs(bel);
+
+      /// References to the element's objects.
+            auto& b_el = b[el_id];
+      const auto& bndry_src = LaplacianData.BoundarySource[bel];
+      const auto& bndry_val = LaplacianData.BoundaryValues[bel];
+
+      forall( K, K, [&] ( const int i, const int j )
+         {
+            const auto ij = i + j * K;
+
+            b_el(i,j) -= dot_product( bndry_src.slice<0>( ij ), bndry_val );
+         });
+   }
+
+   } // end parallel
+
+   //double sum_b(0), max_b(0);
+   //for (int el = 0; el < Nel; ++el)
+   //   for (int j = 0; j < Knod; ++j)
+   //      for (int i = 0; i < Knod; ++i)
+   //      {
+   //         sum_b += sqr( b[el](i,j) );
+   //         max_b = std::max( std::fabs( b[el](i,j) ), max_b );
+   //      }
+
+   //printf("Resid, vol, eps: %e %e %e %e %e %e %e\n", resid, vol, (1.0+resid)/vol, sqrt(sum_bnd), max_bnd, sqrt(sum_b), max_b);
+
+   auto t_middle = getTimeStamp();
+
+   int ierr = -1;
+
+// ierr = APLLES_Solve( LaplacianData.MatrixHandle,
+//                      x.getRawPointer(), b.getRawPointer(),
+//                      LaplacianData.SolverHandle, LaplacianData.PreconHandle );
+
+   {
+      ierr = (*amgcl_solver)( xv, bv );
+   }
+
+   auto t_end = getTimeStamp();
+
+   double sum_x(0), max_x(0), err(0), ref(0);
+
+   #pragma omp parallel for reduction(+: sum_x, err, ref) \
+                            reduction(max: max_x)
+   for (int el = 0; el < Nel; ++el)
+      forall( K, K, [&]( const int i, const int j)
+         {
+            sum_x += sqr( x[el](i,j) );
+            max_x = std::max( std::fabs( x[el](i,j) ), max_x );
+
+            auto diff = x[el](i,j) - psi[el](i,j);
+            err += sqr( diff );
+            ref += sqr( psi[el](i,j) );
+         });
+
+   printf("cxx solved: %d %e %e %f %f %e %e %e\n", ierr, sqrt(sum_x), max_x, getElapsedTime( t_start, t_middle ), getElapsedTime( t_middle, t_end ), sqrt(err), sqrt(ref), sqrt(err/ref));
 
    return;
 }
