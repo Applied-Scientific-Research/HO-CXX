@@ -18,9 +18,20 @@ struct DynamicArrayType
    bool       m_owns_data; /// Is this a reference type that points to another allocation?
    size_t     m_nelems;  /// How many elements?
 
-   explicit DynamicArrayType ( ValueType *ptr, const size_t nelems ) : m_ptr( ptr ), m_nelems(nelems), m_owns_data(false)
+   explicit DynamicArrayType ( ValueType *ptr, const size_t nelems )
+      : m_ptr( ptr ), m_nelems(nelems), m_owns_data(false)
    {
       //fprintf(stderr,"Instantiated DynamicArrayType %p with existing array %p\n", this, this->m_ptr);
+   }
+
+   template < typename U >
+   explicit DynamicArrayType ( U* ptr, const size_t nelems )
+      : m_ptr( (ValueType *)ptr), m_nelems(nelems), m_owns_data(false)
+   {
+      typedef typename std::enable_if< std::is_class<ValueType>::value &&
+                                       std::is_same<U, typename getBaseValueType<ValueType>::type>::value,
+                                         void
+                                     >::type dummy_type;
    }
 
    DynamicArrayType (void) : m_ptr(NULL), m_nelems(0), m_owns_data(true)
@@ -74,9 +85,9 @@ struct DynamicArrayType
 
    ValueType *getPointer(void) { return this->m_ptr; }
 
-   typename getBaseValueType<ValueType>::type* getRawPointer(void)
+   typename getBaseValueType<ValueType>::type *getRawPointer(void)
    {
-      return (typename getBaseValueType<ValueType>::type* )(this->m_ptr);
+      return (typename getBaseValueType<ValueType>::type *)(this->m_ptr);
    }
 
          T& operator() (const size_t i)       { return this->m_ptr[i]; }
@@ -147,8 +158,18 @@ struct StaticArrayType
    enum { I3   = properties::I3 };
 
    typedef typename properties::ValueType ValueType;
+   typedef StaticArrayType<DataType> ThisType;
 
    DataType m_data;
+
+   template <typename Int>
+      typename std::enable_if< std::is_integral<Int>::value, Int >::type &
+   flatten( const Int i, const Int j = 0, const Int k = 0, const Int m = 0 )
+      { return   i
+               + (rank > 1) ? j * I0 : 0
+               + (rank > 2) ? k * I0*I1 : 0
+               + (rank > 3) ? m * I0*I1*I2 : 0
+           ; }
 
    /// rank 4
    template <typename Int>
@@ -226,13 +247,13 @@ struct StaticArrayType
    }
 
    template <int Dim>
-   const typename std::enable_if< (Dim < rank), SliceType< StaticArrayType, Dim > >::type slice( const int index = 0 ) const
+   const typename std::enable_if< (Dim < rank and rank == 2), SliceType< StaticArrayType, Dim > >::type slice( const int index = 0 ) const
    {
       return SliceType< StaticArrayType, Dim >( *this, index );
    }
 
    template <int Dim>
-         typename std::enable_if< (Dim < rank), SliceType< StaticArrayType, Dim > >::type slice( const int index = 0 ) 
+         typename std::enable_if< (Dim < rank and rank == 2), SliceType< StaticArrayType, Dim > >::type slice( const int index = 0 ) 
    {
       return SliceType< StaticArrayType, Dim >( *this, index );
    }
@@ -252,6 +273,39 @@ struct StaticArrayType
       auto f = [&](const int& i, const int& j) { (*this)(i,j) = val; };
       forall( I0, I1, f );
    }
+
+   template <typename T>
+      typename std::enable_if< std::is_same<T,ThisType>::value and rank == 1, void >::type
+   copy( const T& obj )
+   {
+      auto f = [&]( const int& i) { (*this)(i) = obj(i); };
+      forall( I0, f );
+   }
+
+   template <typename T>
+      typename std::enable_if< std::is_same<T,ThisType>::value and rank == 2, void >::type
+   copy( const T& obj )
+   {
+      auto f = [&]( const int& i, const int& j) { (*this)(i,j) = obj(i,j); };
+      forall( I0, I1, f );
+   }
+
+   template <typename T>
+      typename std::enable_if< std::is_same<T,ValueType>::value and rank == 1, void >::type
+   copy( const T obj[] )
+   {
+      auto f = [&]( const int& i) { (*this)(i) = obj[ flatten(i) ]; };
+      forall( I0, f );
+   }
+
+   template <typename T>
+      typename std::enable_if< std::is_same<T,ValueType>::value and rank == 2, void >::type
+   copy( const T obj[] )
+   {
+      auto f = [&]( const int& i, const int& j) { (*this)(i,j) = obj[ flatten(i,j) ]; };
+      forall( I0, I1, f );
+   }
+
 };
 
 template <class ArrayType, int _Dim>
@@ -327,6 +381,20 @@ struct getBaseValueType< StaticArrayType<T> > { typedef typename StaticArrayType
 template <typename T, int Dim>
 struct getBaseValueType< SliceType<T,Dim> > { typedef typename SliceType<T,Dim>::ValueType type; };
 
+template <class A, class B>
+   typename std::enable_if< A::rank == B::rank and A::rank == 1 and A::I0 == B::I0,
+                                   typename getBaseValueType<A>::type >::type
+dot_product ( const A& a, const B& b )
+{
+   typedef typename getBaseValueType<A>::type value_type;
+
+   value_type prod(0);
+   const int len = A::I0;
+   for (int i = 0; i < len; ++i)
+      prod += a(i) * b(i);
+
+   return prod;
+}
 
 } // end namespace
 

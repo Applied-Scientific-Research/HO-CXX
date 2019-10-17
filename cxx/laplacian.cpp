@@ -13,6 +13,7 @@
 #include "array.hpp"
 #include "basis.hpp"
 #include "geometry.hpp"
+#include "laplacian.hpp"
 
 #include "aplles_interface.h"
 #include "splib/csr_matrix.h"
@@ -22,6 +23,7 @@
 
 using namespace HighOrderFEM;
 
+#if 0
 template <int _Knod>
 struct LaplacianDataType
 {
@@ -51,10 +53,12 @@ struct LaplacianDataType
 
 typedef LaplacianDataType<3> LaplacianType;
 LaplacianType LaplacianData;
+#endif
 
 template <typename T>
 T sqr( const T& x ) { return x*x; }
 
+#if 0
 template <class A, class B>
    typename std::enable_if< A::rank == B::rank and A::rank == 1 and A::I0 == B::I0,
                                    typename getBaseValueType<A>::type >::type
@@ -69,6 +73,9 @@ dot_product ( const A& a, const B& b )
 
    return prod;
 }
+#endif
+
+#if 0
 
 // Test AMGCL
 
@@ -543,6 +550,8 @@ struct AMGCL_SolverType
 
 std::shared_ptr< AMGCL_SolverType > amgcl_solver;
 
+#endif
+
 #if 0
 template <class CSRMatrix, class NodalVector>
 void eval_amgcl ( const CSRMatrix& A_in, NodalVector& x_ref, const NodalVector& b, const int Knod )
@@ -977,6 +986,7 @@ void eval_amgcl ( const CSRMatrix& A_in, NodalVector& x_ref, const NodalVector& 
 extern "C"
 {
 
+#if 0
 void setLaplacian( const int Knod, const int Nel,
                      double wgt[], double Vol_Jac[],
                      const int NelB, int BoundaryPointElementIDs1[], double BoundarySource[], double BoundaryValues[],
@@ -1029,12 +1039,15 @@ void setLaplacian( const int Knod, const int Nel,
 
    return;
 }
+#endif
 
+#if 0
 void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
                         double Vol_Jac_in[], double Vol_Dx_iDxsi_j_in[],
                         double Face_Acoef_in[], double Face_Bcoef_in[], double Face_Jac_in[], double Face_Norm_in[],
                         double lapCenter_in[], double lapNghbor_in[], double bndrySrc_in[],
-                        int elemID_in[], int BC_Switch_in[]
+                        int elemID_in[], int bndryElementID_in[],
+                        int BC_Switch_in[], double BC_Values_in[]
                       )
 {
    printf("Inside assembleLaplacian\n");
@@ -1063,7 +1076,8 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
    GeometryType<K,L> geometry( Nel, NelB,
                                Vol_Jac_in, Vol_Dx_iDxsi_j_in,
                                Face_Jac_in, Face_Acoef_in, Face_Bcoef_in, Face_Norm_in,
-                               elemID_in, BC_Switch_in );
+                               elemID_in, bndryElementID_in,
+                               BC_Switch_in );
 
    DynamicArrayType< KsqxKsq_ArrayType > lapCenter_ref( (KsqxKsq_ArrayType*)lapCenter_in, Nel ) ;
    DynamicArrayType< KsqxKsqx4_ArrayType > lapNghbor_ref( (KsqxKsqx4_ArrayType*)lapNghbor_in, Nel ) ;
@@ -1417,6 +1431,8 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
    return;
 }
 
+#endif
+
 #if 0
 void getLaplacian( double VorticityIn[], double psiIn[], double* BoundarySourceIn, double *BoundaryValuesIn)
 {
@@ -1550,6 +1566,7 @@ void getLaplacian( double VorticityIn[], double psiIn[], double* BoundarySourceI
 }
 #endif
 
+#if 0
 void getLaplacian( double VorticityIn[], double psiIn[], double* BoundarySourceIn, double *BoundaryValuesIn)
 {
    const int K = LaplacianData.Knod;
@@ -1573,10 +1590,7 @@ void getLaplacian( double VorticityIn[], double psiIn[], double* BoundarySourceI
 
    /// Evaluate the RHS vorticity for each element's nodes.
 
-   #pragma omp parallel default(shared)
-   {
-
-   #pragma omp for nowait
+   #pragma omp parallel for
    for (int el = 0; el < Nel; ++el)
    {
       const auto& vort = Vorticity(el);
@@ -1591,7 +1605,6 @@ void getLaplacian( double VorticityIn[], double psiIn[], double* BoundarySourceI
 
    /// Factor in the boundary face/element.
 
-   #pragma omp for nowait
    for (int bel = 0; bel < NelB; ++bel)
    {
       /// Volumetric element ID
@@ -1609,8 +1622,6 @@ void getLaplacian( double VorticityIn[], double psiIn[], double* BoundarySourceI
             b_el(i,j) -= dot_product( bndry_src.slice<0>( ij ), bndry_val );
          });
    }
-
-   } // end parallel
 
    auto t_middle = getTimeStamp();
 
@@ -1637,5 +1648,85 @@ void getLaplacian( double VorticityIn[], double psiIn[], double* BoundarySourceI
 
    return;
 }
+#endif
 
+std::shared_ptr< LaplacianType<3,4> > laplacian34;
+std::shared_ptr< GeometryType<3,4> > geometry34;
+
+void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
+                        double Vol_Jac_in[], double Vol_Dx_iDxsi_j_in[],
+                        double Face_Acoef_in[], double Face_Bcoef_in[], double Face_Jac_in[], double Face_Norm_in[],
+                        double lapCenter_in[], double lapNghbor_in[], double bndrySrc_in[],
+                        int elemID_in[], int bndryElementID_in[],
+                        int BC_Switch_in[], double BC_Values_in[]
+                      )
+{
+   printf("Inside assembleLaplacian\n");
+   printf("Knod: %d\n", _Knod);
+   printf("Nel: %d\n", Nel);
+   printf("NelB: %d\n", NelB);
+
+   if (_Knod != 3) {
+      fprintf(stderr,"Knod != 3 %d\n", _Knod);
+      exit(-1);
+   }
+
+   const int K = 3, L = 4;
+
+   /// Create an access point for the metric data.
+   geometry34 = std::make_shared< GeometryType<K,L> >
+                             ( Nel, NelB,
+                               Vol_Jac_in, Vol_Dx_iDxsi_j_in,
+                               Face_Jac_in, Face_Acoef_in, Face_Bcoef_in, Face_Norm_in,
+                               elemID_in, bndryElementID_in,
+                               BC_Switch_in );
+   laplacian34 = std::make_shared< LaplacianType<K,L> >
+                             ( *geometry34 );
+
+   laplacian34->setBoundaryValues( NelB, BC_Values_in );
 }
+
+void getLaplacian( double VorticityInPtr[], double psiInPtr[], double BndrySrcIn[], double BndryValuesIn[] )
+{
+   const auto K = 3;//laplacian34->geometry.K;
+   const auto Nel  = laplacian34->geometry.Nel;
+   const auto NelB = laplacian34->geometry.NelB;
+
+   typedef StaticArrayType< double[K][K] > NodeArrayType;
+
+   const DynamicArrayType< NodeArrayType > Vorticity( (NodeArrayType *) VorticityInPtr, Nel );
+   const DynamicArrayType< NodeArrayType > psiIn( (NodeArrayType *) psiInPtr, Nel );
+
+   DynamicArrayType< NodeArrayType > x( Nel );
+
+   double sumb = 0.0;
+   for (int i(0); i < NelB; ++i)
+      for (int j(0); j < K; ++j)
+         sumb += BndryValuesIn[ j + i*K ];
+   printf("sumb: %e\n", sumb);
+
+   laplacian34->solve( Vorticity, x );
+
+   {
+      double sum_x(0), max_x(0), err(0), ref(0);
+
+      #pragma omp parallel for reduction(+: sum_x, err, ref) \
+                               reduction(max: max_x)
+      for (int el = 0; el < Nel; ++el)
+         forall( K, K, [&]( const int i, const int j)
+            {
+               sum_x += sqr( x[el](i,j) );
+               max_x = std::max( std::fabs( x[el](i,j) ), max_x );
+
+               auto diff = x[el](i,j) - psiIn[el](i,j);
+               err += sqr( diff );
+               ref += sqr( psiIn[el](i,j) );
+            });
+
+      printf("verify: %e %e %e %e %e\n", sqrt(sum_x), max_x, sqrt(err), sqrt(ref), sqrt(err/ref));
+   }
+
+   return;
+}
+
+} // extern "C"

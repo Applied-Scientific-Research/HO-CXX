@@ -1707,11 +1707,13 @@ if (.false.) then
 endif
          ELSEIF (tIntegrator_type .eq. 4) THEN
 
+           print *, 'starting rk4'
            CALL  EulerTimeIntegrate(dt, Reyn, Vort, k1, HuynhSolver_type, A_handle, P_handle, S_handle)
            CALL  EulerTimeIntegrate(dto2, Reyn, Vort + k1/2.d0, k2, HuynhSolver_type, A_handle, P_handle, S_handle)
            CALL  EulerTimeIntegrate(dto2, Reyn, Vort + k2, k3, HuynhSolver_type, A_handle, P_handle, S_handle)
            CALL  EulerTimeIntegrate(dt, Reyn, Vort + 2.d0*k3, k4, HuynhSolver_type, A_handle, P_handle, S_handle)
            Vort = Vort + (k1 + 4.d0*k2 + 4.d0*k3 + k4) / 6.d0
+           print *, 'done with rk4'
 
 if (.false.) then
            Vort = Vort + dto6*f_of_Vort
@@ -2250,6 +2252,7 @@ SUBROUTINE SetLaplacian(HuynhSolver_type, A_handle, P_handle, S_handle)
        USE CnvrtTensor2FemIndices
        USE APLLES_Solvers_Module
        USE omp_lib
+       USE WTIMER
 
        USE iso_c_binding
 
@@ -2280,6 +2283,8 @@ SUBROUTINE SetLaplacian(HuynhSolver_type, A_handle, P_handle, S_handle)
 
        integer, dimension(:), allocatable :: rowptr_filtered, colidx_filtered
        real*8, dimension(:), allocatable :: values_filtered
+
+       type(timer_type) :: t_start, t_end
 
 interface
 function inv(A) result(Ainv)
@@ -2314,7 +2319,8 @@ end function inv
                               Face_Acoef, Face_Bcoef, Face_Jac, Face_Norm, &
                               LaplacianCenter, LaplacianNeighbor, &
                               BndrySrc, &
-                              elemID, BC_Switch ) &
+                              elemID, bndryElemID, &
+                              BC_Switch, BC_Values ) &
     bind(C,name='assembleLaplacian')
 
     use iso_c_binding
@@ -2323,11 +2329,14 @@ end function inv
     integer(c_int), value :: Knod, Nel, NelB
     real(c_double), dimension(*) :: Vol_Jac, Vol_Dx_iDxsi_j, &
                               Face_Acoef, Face_Bcoef, Face_Jac, Face_Norm, &
-                              LaplacianCenter, LaplacianNeighbor, BndrySrc
-    integer(c_int), dimension(*) :: elemID, BC_Switch
+                              LaplacianCenter, LaplacianNeighbor, BndrySrc, &
+                              BC_Values
+    integer(c_int), dimension(*) :: elemID, bndryElemID, BC_Switch
 
   end subroutine
 end interface
+
+       t_start = get_timestamp()
 
        Knm = Knod - 1
        Ksq = Knod * Knod
@@ -2395,6 +2404,20 @@ end interface
            ENDDO
          ENDDO
 
+         !if (el < 10) then
+         !  print *, 'el metrics:'
+         !  print *, solnA(:,:,1)
+         !  print *, solnA(:,:,2)
+         !  print *, solnB(:,:,1)
+
+         !  print *, 'faceA'
+         !  print '(4(e15.7,1x))', (faceA(j,0:3), j=1,Knod)
+         !  print *, 'faceB'
+         !  print '(4(e15.7,1x))', (faceB(j,0:3), j=1,Knod)
+         !  print *, 'faceN'
+         !  print '(4(e15.7,1x))', (normA(j,0:3), j=1,Knod)
+         !endif
+
          DO j = 1, Knod
            jm1 = (j-1) * Knod
            DO i = 1, Knod
@@ -2433,6 +2456,8 @@ end interface
              IF (eln .lt. 0) THEN
 
                bel = -eln
+
+              !print *, '-eln: ', ijp, eln, el, bel, BC_Switch(bel)
                IF (BC_Switch(bel) .eq. DirichletBC) THEN
 
                  DO j = 1, Knod
@@ -2546,6 +2571,9 @@ end interface
                  Acoef(j) = Face_Acoef(j,ijPm,eln) / Face_Jac(j,ijPm,eln)
                  Bcoef(j) = 0.5d0 * ( FaceB(j,ijP) + Face_Bcoef(j,ijPm,eln) / Face_Jac(j,ijPm,eln) )
                ENDDO
+              !print *, ijp, ijpm, eln, el
+              !print *, 'Acoef ', Acoef
+              !print *, 'Bcoef ', Bcoef
 
                DO j = 1, Knod
                  jm1 = (j-1) * Knod
@@ -2582,6 +2610,42 @@ end interface
 
        ENDDO
 
+       t_end = get_timestamp()
+       print *,'laplacian assembly 1 time: ', get_elapsed_time( t_start, t_end )
+
+       if (.false.) then
+         write(6,*) 'any(Neumann) = ', any(BC_Switch(:) .eq. NeumannBC)
+         write(6,*) 'any(Dirichlet) = ', any(BC_Switch(:) .eq. DirichletBC)
+         write(6,*) 'any(none) = ', any( BC_Switch(:) .ne. DirichletBC .and. BC_Switch(:) .ne. NeumannBC )
+
+         open(10,file='ftn_assembly.out',form='formatted')
+
+         DO el = 1, Nel
+           write(10,*) 'el: ', el
+           write(10,*) 'center: ', el
+           do i = 1, Ksq
+              write(10,"(i3,9(',',e20.13))") i, laplaciancenter(i,1:Ksq,el)
+           enddo
+
+           DO ijP = 0, 3
+             IF (elemID(i2f(ijP),el) > 0) then
+               write(10,"(a,2(1x,i10))") 'nghbr: ', ijP, elemID(i2f(ijP),el)
+               do i = 1, Ksq
+                  write(10,"(i3,9(',',e20.13))") i, laplacianneigbr(i,1:Ksq,ijp,el)
+               enddo
+             endif
+           ENDDO
+         ENDDO
+
+         do bel = 1, nelb
+           write(10,*) 'bel: ', bel
+           do j = 1, Ksq
+             write(10,"(i3,3(',',e20.13))") j, BndrySrc(1:Knod,j,bel)
+           enddo
+         enddo
+         close(10)
+       endif
+
 !      Everything above can be used in conjunction with another Laplacian to get fast diffusion; for now, below is to solve
 !      the Poisson equation, but it needs to be modified to replace Laplacian (for diffusion) variables into matrix A
        nrows = Ksq * Nel
@@ -2602,6 +2666,7 @@ end interface
          colctr = (el - 1) * Ksq
          DO ijP = 0, 3
            colnbr(ijP) = (elemID(i2f(ijP),el) - 1) * Ksq
+!          if ( el <= 10 ) print *, 'el: ', el, elemId(i2f(ijP),el), ijP
          ENDDO
          DO j = 1, Knod
            jm1 = (j-1) * Knod
@@ -2691,18 +2756,19 @@ print *,'MATRIX MAX VALUE ',maxval(abs(values(1:nnz)))
 
        deAllocate (rowptr_filtered, colidx_filtered, values_filtered)
 
-       call set_laplacian_c( Knod, Nel, wgt, Vol_Jac, &
-                             NelB, BoundaryPointsElemID, &
-                            !BndrySrc, BC_Values, &
-                             BndrySrc, BC_Psi, &
-                             A_handle%ptr, S_handle%ptr, P_handle%ptr )
+      !call set_laplacian_c( Knod, Nel, wgt, Vol_Jac, &
+      !                      NelB, BoundaryPointsElemID, &
+      !                     !BndrySrc, BC_Values, &
+      !                      BndrySrc, BC_Psi, &
+      !                      A_handle%ptr, S_handle%ptr, P_handle%ptr )
 
        call assemble_laplacian_c( Knod, Nel, NelB, &
                               Vol_Jac, Vol_Dx_iDxsi_j, &
                               Face_Acoef, Face_Bcoef, Face_Jac, Face_Norm, &
                               LaplacianCenter, LaplacianNeigbr, &
                               BndrySrc, &
-                              elemID, BC_Switch )
+                              elemID, boundaryPointsElemID, &
+                              BC_Switch, BC_Psi )
 
 END SUBROUTINE SetLaplacian
 

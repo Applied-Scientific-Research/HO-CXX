@@ -28,6 +28,7 @@ template <int _K, int _L, typename T = double>
 struct GeometryType
 {
    typedef T value_type;
+   typedef int index_type;
 
    enum : int { K = _K,
                 L = _L };
@@ -42,7 +43,8 @@ struct GeometryType
 
    DynamicArrayType< BndryType > bndryType;
 
-   DynamicArrayType< NghbrListType > elemNghborID;
+   DynamicArrayType< NghbrListType > elemNghborID; ///< List of element neighbors for each element in FEM order.
+   DynamicArrayType< int > bndryElementID;      ///< Volume element ID's for each boundary element.
 
    DynamicArrayType< KxK_ArrayType > Vol_Jac;
    DynamicArrayType< KxKx2x2_ArrayType > Vol_Dx_iDxsi_j;
@@ -59,6 +61,7 @@ struct GeometryType
                        double* Face_Bcoef_in,
                        double* Face_Norm_in,
                        int*    elemID_in,
+                       int*    bndryElementID_in,
                        int*    BC_Switch_in)
       : 
          Nel(Nel), NelB(NelB),
@@ -69,6 +72,7 @@ struct GeometryType
          Face_Bcoef( (Kx4_ArrayType*)Face_Bcoef_in, Nel ),
          Face_Norm( (Kx4_ArrayType*)Face_Norm_in, Nel ),
          elemNghborID(Nel),
+         bndryElementID(NelB),
          bndryType(NelB)
    {
       std::cout << "explicit GeometryType::GeometryType(...)" << std::endl;
@@ -92,6 +96,9 @@ struct GeometryType
                elemNghborID(el)[f] = nghbor - 1;
             }
          }
+
+      for (int bel(0); bel < NelB; ++bel)
+         bndryElementID(bel) = bndryElementID_in[bel] - 1;
    }
 
    GeometryType (void)
