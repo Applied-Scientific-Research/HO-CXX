@@ -16,11 +16,11 @@ struct BasisFunctions
 {
    typedef T value_type;
 
-   enum { K = _K };
-   enum { L = _L };
+   enum : int { K = _K,
+                L = _L };
 
-   constexpr int getSolutionOrder(void) const { return (int)K; }
-   constexpr int getGeometryOrder(void) const { return (int)L; }
+   constexpr int getSolutionOrder(void) const { return K; }
+   constexpr int getGeometryOrder(void) const { return L; }
 
    StaticArrayType< value_type[K] > sps;
    StaticArrayType< value_type[L] > gps;

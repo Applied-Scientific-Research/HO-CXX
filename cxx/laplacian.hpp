@@ -840,8 +840,8 @@ struct LaplacianType
    }
 
  //void solve( value_type VorticityIn[] )
-   template < typename VorticityType, typename PsiType >
-   void solve( const VorticityType& Vorticity, PsiType& psi )
+   template < typename VectorType >
+   VectorType solve( const VectorType& Vorticity )
    {
       const size_t Nel  = geometry.Nel;
       const size_t NelB = geometry.NelB;
@@ -852,9 +852,6 @@ struct LaplacianType
       printf("NelB: %d\n", NelB);
 
       typedef StaticArrayType< value_type[K][K] > NodeArrayType;
-
-    //const DynamicArrayType< NodeArrayType > Vorticity( (NodeArrayType *) VorticityIn, Nel );
-    //const DynamicArrayType< NodeArrayType > psi( (NodeArrayType *) psiIn, Nel );
 
       const size_t nrows = Nel * (K*K);
       std::vector<value_type> xflat(nrows), bflat(nrows);
@@ -903,13 +900,15 @@ struct LaplacianType
 
       int ierr = (*this->amgcl_solver)( xflat, bflat );
 
+      VectorType psi(Nel);
+
       std::copy( xflat.data(), xflat.data() + nrows, psi.getRawPointer() );
 
       auto t_end = getTimeStamp();
 
       printf("cxx solved: %d %f %f\n", ierr, getElapsedTime( t_start, t_middle ), getElapsedTime( t_middle, t_end ));
 
-      return;
+      return psi;
    }
 
 };

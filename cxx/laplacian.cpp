@@ -1650,6 +1650,75 @@ void getLaplacian( double VorticityIn[], double psiIn[], double* BoundarySourceI
 }
 #endif
 
+#include <boost/preprocessor/seq/for_each.hpp>
+#include <boost/preprocessor/seq/for_each_product.hpp>
+#include "macros.h"
+
+struct GeometryTypeHelper
+{
+   void* v_ptr[5][5]; /// K,L := [1,5)
+
+   GeometryTypeHelper(const int K, const int L,
+                       const size_t Nel, const size_t NelB,
+                       double* Vol_Jac_in,
+                       double* Vol_Dx_iDxsi_j_in,
+                       double* Face_Jac_in,
+                       double* Face_Acoef_in,
+                       double* Face_Bcoef_in,
+                       double* Face_Norm_in,
+                       int*    elemID_in,
+                       int*    bndryElementID_in,
+                       int*    BC_Switch_in)
+   {
+/*
+#define K_VALUES (1)(3)(5)
+#define L_VALUES (1)(3)(4)(5)
+
+#define make_unique(_K,_L) ( (_L) + (_K)*10 )
+
+#define DECLARE_MAP_VARIANTS(r, _K, _L) \
+    case make_unique((_K),(_L)): { \
+       const char* str = #r; \
+       typedef GeometryType<_K,_L> type; \
+       this->v_ptr[_K][_L] = (void *) new type \
+                             ( Nel, NelB, \
+                               Vol_Jac_in, Vol_Dx_iDxsi_j_in, \
+                               Face_Jac_in, Face_Acoef_in, Face_Bcoef_in, Face_Norm_in, \
+                               elemID_in, bndryElementID_in, \
+                               BC_Switch_in ); \
+       break; \
+     }
+
+#define DECLARE_MAP_VARIANTS_(r, KL) \
+    DECLARE_MAP_VARIANTS(r, BOOST_PP_SEQ_ELEM(0, KL), BOOST_PP_SEQ_ELEM(1, KL))
+
+      switch( make_unique(K,L) ) {
+        BOOST_PP_SEQ_FOR_EACH_PRODUCT( DECLARE_MAP_VARIANTS_, (K_VALUES)(L_VALUES) )
+        default:
+          fprintf(stderr,"Unsupported K/L value %d/%d\n", K,L);
+          exit(-1);
+      }
+*/
+
+#define _op(_K,_L) { \
+       auto *ptr = new GeometryType<_K,_L> \
+                             ( Nel, NelB, \
+                               Vol_Jac_in, Vol_Dx_iDxsi_j_in, \
+                               Face_Jac_in, Face_Acoef_in, Face_Bcoef_in, Face_Norm_in, \
+                               elemID_in, bndryElementID_in, \
+                               BC_Switch_in ); \
+       this->v_ptr[_K][_L] = reinterpret_cast<void *>(ptr); \
+       break; \
+   }
+
+      __case_for_each_K_and_L(K,L)
+
+#undef _op
+
+   }
+
+};
+
 std::shared_ptr< LaplacianType<3,4> > laplacian34;
 std::shared_ptr< GeometryType<3,4> > geometry34;
 
@@ -1688,7 +1757,9 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
 
 void getLaplacian( double VorticityInPtr[], double psiInPtr[], double BndrySrcIn[], double BndryValuesIn[] )
 {
-   const auto K = 3;//laplacian34->geometry.K;
+   typedef typename std::remove_reference< decltype(*laplacian34) >::type thisLaplacianType;
+
+   const int K = thisLaplacianType::K;
    const auto Nel  = laplacian34->geometry.Nel;
    const auto NelB = laplacian34->geometry.NelB;
 
@@ -1697,33 +1768,25 @@ void getLaplacian( double VorticityInPtr[], double psiInPtr[], double BndrySrcIn
    const DynamicArrayType< NodeArrayType > Vorticity( (NodeArrayType *) VorticityInPtr, Nel );
    const DynamicArrayType< NodeArrayType > psiIn( (NodeArrayType *) psiInPtr, Nel );
 
-   DynamicArrayType< NodeArrayType > x( Nel );
-
-   double sumb = 0.0;
-   for (int i(0); i < NelB; ++i)
-      for (int j(0); j < K; ++j)
-         sumb += BndryValuesIn[ j + i*K ];
-   printf("sumb: %e\n", sumb);
-
-   laplacian34->solve( Vorticity, x );
+   auto psi = laplacian34->solve( Vorticity );
 
    {
-      double sum_x(0), max_x(0), err(0), ref(0);
+      double sum_psi(0), max_psi(0), err(0), ref(0);
 
-      #pragma omp parallel for reduction(+: sum_x, err, ref) \
-                               reduction(max: max_x)
+      #pragma omp parallel for reduction(+: sum_psi, err, ref) \
+                               reduction(max: max_psi)
       for (int el = 0; el < Nel; ++el)
          forall( K, K, [&]( const int i, const int j)
             {
-               sum_x += sqr( x[el](i,j) );
-               max_x = std::max( std::fabs( x[el](i,j) ), max_x );
+               sum_psi += sqr( psi[el](i,j) );
+               max_psi = std::max( std::fabs( psi[el](i,j) ), max_psi );
 
-               auto diff = x[el](i,j) - psiIn[el](i,j);
+               auto diff = psi[el](i,j) - psiIn[el](i,j);
                err += sqr( diff );
                ref += sqr( psiIn[el](i,j) );
             });
 
-      printf("verify: %e %e %e %e %e\n", sqrt(sum_x), max_x, sqrt(err), sqrt(ref), sqrt(err/ref));
+      printf("verify: %e %e %e %e %e\n", sqrt(sum_psi), max_psi, sqrt(err), sqrt(ref), sqrt(err/ref));
    }
 
    return;
