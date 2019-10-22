@@ -1558,11 +1558,19 @@ if (.false.) then
 endif
          ELSEIF (tIntegrator_type .eq. 4) THEN
 
+           ! I have no idea where I copied this RK4 from; seems incorrect
+!           CALL  EulerTimeIntegrate(dt, Reyn, Vort, k1, HuynhSolver_type, A_handle, P_handle, S_handle)
+!           CALL  EulerTimeIntegrate(dto2, Reyn, Vort + k1/2.d0, k2, HuynhSolver_type, A_handle, P_handle, S_handle)
+!           CALL  EulerTimeIntegrate(dto2, Reyn, Vort + k2, k3, HuynhSolver_type, A_handle, P_handle, S_handle)
+!           CALL  EulerTimeIntegrate(dt, Reyn, Vort + 2.d0*k3, k4, HuynhSolver_type, A_handle, P_handle, S_handle)
+!           Vort = Vort + (k1 + 4.d0*k2 + 4.d0*k3 + k4) / 6.d0
+
+           ! We don't need to save all k's; we can definitely improve below or use a low-storage SSP method
            CALL  EulerTimeIntegrate(dt, Reyn, Vort, k1, HuynhSolver_type, A_handle, P_handle, S_handle)
-           CALL  EulerTimeIntegrate(dto2, Reyn, Vort + k1/2.d0, k2, HuynhSolver_type, A_handle, P_handle, S_handle)
-           CALL  EulerTimeIntegrate(dto2, Reyn, Vort + k2, k3, HuynhSolver_type, A_handle, P_handle, S_handle)
-           CALL  EulerTimeIntegrate(dt, Reyn, Vort + 2.d0*k3, k4, HuynhSolver_type, A_handle, P_handle, S_handle)
-           Vort = Vort + (k1 + 4.d0*k2 + 4.d0*k3 + k4) / 6.d0
+           CALL  EulerTimeIntegrate(dt, Reyn, Vort + k1/2.d0, k2, HuynhSolver_type, A_handle, P_handle, S_handle)
+           CALL  EulerTimeIntegrate(dt, Reyn, Vort + k2/2.d0, k3, HuynhSolver_type, A_handle, P_handle, S_handle)
+           CALL  EulerTimeIntegrate(dt, Reyn, Vort + k3, k4, HuynhSolver_type, A_handle, P_handle, S_handle)
+           Vort = Vort + (k1 + 2.d0*k2 + 2.d0*k3 + k4) / 6.d0
 
 if (.false.) then
            Vort = Vort + dto6*f_of_Vort
