@@ -3127,6 +3127,8 @@ SUBROUTINE GetLapIntrnComVals_Meth11(ibnd, Acoef, Bcoef, Jac, bndrPhi, bndrDPhi,
        ! same as above for neighbor element
        real*8, dimension(Knod) :: ANbrcoef, BNbrcoef, NbrJac, bndrNbrPhi, bndrNbrDPhi, comNbrPhi, comNbrDPhi
 
+       real*8, dimension(Knod) :: A_Tmp, B_Tmp, AN_Tmp, BN_Tmp
+
        integer i,j, ibndm
        ! cross derivatives using common values comPhi
        real*8, dimension(Knod) :: crossDPhi
@@ -3135,16 +3137,19 @@ SUBROUTINE GetLapIntrnComVals_Meth11(ibnd, Acoef, Bcoef, Jac, bndrPhi, bndrDPhi,
 
        ibndm = ibnd - 1
        DO j = 1, Knod
-         Acoef(j) = Acoef(j) / Jac(j)
-         Bcoef(j) = Bcoef(j) / Jac(j)
-         ANbrcoef(j) = ANbrcoef(j) / NbrJac(j)
-         BNbrcoef(j) = BNbrcoef(j) / NbrJac(j)
-         NeuRHS(j) =  ANbrcoef(j)*(bndrNbrDPhi(j) - bndrNbrPhi(j)*gLprime(ibndm)) - &
-                         Acoef(j)*(bndrDPhi(j) - bndrPhi(j)*gLprime(ibnd))
+         A_Tmp(j) = Acoef(j) / Jac(j)
+         B_Tmp(j) = Bcoef(j) / Jac(j)
+         AN_Tmp(j) = ANbrcoef(j) / NbrJac(j)
+         BN_Tmp(j) = BNbrcoef(j) / NbrJac(j)
+         NeuRHS(j) =  AN_Tmp(j)*(bndrNbrDPhi(j) - bndrNbrPhi(j)*gLprime(ibndm)) - &
+                       A_Tmp(j)*(bndrDPhi(j)    - bndrPhi(j)*gLprime(ibnd))
+       ENDDO
+
+       DO j = 1, Knod
          DO i = 1, Knod
-           NeuMatrix(j,i) = (BNbrcoef(j) - Bcoef(j)) * SolnNodesGradLgrangeBasis(i,j)
+           NeuMatrix(j,i) = (BN_Tmp(i) - B_Tmp(i)) * SolnNodesGradLgrangeBasis(i,j)
          ENDDO
-         NeuMatrix(j,j) = NeuMatrix(j,j) + Acoef(j)*gLprime(ibnd) - ANbrcoef(j)*gLprime(ibndm)
+         NeuMatrix(j,j) = NeuMatrix(j,j) + A_Tmp(j)*gLprime(ibnd) - AN_Tmp(j)*gLprime(ibndm)
        ENDDO
 
        ! Get the common face value of the unknown
@@ -3156,8 +3161,8 @@ SUBROUTINE GetLapIntrnComVals_Meth11(ibnd, Acoef, Bcoef, Jac, bndrPhi, bndrDPhi,
          crossDPhi(j) = dot_product(comNbrPhi(1:Knod), SolnNodesGradLgrangeBasis(1:Knod,j))
        ENDDO
 
-       comNbrDPhi(1:Knod) = ANbrcoef(1:Knod) * (bndrNbrDPhi(1:Knod) + (comNbrPhi(1:Knod) - bndrNbrPhi(1:Knod))*gLprime(ibndm)) -  &
-                            BNbrcoef(1:Knod) * crossDPhi(1:Knod)
+       comNbrDPhi(1:Knod) = AN_Tmp(1:Knod) * (bndrNbrDPhi(1:Knod) + (comNbrPhi(1:Knod) - bndrNbrPhi(1:Knod))*gLprime(ibndm)) -  &
+                            BN_Tmp(1:Knod) * crossDPhi(1:Knod)
 
        comDPhi(1:Knod) = comNbrDPhi(1:Knod)
 
