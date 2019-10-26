@@ -17,6 +17,8 @@
 #include "basis.hpp"
 #include "geometry.hpp"
 
+#include "eigen.hpp"
+
 #ifndef SOLVER_BACKEND_BUILTIN
 #  define SOLVER_BACKEND_BUILTIN
 #endif
@@ -818,6 +820,19 @@ struct LaplacianType
 
       this->amgcl_solver = std::make_shared<AMGCL_SolverType>( A );
 
+      static bool write_matrix = true;
+      if (write_matrix) {
+         FILE *fp = fopen("a.out","wb");
+         const int n = nrows;
+         fwrite( &n, sizeof(int), 1, fp );
+         fwrite( rowptr.data(), sizeof(int), (nrows+1), fp );
+         fwrite( colidx.data(), sizeof(int), nnz, fp );
+         fwrite( values.data(), sizeof(double), nnz, fp );
+         fclose(fp);
+         write_matrix = false;
+         std::cout << "Wrote CSR matrix to binary file\n";
+      }
+
       return;
    }
 
@@ -907,6 +922,23 @@ struct LaplacianType
       auto t_end = getTimeStamp();
 
       printf("cxx solved: %d %f %f\n", ierr, getElapsedTime( t_start, t_middle ), getElapsedTime( t_middle, t_end ));
+
+      {
+         static bool write_rhs = true;
+         if (write_rhs) {
+            FILE *fp = fopen("b.out","wb");
+            const int n = nrows;
+            fwrite( &n, sizeof(int), 1, fp );
+            fwrite( bflat.data(), sizeof(double), nrows, fp );
+            fclose(fp);
+            write_rhs = false;
+         }
+      }
+
+      {
+         auto &A = this->amgcl_solver->system_matrix;
+         test_eigen( nrows, A.ptr, A.col, A.val, bflat.data(), xflat.data() );
+      }
 
       return psi;
    }

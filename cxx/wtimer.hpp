@@ -6,9 +6,26 @@
 #include <ratio>
 #include <chrono>
 
+#ifdef _OPENMP
+# include <omp.h>
+#endif
+
 namespace HighOrderFEM
 {
 
+#ifdef _OPENMP
+#warning 'Using OpenMP wall-clock timer'
+typedef double TimerType;
+
+TimerType getTimeStamp(void)
+{
+   return omp_get_wtime();
+}
+double getElapsedTime( const TimerType& a, const TimerType& b )
+{
+   return (b - a);
+}
+#else
 typedef std::chrono::high_resolution_clock::time_point TimerType;
 
 TimerType getTimeStamp(void)
@@ -24,6 +41,7 @@ double getElapsedTime( const TimerType& a, const TimerType& b )
 
    return t_span.count();
 }
+#endif
 
 } // namespace
 

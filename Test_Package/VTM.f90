@@ -2745,6 +2745,8 @@ print *,'MATRIX MAX VALUE ',maxval(abs(values(1:nnz)))
          ierr = APLLES_Setup_Matrix_CSR(nrows,rowptr_filtered,colidx_filtered,values_filtered,A_handle)
        endif
 
+       ierr = APLLES_Matrix_To_File( A_handle, "a.csr", 0 )
+
        ierr = APLLES_Matrix_Copy_CSR_To_Other(A_handle, "CSR", A_handle)
 
        ierr = APLLES_Setup_Solver(A_handle,trim(Aplles_solver_name),S_handle)
@@ -2778,6 +2780,7 @@ SUBROUTINE GetLaplacian(HuynhSolver_type, Vortin, psi, A_handle, P_handle, S_han
        USE variables
        USE APLLES_Solvers_Module
        USE omp_lib
+       USE WTIMER
 
        USE iso_c_binding
 
@@ -2796,6 +2799,8 @@ SUBROUTINE GetLaplacian(HuynhSolver_type, Vortin, psi, A_handle, P_handle, S_han
        type(APLLES_PreconHandleType) :: P_handle
        type(APLLES_SolverHandleType) :: S_handle
 
+       type(timer_type) :: t_start, t_end
+
 interface
   subroutine get_laplacian_c( Vort, Psi, BndrySrc, BndryVals ) &
     bind(C,name='getLaplacian')
@@ -2807,6 +2812,8 @@ interface
 
   end subroutine
 end interface
+
+       t_start = get_timestamp()
 
        nrows = Knod * Knod * Nel
        Allocate (x(nrows), b(nrows))
@@ -2863,7 +2870,7 @@ end interface
 
        ierr = APLLES_Solve(A_handle, x, b, S_handle, P_handle)
 
-       print *, 'solved: ', ierr, sqrt( sum( x**2 ) ), maxval( abs(x) )
+!      print *, 'solved: ', ierr, sqrt( sum( x**2 ) ), maxval( abs(x) )
 
        nrows = 0
        DO el = 1, Nel
@@ -2876,6 +2883,9 @@ end interface
        ENDDO
 
        deAllocate (x, b)
+
+       t_end = get_timestamp()
+       print *, 'aplles solver: ', get_elapsed_time( t_start, t_end )
 
        call get_laplacian_c( Vortin, psi, BndrySrc, BC_Values )
   
