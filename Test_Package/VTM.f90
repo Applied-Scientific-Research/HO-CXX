@@ -3147,7 +3147,7 @@ SUBROUTINE GetLapIntrnComVals_Meth11(ibnd, Acoef, Bcoef, Jac, bndrPhi, bndrDPhi,
 
        DO j = 1, Knod
          DO i = 1, Knod
-           NeuMatrix(j,i) = (BN_Tmp(i) - B_Tmp(i)) * SolnNodesGradLgrangeBasis(i,j)
+           NeuMatrix(j,i) = (BN_Tmp(j) - B_Tmp(j)) * SolnNodesGradLgrangeBasis(i,j)
          ENDDO
          NeuMatrix(j,j) = NeuMatrix(j,j) + A_Tmp(j)*gLprime(ibnd) - AN_Tmp(j)*gLprime(ibndm)
        ENDDO
