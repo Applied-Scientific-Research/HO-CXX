@@ -9,6 +9,22 @@
 
 #include "my_IncompleteLUT.h"
 
+namespace details
+{
+
+template <typename MatrixType>
+void print_info( const MatrixType& A, const std::string name = "Undefined" )
+{
+   std::cout << "Eigen Matrix: " << name << std::endl;
+   std::cout << "  rows()         " << A.rows()         << std::endl;         // Number of rows
+   std::cout << "  cols()         " << A.cols()         << std::endl;         // Number of columns 
+   std::cout << "  nonZeros()     " << A.nonZeros()     << std::endl;     // Number of non zero values   
+   std::cout << "  outerSize()    " << A.outerSize()    << std::endl;    // Number of columns (resp. rows) for a column major (resp. row major )
+   std::cout << "  innerSize()    " << A.innerSize()    << std::endl;    // Number of rows (resp. columns) for a row major (resp. column major)
+   std::cout << "  isVector()     " << A.isVector()     << std::endl;     // Check if A is a sparse vector or a sparse matrix
+   std::cout << "  isCompressed() " << A.isCompressed() << std::endl; // Check if A is in compressed form
+}
+
 template <typename IndexType, typename ValueType>
 std::shared_ptr< Eigen::MappedSparseMatrix<ValueType, Eigen::RowMajor, IndexType> >
    build_eigen_matrix ( const size_t nrows, IndexType* rowptr, IndexType* colidx, ValueType* values )
@@ -26,88 +42,127 @@ std::shared_ptr< Eigen::MappedSparseMatrix<ValueType, Eigen::RowMajor, IndexType
    /// Copy matrix from builtin backend.
    auto A = std::make_shared< matrix_type > ( nrows, ncols, nnz, rowptr, colidx, values );
 
-   std::cout << A->rows() << std::endl;         // Number of rows
-   std::cout << A->cols() << std::endl;         // Number of columns 
-   std::cout << A->nonZeros() << std::endl;     // Number of non zero values   
-   std::cout << A->outerSize() << std::endl;    // Number of columns (resp. rows) for a column major (resp. row major )
-   std::cout << A->innerSize() << std::endl;    // Number of rows (resp. columns) for a row major (resp. column major)
-   std::cout << A->isVector() << std::endl;     // Check if A is a sparse vector or a sparse matrix
-   std::cout << A->isCompressed() << std::endl; // Check if A is in compressed form
+   print_info ( *A );
 
    return A;
 }
 
-template <typename IndexType, typename ValueType>
-void test_eigen ( const size_t nrows, IndexType* rowptr, IndexType* colidx, ValueType* values, const ValueType* fp, const ValueType* xp )
+struct EigenSolver
 {
-   using namespace Eigen;
-   using namespace HighOrderFEM;
+   typedef double value_type;
+   typedef int    index_type;
 
-   typedef ValueType value_type;
-   typedef IndexType index_type;
+   typedef Eigen::SparseMatrix<value_type>              matrix_type;
 
-   typedef MappedSparseMatrix<value_type, RowMajor, index_type> mapped_matrix_type;
-   typedef SparseMatrix<value_type> matrix_type;
-   typedef Matrix<value_type, Dynamic, 1> vector_type;
+   typedef Eigen::BiCGSTAB< matrix_type, Eigen::my_IncompleteLUT<value_type> > solver_type;
 
-   auto A_map = build_eigen_matrix( nrows, rowptr, colidx, values );
-   Map<const VectorXd> f_map(fp,nrows);
-   VectorXd f = f_map;
+   solver_type solver;
+   matrix_type A;
 
-   std::cout << A_map->rows() << std::endl;
-   std::cout << f.rows() << std::endl;
-   std::cout << f.cols() << std::endl;
+   double abstol, reltol;
+   int maxiters;
+   double fill_factor, droptol;
 
-   matrix_type A = *A_map;
-   std::cout << A.rows() << std::endl;
+   template <typename IndexType, typename ValueType>
+   EigenSolver( const size_t nrows, IndexType* rowptr, IndexType* colidx, ValueType* values )
+      : abstol(1e-10), reltol(0), maxiters(200), fill_factor(10), droptol(1e-5),
+        solver()
+   {
+      this->solver.preconditioner().setFillfactor( 10 );
+      this->solver.preconditioner().setDroptol( 1e-5 );
 
-   BiCGSTAB< matrix_type, my_IncompleteLUT<ValueType> > solver;
-   solver.preconditioner().setFillfactor( 10 );
-   solver.preconditioner().setDroptol( 1e-5 );
+      this->build( nrows, rowptr, colidx, values );
+   }
 
-// BiCGSTAB< matrix_type, DiagonalPreconditioner<ValueType> > solver;
+   ~EigenSolver()
+   {
+      std::cout << "~EigenSolver" << std::endl;
+   }
 
-   auto normb = f.norm();
-   std::cout << "normb: " << normb << std::endl;
-   const value_type abstol = 1e-10;
-   const value_type tol = abstol / normb; // to get abs tolerance in Eigen which only looks at reltol.
+   template <typename IndexType, typename ValueType>
+   int build( const size_t nrows, IndexType* rowptr, IndexType* colidx, ValueType* values )
+   {
+      using HighOrderFEM::getTimeStamp;
+      using HighOrderFEM::getElapsedTime;
 
-   solver.setTolerance( tol );
-   solver.setMaxIterations( 200 );
+      auto A_map = build_eigen_matrix( nrows, rowptr, colidx, values );
 
-   auto t_start_compute = getTimeStamp();
-   solver.compute( A ); // Compute the ILUT factorization and other solver/precond initializations.
-   auto t_stop_compute = getTimeStamp();
+      this->A = *A_map;
 
-   std::cout << "Build info: " << (solver.preconditioner().info() == Success) << std::endl;
-   std::cout << "Build time: " << getElapsedTime( t_start_compute, t_stop_compute ) << std::endl;
+      auto t_start_compute = getTimeStamp();
+      this->solver.compute( this->A ); // Compute the ILUT factorization and other solver/precond initializations.
+      auto t_stop_compute = getTimeStamp();
 
-   auto LU_nnz = solver.preconditioner().m_lu.nonZeros();
-   std::cout << "fill factor: " << double(LU_nnz) / A.nonZeros() << std::endl;
+      std::cout << "Build info: " << (solver.preconditioner().info() == Eigen::Success) << std::endl;
+      std::cout << "Build time: " << getElapsedTime( t_start_compute, t_stop_compute ) << std::endl;
 
-   auto t_start = getTimeStamp();
-   VectorXd x = solver.solve(f);
-   auto t_stop = getTimeStamp();
-   std::cout << "solver info: " << solver.info() << std::endl;
-   std::cout << "solver time: " << getElapsedTime( t_start, t_stop ) << std::endl;
-   std::cout << "solver tolr: " << solver.tolerance() << std::endl;
-   std::cout << "solver erro: " << solver.error() << std::endl;
-   std::cout << "solver iter: " << solver.iterations() << std::endl;
-   //std::cout << "type: " << typeid(x).name() << std::endl;
-   //std::cout << x.rows() << std::endl;
-   std::cout << "resid norm: " << ( A * x - f ).norm() << std::endl;
+      auto LU_nnz = solver.preconditioner().m_lu.nonZeros();
+      std::cout << "fill factor: " << double(LU_nnz) / this->A.nonZeros() << std::endl;
 
-   //{
-   //   Map<const VectorXd> _x( xp, 20 );
-   //   Map<const VectorXd> _f( fp, 20 );
-   //   std::cout << _x << std::endl;
-   //   std::cout << _f << std::endl;
-   //}
+      return (solver.preconditioner().info() == Eigen::Success);
+   }
 
-   //for (int i = 0; i < 20; i++) printf("f[%d] =  %e %e\n", i, f(i), x(i));
-   //for (int i = 0; i < 20; i++) printf("f[%d] =  %e %e\n", i, fp[i], xp[i]);
+   template < typename ValueType >
+   int solve ( const size_t nrows, const ValueType* fp, const ValueType* up = NULL )
+   {
+      using namespace Eigen;
+      using HighOrderFEM::getTimeStamp;
+      using HighOrderFEM::getElapsedTime;
+
+      std::cout << "Inside EigenSolver::solve" << std::endl;
+
+      Map<const VectorXd> f_map(fp, nrows);
+      VectorXd f = f_map;
+
+      auto normf = f.norm();
+      std::cout << "norm(f): " << normf << std::endl;
+
+      this->reltol = this->abstol / normf; // to get abs tolerance in Eigen which only looks at reltol.
+
+      std::cout << "reltol: " << this->reltol << ", abstol: " << this->abstol << std::endl;
+      std::cout << "maxiters: " << this->maxiters << std::endl;
+
+      solver.setTolerance( this->reltol );
+      solver.setMaxIterations( this->maxiters );
+
+      auto t_start = getTimeStamp();
+      VectorXd u = solver.solve(f);
+      auto t_stop = getTimeStamp();
+
+      bool failed = solver.info() != Eigen::Success;
+
+      if (failed)
+         std::cout << "Solver failed to converge!" << std::endl;
+
+      std::cout << "solver time: " << getElapsedTime( t_start, t_stop ) << std::endl;
+      std::cout << "       tolr: " << solver.tolerance() << std::endl;
+      std::cout << "       erro: " << solver.error() << std::endl;
+      std::cout << "       iter: " << solver.iterations() << std::endl;
+
+      if (true)
+      std::cout << " true enorm: " << ( this->A * u - f ).norm() << std::endl;
+      std::cout << "\n";
+
+      return not(failed);
+   }
+};
+
+std::shared_ptr< EigenSolver > eigen_solver;
+
+} // namespace details
+
+template <typename IndexType, typename ValueType>
+void build_eigen ( const size_t nrows, IndexType* rowptr, IndexType* colidx, ValueType* values )
+{
+   details::eigen_solver = std::make_shared< details::EigenSolver > ( nrows, rowptr, colidx, values );
 
    return;
+}
+
+template <typename ValueType>
+int test_eigen ( const size_t nrows, const ValueType* fp, const ValueType* up )
+{
+   return details::eigen_solver->solve( nrows, fp, up );
 }
 
 #endif

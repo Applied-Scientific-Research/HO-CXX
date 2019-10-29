@@ -833,6 +833,11 @@ struct LaplacianType
          std::cout << "Wrote CSR matrix to binary file\n";
       }
 
+      {
+         auto &A = this->amgcl_solver->system_matrix;
+         build_eigen( nrows, A.ptr, A.col, A.val );
+      }
+
       return;
    }
 
@@ -936,8 +941,7 @@ struct LaplacianType
       }
 
       {
-         auto &A = this->amgcl_solver->system_matrix;
-         test_eigen( nrows, A.ptr, A.col, A.val, bflat.data(), xflat.data() );
+         test_eigen( nrows, bflat.data(), xflat.data() );
       }
 
       return psi;
