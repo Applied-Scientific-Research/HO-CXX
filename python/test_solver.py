@@ -222,6 +222,230 @@ class block_diagonal_precond:
 
         return M
 
+class block_Jacobi:
+
+    def __init__ ( self, A, bs, doJacobi = True ):
+
+        t_start = timestamp()
+
+        # Split A in (D + LU) and then save D^(-1)
+
+        shape = A.shape
+        if not (shape[0] % bs == 0 and shape[1] % bs == 0):
+            print("shape does not conform to blocksize {} {} {}".format( shape[0], shape[1], bs ))
+            sys.exit(1)
+
+        Ab = sp.bsr_matrix( A, blocksize=(bs,bs) )
+
+        self.bs = bs
+
+        self.nrows = A.shape[0]
+        self.nbrows = self.nrows // self.bs
+
+        print("block_Jacobi.__init__: ", Ab.shape, Ab.nnz, Ab.blocksize,
+                                     self.nbrows, Ab.nnz // (self.bs**2), Ab.indptr.shape[0])
+
+        value_type = A.data.dtype
+        index_type = A.indices.dtype
+        pointer_type = A.indptr.dtype
+
+        Dinv = np.empty( (self.nbrows, bs, bs), dtype=value_type )
+
+        nnzb = Ab.indices.shape[0] - self.nbrows
+
+        LU_data = np.empty( (nnzb,bs,bs), dtype=value_type )
+        LU_indices = np.empty( (nnzb), dtype=index_type )
+        LU_indptr = np.empty( (self.nbrows+1), dtype=pointer_type )
+
+        L_data = []
+        L_indices = []
+        L_indptr = np.empty( (self.nbrows+1), dtype=pointer_type )
+
+        U_data = []
+        U_indices = []
+        U_indptr = np.empty( (self.nbrows+1), dtype=pointer_type )
+
+        LU_nnzb = 0
+        L_nnzb = 0
+        U_nnzb = 0
+
+        for brow in range( self.nbrows ):
+            k0 = Ab.indptr[brow]
+            nbcols = Ab.indptr[brow+1] - k0
+
+            LU_indptr[brow] = LU_nnzb
+            L_indptr[brow] = L_nnzb
+            U_indptr[brow] = U_nnzb
+
+            for k in range(nbcols):
+                bcol = Ab.indices[k0+k]
+                if bcol == brow:
+                    Dinv[brow] = linalg.inv( Ab.data[k0+k] )
+                else:
+                    LU_data[LU_nnzb] = np.copy( Ab.data[k0+k] )
+                    LU_indices[LU_nnzb] = bcol
+                    LU_nnzb += 1
+
+                if bcol < brow:
+                    L_data.append( Ab.data[k0+k] )
+                    L_indices.append( bcol )
+                    L_nnzb += 1
+                elif bcol > brow:
+                    U_data.append( Ab.data[k0+k] )
+                    U_indices.append( bcol )
+                    U_nnzb += 1
+
+        LU_indptr[self.nbrows] = LU_nnzb
+        if LU_nnzb != (Ab.indices.shape[0] - self.nbrows):
+            print("Error: LU_nnzb mismatch {} {}".format( LU_nnzb, Ab.indices.shape[0] - self.nbrows))
+            sys.exit(-1)
+
+        D_indptr = np.arange( self.nbrows+1 )
+        D_indices = np.arange( self.nbrows )
+
+        self.Dinv = sp.bsr_matrix( (Dinv, D_indices, D_indptr), blocksize=(bs,bs) )
+        self.LU   = sp.bsr_matrix( (LU_data, LU_indices, LU_indptr), blocksize=(bs,bs) )
+
+        L_indptr[self.nbrows] = L_nnzb
+        L_data = np.asarray(L_data, dtype=value_type).reshape( (L_nnzb,bs,bs) )
+        L_indices = np.asarray(L_indices, dtype=index_type )
+        self.L    = sp.bsr_matrix( (L_data, L_indices, L_indptr), blocksize=(bs,bs), shape=A.shape )
+
+        U_indptr[self.nbrows] = U_nnzb
+        U_data = np.asarray(U_data, dtype=value_type).reshape( (U_nnzb,bs,bs) )
+        U_indices = np.asarray(U_indices, dtype=index_type )
+        self.U    = sp.bsr_matrix( (U_data, U_indices, U_indptr), blocksize=(bs,bs), shape=A.shape )
+
+        print(self.Dinv.shape)
+        print(self.LU.shape)
+        print(self.L.shape)
+        print(self.U.shape)
+
+        self.Jacobi = doJacobi
+        if self.Jacobi:
+            self.niters = 2
+        else:
+            self.niters = 1
+        self.time = 0.0
+
+        t_stop = timestamp()
+        print("block-Jacobi build: ", t_stop - t_start, self.Jacobi)
+
+    def __del__(self):
+        print("Jacobi precond time: {} (ms)".format( self.time * 1000.0 ))
+
+    def M(self):
+
+        def M_op(x):
+
+            t_start = timestamp()
+
+            if self.Jacobi == False:
+                # Symmetric Gauss-Seidel iteration ...
+
+                if True:
+
+                    # Forward sweep
+                    # Normally this is y = x - self.U * y but our initial guess is 0.
+                    # so we just copy the rhs.
+                    y = np.copy(x)
+
+                    # convert to block-vectors for easier matmuls
+                    y.shape = ( self.nbrows, self.bs )
+
+                    for i in range( self.nbrows ):
+                        k0 = self.L.indptr[i]
+                        nbcols = self.L.indptr[i+1] - k0
+                        yi = np.copy( y[i] )
+                        for k in range( nbcols ):
+                            col = self.L.indices[k0+k]
+                            yi -= np.matmul( self.L.data[k0+k], y[col] )
+
+                        y[i] = np.matmul( self.Dinv.data[i], yi )
+
+                    # Backwards sweep
+                    y.shape = ( self.nrows )
+
+                    y = x - self.L * y
+
+                    # convert to block-vectors for easier matmuls
+                    y.shape = ( self.nbrows, self.bs )
+
+                    for i in range( self.nbrows-1, -1, -1 ):
+                        k0 = self.U.indptr[i]
+                        nbcols = self.U.indptr[i+1] - k0
+                        yi = np.copy( y[i] )
+                        for k in range( nbcols ):
+                            col = self.U.indices[k0+k]
+                            yi -= np.matmul( self.U.data[k0+k], y[col] )
+
+                        y[i] = np.matmul( self.Dinv.data[i], yi )
+
+                    y.shape = ( self.nrows )
+
+                    t_stop = timestamp()
+                    self.time += (t_stop - t_start)
+
+                    return y
+
+                else:
+
+                    xb = np.reshape( x, (self.nbrows, self.bs) )
+                    yb = np.zeros_like(xb)
+
+                    def op( brow ):
+
+                        k0 = self.LU.indptr[brow]
+                        nbcols = self.LU.indptr[brow+1] - k0
+                        ybb = np.copy( xb[brow] )
+                        for k in range(nbcols):
+                            col = self.LU.indices[k0+k]
+                            ybb -= np.matmul( self.LU.data[k0+k], yb[col] )
+
+                        yb[brow] = np.matmul( self.Dinv.data[brow], ybb )
+
+                    for n in range( max(1, (self.niters // 2)) ):
+
+                        if n % 2 == 0:
+                            # Forward
+                            for brow in range( self.nbrows ):
+                                op(brow)
+                        else:
+                            # Backward
+                            for brow in range( self.nbrows-1, -1, -1 ):
+                                op(brow)
+
+                    t_stop = timestamp()
+                    self.time += (t_stop - t_start)
+
+                    return np.reshape( yb, (self.nrows) )
+
+            else:
+
+                # Jacobi iteration ...
+                ytmp = [ np.zeros_like(x), np.empty_like(x) ]
+
+                old = 0
+                new = 1
+                for n in range(self.niters):
+                    new = 1 - old
+
+                    if n == 0:
+                       ytmp[new] = self.Dinv * x
+                    else:
+                       ytmp[new] = self.Dinv * ( x - self.LU * ytmp[old] )
+
+                    old = (old + 1) % 2
+
+                t_stop = timestamp()
+                self.time += (t_stop - t_start)
+
+                return ytmp[new]
+
+        M = sp.linalg.LinearOperator( self.Dinv.shape, M_op )
+
+        return M
+
 class Parameters:
 
     def __init__(self):
@@ -418,11 +642,18 @@ def create_preconditioner( A = None, name = None, opts = {} ):
 
         return sp.linalg.LinearOperator( A.shape, M_op)
 
-    elif precon == 'block':
+    elif precon == 'block-diag':
 
         M = block_diagonal_precond( A, bs=9 )
 
         print("Instantiated block diagonal preconditioner")
+        return M.M()
+
+    elif precon == 'block-jacobi' or precon == 'block-sgs':
+
+        M = block_Jacobi( A, 9, precon == 'block-jacobi' )
+
+        print("Instantiated block Jacobi preconditioner")
         return M.M()
 
     elif 'ilu' in precon:
@@ -752,11 +983,11 @@ test_bsr( A, b, bs )
 #BlkM = block_diagonal_precond( A, bs )
 #sys.exit(0)
 
-if True:
-    _D = block_diagonal_precond (A, bs)
-    b = _D.Dinv * b
-    #A = (_D.Dinv * _D.A).tocsr()
-    A = (_D.Dinv * _D.A)
+#if True:
+#    _D = block_diagonal_precond (A, bs)
+#    b = _D.Dinv * b
+#    #A = (_D.Dinv * _D.A).tocsr()
+#    A = (_D.Dinv * _D.A)
 
 def residual( x ):
     return b - A * x
@@ -799,7 +1030,7 @@ if True:
             print("test {} finished in {:.2f} ms".format( num_tests, 1000.*(time_end-time_start) ))
 
     if info > 0:
-        print("Failed to solve the problem in {} iterations {}".format( info, linalg.norm( residual(x) ) ) )
+        print("Failed to solve the problem in {} iterations {} and {} (ms)".format( info, linalg.norm( residual(x) ), 1000.*run_time) )
     elif info < 0:
         print("Error: invalid input parameter")
         sys.exit(10)
