@@ -6,6 +6,8 @@ import scipy.sparse as sp
 import scipy.sparse.linalg
 import time
 import getopt
+#import block_sgs
+import cblock_sgs
 
 has_pyamg = False
 try:
@@ -325,14 +327,21 @@ class block_Jacobi:
         if self.Jacobi:
             self.niters = 2
         else:
-            self.niters = 1
+            self.niters = 4
         self.time = 0.0
+        self.nevals = 0
+
+        self.cblock_sgs = cblock_sgs.cblock_sgs( niters = max(1, (self.niters // 2)) )
 
         t_stop = timestamp()
         print("block-Jacobi build: ", t_stop - t_start, self.Jacobi)
 
     def __del__(self):
-        print("Jacobi precond time: {} (ms)".format( self.time * 1000.0 ))
+        ms = self.time * 1000.0
+        ave = 0.0
+        if self.nevals > 0:
+            ave = ms / self.nevals
+        print("Jacobi precond time: {} (ms) {}".format( ms, ave ))
 
     def M(self):
 
@@ -340,53 +349,55 @@ class block_Jacobi:
 
             t_start = timestamp()
 
+            y = None
+
             if self.Jacobi == False:
                 # Symmetric Gauss-Seidel iteration ...
 
                 if True:
 
-                    # Forward sweep
-                    # Normally this is y = x - self.U * y but our initial guess is 0.
-                    # so we just copy the rhs.
-                    y = np.copy(x)
+                    # # Forward sweep
+                    # # Normally this is y = x - self.U * y but our initial guess is 0.
+                    # # so we just copy the rhs.
+                    # y = np.copy(x)
 
-                    # convert to block-vectors for easier matmuls
-                    y.shape = ( self.nbrows, self.bs )
+                    # # convert to block-vectors for easier matmuls
+                    # y.shape = ( self.nbrows, self.bs )
 
-                    for i in range( self.nbrows ):
-                        k0 = self.L.indptr[i]
-                        nbcols = self.L.indptr[i+1] - k0
-                        yi = np.copy( y[i] )
-                        for k in range( nbcols ):
-                            col = self.L.indices[k0+k]
-                            yi -= np.matmul( self.L.data[k0+k], y[col] )
+                    # for i in range( self.nbrows ):
+                    #     k0 = self.L.indptr[i]
+                    #     nbcols = self.L.indptr[i+1] - k0
+                    #     yi = np.copy( y[i] )
+                    #     for k in range( nbcols ):
+                    #         col = self.L.indices[k0+k]
+                    #         yi -= np.matmul( self.L.data[k0+k], y[col] )
 
-                        y[i] = np.matmul( self.Dinv.data[i], yi )
+                    #     y[i] = np.matmul( self.Dinv.data[i], yi )
 
-                    # Backwards sweep
-                    y.shape = ( self.nrows )
+                    # # Backwards sweep
+                    # y.shape = ( self.nrows )
 
-                    y = x - self.L * y
+                    # y = x - self.L * y
 
-                    # convert to block-vectors for easier matmuls
-                    y.shape = ( self.nbrows, self.bs )
+                    # # convert to block-vectors for easier matmuls
+                    # y.shape = ( self.nbrows, self.bs )
 
-                    for i in range( self.nbrows-1, -1, -1 ):
-                        k0 = self.U.indptr[i]
-                        nbcols = self.U.indptr[i+1] - k0
-                        yi = np.copy( y[i] )
-                        for k in range( nbcols ):
-                            col = self.U.indices[k0+k]
-                            yi -= np.matmul( self.U.data[k0+k], y[col] )
+                    # for i in range( self.nbrows-1, -1, -1 ):
+                    #     k0 = self.U.indptr[i]
+                    #     nbcols = self.U.indptr[i+1] - k0
+                    #     yi = np.copy( y[i] )
+                    #     for k in range( nbcols ):
+                    #         col = self.U.indices[k0+k]
+                    #         yi -= np.matmul( self.U.data[k0+k], y[col] )
 
-                        y[i] = np.matmul( self.Dinv.data[i], yi )
+                    #     y[i] = np.matmul( self.Dinv.data[i], yi )
 
-                    y.shape = ( self.nrows )
+                    # y.shape = ( self.nrows )
 
-                    t_stop = timestamp()
-                    self.time += (t_stop - t_start)
+                    #y = np.copy(x)
+                    #y = block_sgs.block_sgs( self.L, self.Dinv, self.U, x, y )
 
-                    return y
+                    y = self.cblock_sgs( self.L, self.Dinv, self.U, x )
 
                 else:
 
@@ -415,10 +426,7 @@ class block_Jacobi:
                             for brow in range( self.nbrows-1, -1, -1 ):
                                 op(brow)
 
-                    t_stop = timestamp()
-                    self.time += (t_stop - t_start)
-
-                    return np.reshape( yb, (self.nrows) )
+                    y = np.reshape( yb, (self.nrows) )
 
             else:
 
@@ -440,7 +448,13 @@ class block_Jacobi:
                 t_stop = timestamp()
                 self.time += (t_stop - t_start)
 
-                return ytmp[new]
+                y = ytmp[new]
+
+            t_stop = timestamp()
+            self.time += (t_stop - t_start)
+            self.nevals += 1
+
+            return y
 
         M = sp.linalg.LinearOperator( self.Dinv.shape, M_op )
 
@@ -747,7 +761,9 @@ def create_preconditioner( A = None, name = None, opts = {} ):
 
         #_M = sp.linalg.LinearOperator( A.shape, I)
 
-        _D = block_diagonal_precond(A,9)
+        #_D = block_diagonal_precond(A,9)
+        #_M = _D.M()
+        _D = block_Jacobi(A,9,False)
         _M = _D.M()
 
         def M_op (xk):
@@ -777,7 +793,7 @@ def create_preconditioner( A = None, name = None, opts = {} ):
             use_pyamg = False
 
         amg_type = 'ruge_stuben'
-        #amg_type = 'smoothed_aggregation'
+        amg_type = 'smoothed_aggregation'
 
         if use_pyamg:
 
@@ -788,9 +804,11 @@ def create_preconditioner( A = None, name = None, opts = {} ):
             precon_opts['max_levels'] = 16
             precon_opts['max_coarse'] = 500
             precon_opts['coarse_solver'] = 'lu'
-            omega=0.533333333
-            precon_opts['presmoother' ] = ('jacobi', {'omega':omega,'iterations':1})
-            precon_opts['postsmoother'] = ('jacobi', {'omega':omega,'iterations':2})
+            #omega=0.533333333
+            #precon_opts['presmoother' ] = ('jacobi', {'omega':omega,'iterations':1})
+            #precon_opts['postsmoother'] = ('jacobi', {'omega':omega,'iterations':2})
+            precon_opts['presmoother' ] = ('jacobi', {'iterations':1})
+            precon_opts['postsmoother'] = ('jacobi', {'iterations':2})
 
             if amg_type == 'ruge_stuben':
                 precon_opts['strength'] = ('classical', {'theta':0.5} )
