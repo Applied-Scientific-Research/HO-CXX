@@ -63,9 +63,9 @@ def load_matrix ( fname ):
            #print(f.readline().decode(encoding))
            rowptr = np.fromfile( f, dtype=np.int32, count=(num_rows+1) )
            #line = f.readline().decode(encoding) # Read trailing \n
-           print(rowptr[:15])
-           print(rowptr[-15:-1])
-           print(rowptr.size)
+           #print(rowptr[:15])
+           #print(rowptr[-15:-1])
+           #print(rowptr.size)
 
            num_values = rowptr[num_rows]
            print( num_values )
@@ -73,21 +73,21 @@ def load_matrix ( fname ):
            #print(f.readline().decode(encoding))
            colidx = np.fromfile( f, dtype=np.int32, count=num_values )
            #line = f.readline().decode(encoding) # Read trailing \n
-           print(colidx[:15])
-           print(colidx[-15:-1])
-           print(colidx.size)
+           #print(colidx[:15])
+           #print(colidx[-15:-1])
+           #print(colidx.size)
 
            #line = f.readline()
            #print(line)
            #print(line.decode(encoding))
            values = np.fromfile( f, dtype=np.float64, count=num_values )
 
-           print(values[:15])
-           print(values.size)
+           #print(values[:15])
+           #print(values.size)
 
-           print(values.shape)
-           print(colidx.shape)
-           print(rowptr.shape)
+           #print(values.shape)
+           #print(colidx.shape)
+           #print(rowptr.shape)
 
            return sp.csr_matrix((values, colidx, rowptr), shape=(num_rows, num_columns))
     
@@ -166,6 +166,8 @@ def test_bsr( A, b, bs ):
             print("block: ", t_stop - t_start)
 
     print("error: ", linalg.norm( r - rb ) )
+
+    return Ablk
 
 class block_diagonal_precond:
 
@@ -468,7 +470,7 @@ class Parameters:
         self.absolute  = False
         self.maxiters  = 2000
         self.restart   = 16
-        self.verbosity = 1
+        self.verbosity = 0
         self.numtrials = 1
         self.solver    = 'gmres'
         self.precon    = 'ilu'
@@ -548,10 +550,10 @@ if (A_file is None) or (b_file is None):
     sys.exit()
 
 A = load_matrix( A_file )
-print('shape(A): ', A.shape)
+#print('shape(A): ', A.shape)
 
 b = load_vector( b_file, A.shape[0] )
-print('shape(b): ', b.shape)
+#print('shape(b): ', b.shape)
 
 xref = None
 if x_file is not None:
@@ -565,17 +567,15 @@ class Monitor:
         self.A = A
         self.b = b
         self.takes_residual = takes_residual
-        self.keep_residuals = keep_residuals
+        #self.keep_residuals = keep_residuals
         self.frequency = frequency
         self.normb = normb
 
-        self.residuals = None
-        if self.keep_residuals:
-            if (self.takes_residual is False) and (A is None or b is None): # Must have A and b.
-                print("Must provide both A and b to evaluate the residual norm if passing xk.")
-                self.keep_residuals = False
-        if self.keep_residuals:
-            self.residuals = []
+        self.residuals = []
+        #if self.keep_residuals:
+        #    if (self.takes_residual is False) and (A is None or b is None): # Must have A and b.
+        #        print("Must provide both A and b to evaluate the residual norm if passing xk.")
+        #        self.keep_residuals = False
 
         if self.frequency > 0 and (self.normb is None) and (self.b is not None):
             self.normb = linalg.norm( self.b )
@@ -586,31 +586,57 @@ class Monitor:
 
     def op(self, xk_or_rk):
 
-        if self.keep_residuals or (self.frequency > 0 and self.niters % self.frequency == 0):
-            normr = 0.0
-            if self.takes_residual:
-                normr = linalg.norm( xk_or_rk )
+        #if self.keep_residuals or (self.frequency > 0 and self.niters % self.frequency == 0):
+        normr = None
+        if self.takes_residual:
+            normr = linalg.norm( xk_or_rk )
+        else:
+            if self.b is None:
+                print("Must specify b in Monitor")
+                sys.exit(-1)
+            normr = linalg.norm( self.b - self.A * xk_or_rk )
+
+        #if self.keep_residuals:
+        #    self.residuals.append( normr )
+        self.residuals.append( normr )
+
+        if self.frequency > 0 and self.niters % self.frequency == 0:
+            if self.normb is not None:
+                print("  iter: {}, {:10.5e}, {:10.5e}".format(self.niters, normr, normr / normb))
             else:
-                normr = linalg.norm( self.b - self.A * xk_or_rk )
-            if self.keep_residuals:
-                self.residuals.append( normr )
-            if self.frequency > 0 and self.niters % self.frequency == 0:
-                if self.normb is not None:
-                    print("  iter: {}, {:10.5e}, {:10.5e}".format(self.niters, normr, normr / normb))
-                else:
-                    print("  iter: {}, {:10.5e}".format(self.niters, normr))
+                print("  iter: {}, {:10.5e}".format(self.niters, normr))
 
         self.niters += 1
 
     def reset(self, b=None):
         self.niters = 0
 
-        if self.residuals is not None:
-           self.residuals = []
+        self.residuals = []
 
-        if b is not None:
-           self.b = b
-           self.normb = linalg.norm(b)
+        self.b = b
+
+        if self.b is None:
+            print("Must specify b in Monitor")
+            sys.exit(-1)
+        else:
+            self.normb = linalg.norm(b)
+
+    def geometric_rate(self):
+        l = len(self.residuals)
+        if l > 0:
+            return ( self.residuals[-1] /  self.residuals[0] ) ** (1.0 / float(l))
+        else:
+            return 0.0
+
+    def average_rate(self):
+        l = len(self.residuals)
+        if l > 0:
+            ave = 0.0
+            for i in range(1,l):
+                ave += self.residuals[i] / self.residuals[i-1]
+            return ave / float(l)
+        else:
+            return 0.0
 
     def __call__(self, xk_or_rk):
         self.op( xk_or_rk )
@@ -786,13 +812,13 @@ def create_preconditioner( A = None, name = None, opts = {} ):
         print("Instantiated krylov(gmres) preconditioner: ", M_op)
         return sp.linalg.LinearOperator( A.shape, M_op)
 
-    elif precon == 'amg':
+    elif 'amg' in precon:
 
         use_pyamg = True
         if package is not None and package == 'pyamgcl':
             use_pyamg = False
 
-        amg_type = 'ruge_stuben'
+        #amg_type = 'ruge_stuben'
         amg_type = 'smoothed_aggregation'
 
         if use_pyamg:
@@ -802,19 +828,27 @@ def create_preconditioner( A = None, name = None, opts = {} ):
             # Set default options
             precon_opts = {}
             precon_opts['max_levels'] = 16
-            precon_opts['max_coarse'] = 500
+            #precon_opts['max_coarse'] = 500
+            precon_opts['max_coarse'] = 50
             precon_opts['coarse_solver'] = 'lu'
             #omega=0.533333333
             #precon_opts['presmoother' ] = ('jacobi', {'omega':omega,'iterations':1})
             #precon_opts['postsmoother'] = ('jacobi', {'omega':omega,'iterations':2})
-            precon_opts['presmoother' ] = ('jacobi', {'iterations':1})
-            precon_opts['postsmoother'] = ('jacobi', {'iterations':2})
+            #precon_opts['presmoother' ] = ('jacobi', {'iterations':1})
+            #precon_opts['postsmoother'] = ('jacobi', {'iterations':2})
 
             if amg_type == 'ruge_stuben':
                 precon_opts['strength'] = ('classical', {'theta':0.5} )
+            elif amg_type == 'smoothed_aggregation':
+                #precon_opts['strength'] = None
+                #precon_opts['strength'] = 'classical'
+                #precon_opts['strength'] = 'affinity'
+                precon_opts['strength'] = ('algebraic_distance')
+                #precon_opts['strength'] = ('evolution')
+                #precon_opts['smooth'] = ('energy')
 
-            for key in opts:
-                precon_opts[k] = opts[key]
+            #for key in opts:
+            #    precon_opts[k] = opts[key]
 
             print("Building {} AMG preconditioner".format(amg_type))
             print(precon_opts)
@@ -825,7 +859,10 @@ def create_preconditioner( A = None, name = None, opts = {} ):
                 ml = pyamg.smoothed_aggregation_solver( A, **precon_opts )
             print(ml)
 
-            M = ml.aspreconditioner()
+            #M = ml.aspreconditioner()
+            M = ml.aspreconditioner(cycle='V')
+            #M = ml.aspreconditioner(cycle='W')
+            #M = ml.aspreconditioner(cycle='F')
 
             time_end = timestamp()
 
@@ -842,24 +879,26 @@ def create_preconditioner( A = None, name = None, opts = {} ):
             time_start = timestamp()
 
             precon_opts = {}
-            precon_opts['coarse_enough'] = 500
+            precon_opts['coarse_enough'] = 50
             precon_opts['direct_coarse'] = True
 
             if amg_type == 'ruge_stuben':
                 precon_opts['coarsening.type'] = 'ruge_stuben'
                 precon_opts['coarsening.eps_strong'] = 0.5
             else:
-                precon_opts['coarsening.type'] = 'smoothed_aggregation'
+                #precon_opts['coarsening.type'] = 'smoothed_aggregation'
+                #precon_opts['coarsening.estimate_spectral_radius'] = 'true'
+                precon_opts['coarsening.type'] = 'smoothed_aggr_emin'
 
             precon_opts['relax.type'] = 'damped_jacobi'
             precon_opts['relax.damping'] = 0.53333333
             precon_opts['npre'] = 1
             precon_opts['npost'] = 2
 
-           #precon_opts['relax.type'] = 'gauss_seidel'
+            #precon_opts['relax.type'] = 'gauss_seidel'
 
-            for key in opts:
-                precon_opts[k] = opts[key]
+            #for key in opts:
+            #    precon_opts[k] = opts[key]
 
             M = pyamgcl.amgcl(A, precon_opts)
 
@@ -967,6 +1006,26 @@ class Solver:
 
             self.monitor = Monitor( A=A, takes_residual=False, keep_residuals=True, frequency=freq )
 
+        elif solver == 'cg':
+
+            if package == 'pyamg':
+                self.func = pyamg.krylov.cg
+            elif package == 'scipy':
+                self.func = sp.linalg.cg
+
+            self.opts = {}
+            self.opts['tol']     = params.tolerance
+            self.opts['maxiter'] = params.maxiters
+
+            for key in opts:
+                self.opts[k] = opts[key]
+
+            freq = 0
+            if params.verbosity > 0:
+                freq = 1
+
+            self.monitor = Monitor( A=A, takes_residual=False, keep_residuals=True, frequency=freq )
+
         if self.func is None:
             print("Solver={} in package={} is not available".format(solver,package))
             sys.exit(1)
@@ -997,7 +1056,8 @@ print("normb = {}".format(normb))
 verbose = (params.verbosity > 0)
 
 bs = 9
-test_bsr( A, b, bs )
+Ab = test_bsr( A, b, bs )
+#A = Ab
 #BlkM = block_diagonal_precond( A, bs )
 #sys.exit(0)
 
@@ -1034,6 +1094,8 @@ if True:
 
         time_start = timestamp()
 
+        S.monitor.reset(b=b)
+
         x, info = S( b, M=M )
 
         time_end = timestamp()
@@ -1055,7 +1117,7 @@ if True:
     else:
         print("Solved linear system {} times in {} iterations and {:.2f} ms".format( num_tests, niters, 1000.*run_time/num_tests ))
 
-        if S.monitor.residuals is not None:
+        if S.monitor.residuals is not None and params.verbosity > 1:
             print("Residuals:")
             print("iteration, norm(r), norm(r)/norm(b)")
             print("------------------------------------")
@@ -1071,6 +1133,9 @@ if True:
                 if print_this:
                     print("{}, {:10.5e}, {:10.5e}".format(i, r, r/normb))
                 rm1 = r
+
+        print("Geometric convergence rate: {}".format( S.monitor.geometric_rate() ) )
+        print("Average   convergence rate: {}".format( S.monitor.average_rate() ) )
 
         normr = linalg.norm( residual(x) )
         print("abserr= {}, relerr= {}".format( normr, normr / normb ))
