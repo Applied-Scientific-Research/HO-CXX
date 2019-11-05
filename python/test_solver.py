@@ -8,6 +8,7 @@ import time
 import getopt
 #import block_sgs
 import cblock_sgs
+import sp_solver
 
 has_pyamg = False
 try:
@@ -491,7 +492,7 @@ class Parameters:
 def help():
     print('{} -h (--help) -A (--A=) <CSR matrix> -b (--rhs) <rhs vector> -t (--tol) <tolerance>'.format(sys.argv[0]))
 
-def get_options():
+def get_options( argv ):
 
     A_file = None
     b_file = None
@@ -500,7 +501,7 @@ def get_options():
     params = Parameters()
 
     try:
-        opts, args = getopt.getopt(sys.argv[1:],"hA:b:x:t:vs:m:",["help","A=","b=","rhs=","x=","tol=","maxiters=","restart=","verbosity=","numtrials=","ntrials=",'solver=','precon=','M=','abstol='])
+        opts, args = getopt.getopt( argv,"hA:b:x:t:vs:m:",["help","A=","b=","rhs=","x=","tol=","maxiters=","restart=","verbosity=","numtrials=","ntrials=",'solver=','precon=','M=','abstol='])
     except getopt.GetoptError:
         help()
         sys.exit(2)
@@ -540,25 +541,6 @@ def get_options():
     print(params)
 
     return A_file, b_file, x_file, params
-
-# Get CLI options
-A_file, b_file, x_file, params = get_options()
-
-if (A_file is None) or (b_file is None):
-    print("Missing A or b file")
-    help()
-    sys.exit()
-
-A = load_matrix( A_file )
-#print('shape(A): ', A.shape)
-
-b = load_vector( b_file, A.shape[0] )
-#print('shape(b): ', b.shape)
-
-xref = None
-if x_file is not None:
-    xref = load_vector( sys.argv[3], A.shape[0] )
-    print('shape(xref): ', xref.shape)
 
 class Monitor:
 
@@ -602,7 +584,7 @@ class Monitor:
 
         if self.frequency > 0 and self.niters % self.frequency == 0:
             if self.normb is not None:
-                print("  iter: {}, {:10.5e}, {:10.5e}".format(self.niters, normr, normr / normb))
+                print("  iter: {}, {:10.5e}, {:10.5e}".format(self.niters, normr, normr / self.normb))
             else:
                 print("  iter: {}, {:10.5e}".format(self.niters, normr))
 
@@ -651,8 +633,10 @@ class Monitor:
         s += "  normb: {}\n".format(self.normb is not None)
         return s
 
-def create_preconditioner( A = None, name = None, opts = {} ):
+#def create_preconditioner( A = None, name = None, params = Parameters(), opts = {} ):
+def create_preconditioner( A = None, params = Parameters(), opts = {} ):
 
+    name = params.precon
     if name is None:
         return None
 
@@ -738,11 +722,170 @@ def create_preconditioner( A = None, name = None, opts = {} ):
 
         print("Building ILU ({}) with drop={} and fill={}".format(precon, drop_tol, fill_factor))
 
+        if False:
+            Ad = sp.csc_matrix([[1., 0., 0., 1.],
+                                [5., 0., 2., 2.],
+                                [1., 2., 3., 1.],
+                                [0.,-1., 0., 3.]], dtype=np.double)
+            print("Ad:", Ad.todense())
+            print("Ad.data:", Ad.data)
+            print("Ad.colptr:", Ad.indptr)
+            print("Ad.rowind:", Ad.indices)
+            LU = sp.linalg.splu( Ad )
+            print(LU)
+            print("Pc:", LU.perm_c)
+            print("Pr:", LU.perm_r)
+            print("L:", type(LU.L), LU.L)
+            print("U:", type(LU.U), LU.U)
+            b = np.array([1.,2.,3.,4.], dtype=np.double).reshape(4,1)
+            x0 = LU.solve(b)
+            print("b:", b)
+            print("x:", x0)
+            print("Ax:", Ad * x0)
+
+            print("Ld:", LU.L.todense())
+            print("Ud:", LU.U.todense())
+
+            px = np.zeros_like(b)
+            pb = np.zeros_like(b)
+            y  = np.zeros_like(b)
+
+            m = Ad.shape[0]
+
+            Pr = np.zeros( (m,m), dtype=np.double)
+            Pc = np.zeros( (m,m), dtype=np.double)
+            for j in range(m):
+                i = LU.perm_r[j]
+                Pr[i,j] = 1.0
+
+                i = LU.perm_c[j]
+                Pc[j,i] = 1.0
+
+            print("Pr:\n", Pr)
+            print("inv(Pr):\n", linalg.inv(Pr))
+            inv_perm_r = np.empty_like(LU.perm_r)
+            for i in range(LU.perm_r.shape[0]):
+                j = LU.perm_r[i]
+                inv_perm_r[j] = i
+            print("inv(r):\n", inv_perm_r)
+            print("Pc:\n", Pc)
+            print("Pr * b:\n", Pr.dot(b))
+
+            # Forward solve (Pr)Ly = (Pr)b
+            pb[ LU.perm_r[:] ] = b[:]
+            print(pb)
+
+            #pb = Pr.dot(b)
+            #print(pb)
+            pb.shape = (4,1)
+            #print(pb.shape)
+
+            Ld = LU.L.todense()
+            Ud = LU.U.todense()
+
+            y = np.matmul( linalg.inv(Ld), pb )
+            #print(y.shape)
+            #print(Ld.shape)
+            #print(Ud.shape)
+            #print(pb.shape)
+
+            y[0,0] = pb[0,0]
+            for i in range(1,m):
+                xi = pb[i,0]
+                for j in range(0,i):
+                   xi -= Ld[i,j] * y[j,0]
+                y[i,0] = xi # Lii == 1
+
+            px = np.matmul( linalg.inv(Ud), y )
+
+            #for i in range(m-1,-1,-1):
+            #    xi = y[i,0]
+            #    for j in range(i+1,m):
+            #        xi -= Ud[i,j] * y[j,0]
+            #    px[i,0] = xi / Ud[i,i]
+
+            x = np.zeros_like(b)
+            x = px[ LU.perm_c[:] ]
+            #x = Pc.dot(px)
+            print(x)
+            print("Ax:", Ad * x)
+            print("Ad:", Ad.todense())
+
+            ipiv = np.arange(m)
+            y, info = scipy.linalg.lapack.dgetrs( Ld, inv_perm_r, b )
+            #y, info = scipy.linalg.lapack.dgetrs( Ld, LU.perm_r, b )
+            pb[ LU.perm_r[:] ] = b[:]
+            y, info = scipy.linalg.lapack.dgetrs( Ld, ipiv, pb )
+            #ipiv = np.empty_like(inv_perm_r)
+            #for i in range(m):
+            #    ipiv[i] = i
+            px, info = scipy.linalg.lapack.dgetrs( Ud, ipiv, y )
+            x = px[ LU.perm_c[:] ]
+            x = np.matmul( Pc, px )
+            print("Lapack")
+            print(x)
+            print("Ax:", Ad * x)
+
+            print("spsolve_triangular")
+            # Apply the row permutation to the rhs vector
+            pb[ LU.perm_r[:] ] = b[:]
+
+            Ltmp = LU.L.tocsr()
+            Utmp = LU.U.tocsr()
+            y  = sp.linalg.spsolve_triangular( Ltmp, pb, lower=True, overwrite_A=True, overwrite_b=True)#, unit_diagonal=True)
+            px = sp.linalg.spsolve_triangular( Utmp,  y, lower=False, overwrite_A=True, overwrite_b=True)#, unit_diagonal=False)
+            x = px[ LU.perm_c[:] ]
+            print(x)
+            print("Ax:", Ad * x)
+
+            #sys.exit(1)
+
         M_ilu = sp.linalg.spilu( A_csc, fill_factor=fill_factor, drop_tol=drop_tol )
+
+        M_L = M_ilu.L.tocsr()
+        M_U = M_ilu.U.tocsr()
+        M_pr = M_ilu.perm_r
+        M_pc = M_ilu.perm_c
+
+        print("M_L: {0:.2f}%".format(100.*(M_L.nnz / (M_L.shape[0]**2))))
+        #print("M_L:\n", M_L[:100])
+        #print("M_L.data:\n", M_L.data[:100])
+        #print("M_L.indptr:\n", M_L.indptr[:100])
+        #print("M_L.indices:\n", M_L.indices[:100])
+
+        print("M_U: {0:.2f}%".format(100.*(M_U.nnz / (M_U.shape[0]**2))))
+        #print("M_U:\n", M_U[:100])
+        #print("M_U.data:\n", M_U.data[:100])
+        #print("M_U.indptr:\n", M_U.indptr[:100])
+        #print("M_U.indices:\n", M_U.indices[:100])
+
+        if False:
+           M_Lb = sp.bsr_matrix( M_L, blocksize=(9,9))
+           print("M_Lb: ", M_Lb.shape, M_Lb.nnz, M_Lb.blocksize, M_Lb.indptr[-1])
+           print(M_Lb.data[0])
+           print(M_Lb.data[1])
+
+        #print(M_ilu)
+        #print(M_ilu.perm_c.shape, M_ilu.perm_c[:10])
+        #print(M_ilu.perm_r.shape, M_ilu.perm_r[:10])
+        #print(M_ilu.L.shape, M_ilu.L.nnz, isinstance(M_ilu.L, sp.csc_matrix))
+        #print(M_ilu.U.shape, M_ilu.U.nnz, isinstance(M_ilu.U, sp.csc_matrix))
+
+        M_sp_solver = sp_solver.sp_solver( M_L, M_U, M_pr, M_pc )
 
         def M_op (xk):
             #print("Inside ilu precon")
             return M_ilu.solve( xk )
+
+            #px_ = np.empty_like(xk)
+
+            #px_[ M_pr[:] ] = xk[:]
+            #y_ = sp.linalg.spsolve_triangular( M_L, px_, lower=True, overwrite_A=True, overwrite_b=True)#, unit_diagonal=True)
+            #px_ = sp.linalg.spsolve_triangular( M_U,  y_, lower=False, overwrite_A=True, overwrite_b=True)#, unit_diagonal=False)
+            #x_ = px_[ M_pc[:] ]
+            #return x_
+
+            #return M_sp_solver.solve(xk)
 
         M = sp.linalg.LinearOperator( A.shape, M_op)
         time_end = timestamp()
@@ -922,7 +1065,9 @@ def create_preconditioner( A = None, name = None, opts = {} ):
 
 class Solver:
 
-    def __init__( self, A, name = 'gmres', opts = {} ):
+    def __init__( self, A, params = Parameters(), opts = {} ):
+
+        name = params.solver
 
         self.opts    = {}
         self.func    = None
@@ -930,6 +1075,7 @@ class Solver:
         self.name    = None
         self.package = None
         self.A       = A
+        self.params  = params
 
         package = 'scipy'
         solver = name
@@ -1041,8 +1187,8 @@ class Solver:
 
     def __call__(self, b, M=None):
 
-        if params.absolute:
-            self.opts['tol'] = params.tolerance / linalg.norm(b)
+        if self.params.absolute:
+            self.opts['tol'] = self.params.tolerance / linalg.norm(b)
             print("Reset tolerance to absolution: {}".format( self.opts['tol'] ))
 
         if self.monitor is not None:
@@ -1050,182 +1196,207 @@ class Solver:
 
         return self.func( A=self.A, M=M, b=b, callback=self.monitor, **self.opts )
 
-normb = linalg.norm( b )
-print("normb = {}".format(normb))
+def main( argv ):
 
-verbose = (params.verbosity > 0)
+    # Get CLI options
+    A_file, b_file, x_file, params = get_options( argv )
+    
+    if (A_file is None) or (b_file is None):
+        print("Missing A or b file")
+        help()
+        sys.exit()
+    
+    A = load_matrix( A_file )
+    #print('shape(A): ', A.shape)
+    
+    b = load_vector( b_file, A.shape[0] )
+    #print('shape(b): ', b.shape)
+    
+    xref = None
+    if x_file is not None:
+        xref = load_vector( x_file, A.shape[0] )
+        print('shape(xref): ', xref.shape)
+    
+    
+    normb = linalg.norm( b )
+    print("normb = {}".format(normb))
+    
+    verbose = (params.verbosity > 0)
+    
+    bs = 9
+    Ab = test_bsr( A, b, bs )
+    #A = Ab
+    #BlkM = block_diagonal_precond( A, bs )
+    #sys.exit(0)
+    
+    #if True:
+    #    _D = block_diagonal_precond (A, bs)
+    #    b = _D.Dinv * b
+    #    #A = (_D.Dinv * _D.A).tocsr()
+    #    A = (_D.Dinv * _D.A)
+    
+    def residual( x ):
+        return b - A * x
+    
+    if True:
+    
+        solver = params.solver
+        precon = params.precon
+    
+        M = create_preconditioner( A, params=params )#name=precon )
+        S = Solver( A, params=params )#name=solver )
+    
+        print(S)
+    
+        print("Starting solver test: {}, {}".format(solver, precon) )
+    
+        run_time = 0.0
+        info = None
+    
+        num_tests = 0
+        max_tests = params.numtrials
+    
+    #   S.opts['tol'] = params.tolerance * normb
+    
+        while num_tests < max_tests:
+    
+            time_start = timestamp()
+    
+            S.monitor.reset(b=b)
+    
+            x, info = S( b, M=M )
+    
+            time_end = timestamp()
+            run_time += (time_end - time_start)
+            num_tests += 1
+            if info != 0:
+                break
+    
+            niters = S.monitor.niters
+    
+            if max_tests > 1:
+                print("test {} finished in {:.2f} ms".format( num_tests, 1000.*(time_end-time_start) ))
+    
+        if info > 0:
+            print("Failed to solve the problem in {} iterations {} and {} (ms)".format( info, linalg.norm( residual(x) ), 1000.*run_time) )
+        elif info < 0:
+            print("Error: invalid input parameter")
+            sys.exit(10)
+        else:
+            print("Solved linear system {} times in {} iterations and {:.2f} ms".format( num_tests, niters, 1000.*run_time/num_tests ))
+    
+            if S.monitor.residuals is not None and params.verbosity > 1:
+                print("Residuals:")
+                print("iteration, norm(r), norm(r)/norm(b)")
+                print("------------------------------------")
+                rm1 = None
+                for i in range(0,len(S.monitor.residuals)):
+                    r = S.monitor.residuals[i]
+                    print_this = True
+                    if rm1 is not None:
+                        if r == 0.0:
+                            print_this = False
+                        elif ( abs(r - rm1) / r) < 1e-6:
+                            print_this = False
+                    if print_this:
+                        print("{}, {:10.5e}, {:10.5e}".format(i, r, r/normb))
+                    rm1 = r
+    
+            print("Geometric convergence rate: {}".format( S.monitor.geometric_rate() ) )
+            print("Average   convergence rate: {}".format( S.monitor.average_rate() ) )
+    
+            normr = linalg.norm( residual(x) )
+            print("abserr= {}, relerr= {}".format( normr, normr / normb ))
+            if xref is not None:
+                norm_xref = linalg.norm( residual(xref) )
+                print("xref: abserr= {}, relerr= {}".format( norm_xref, norm_xref / normb ) )
 
-bs = 9
-Ab = test_bsr( A, b, bs )
-#A = Ab
-#BlkM = block_diagonal_precond( A, bs )
-#sys.exit(0)
+if __name__ == "__main__":
+    main( sys.argv[1:] )
 
-#if True:
-#    _D = block_diagonal_precond (A, bs)
-#    b = _D.Dinv * b
-#    #A = (_D.Dinv * _D.A).tocsr()
-#    A = (_D.Dinv * _D.A)
-
-def residual( x ):
-    return b - A * x
-
-if True:
-
-    solver = params.solver
-    precon = params.precon
-
-    M = create_preconditioner( A, name=precon )
-    S = Solver( A, name=solver )
-
-    print(S)
-
-    print("Starting solver test: {}, {}".format(solver, precon) )
-
-    run_time = 0.0
-    info = None
-
-    num_tests = 0
-    max_tests = params.numtrials
-
-#   S.opts['tol'] = params.tolerance * normb
-
-    while num_tests < max_tests:
-
-        time_start = timestamp()
-
-        S.monitor.reset(b=b)
-
-        x, info = S( b, M=M )
-
-        time_end = timestamp()
-        run_time += (time_end - time_start)
-        num_tests += 1
-        if info != 0:
-            break
-
-        niters = S.monitor.niters
-
-        if max_tests > 1:
-            print("test {} finished in {:.2f} ms".format( num_tests, 1000.*(time_end-time_start) ))
-
-    if info > 0:
-        print("Failed to solve the problem in {} iterations {} and {} (ms)".format( info, linalg.norm( residual(x) ), 1000.*run_time) )
-    elif info < 0:
-        print("Error: invalid input parameter")
-        sys.exit(10)
-    else:
-        print("Solved linear system {} times in {} iterations and {:.2f} ms".format( num_tests, niters, 1000.*run_time/num_tests ))
-
-        if S.monitor.residuals is not None and params.verbosity > 1:
-            print("Residuals:")
-            print("iteration, norm(r), norm(r)/norm(b)")
-            print("------------------------------------")
-            rm1 = None
-            for i in range(0,len(S.monitor.residuals)):
-                r = S.monitor.residuals[i]
-                print_this = True
-                if rm1 is not None:
-                    if r == 0.0:
-                        print_this = False
-                    elif ( abs(r - rm1) / r) < 1e-6:
-                        print_this = False
-                if print_this:
-                    print("{}, {:10.5e}, {:10.5e}".format(i, r, r/normb))
-                rm1 = r
-
-        print("Geometric convergence rate: {}".format( S.monitor.geometric_rate() ) )
-        print("Average   convergence rate: {}".format( S.monitor.average_rate() ) )
-
-        normr = linalg.norm( residual(x) )
-        print("abserr= {}, relerr= {}".format( normr, normr / normb ))
-        if xref is not None:
-            norm_xref = linalg.norm( residual(xref) )
-            print("xref: abserr= {}, relerr= {}".format( norm_xref, norm_xref / normb ) )
-
-# Test out PyAMGCL
-if has_pyamgcl and False:
-#try:
-#    import pyamgcl
-#except ImportError:
-#    print("PyAMGCL isn't available")
-#else:
-
-    time_start = timestamp()
-
-    opts = {}
-    opts['coarse_enough'] = 500
-    #opts['direct_coarse'] = True
-    #opts['coarsening.type'] = 'ruge_stuben'
-    #opts['coarsening.eps_strong'] = 0.5
-    opts['relax.type'] = 'damped_jacobi'
-    opts['relax.damping'] = 0.5333333333
-    #opts['relax.type'] = 'gauss_seidel'
-    opts['npre'] = 1
-    opts['npost'] = 2
-
-    M = pyamgcl.amgcl(A, opts)
-
-    time_end = timestamp()
-    print("PyAMGCL build took {} (ms)".format(1000.*(time_end-time_start)))
-
-    print(M)
-
-    time_start = timestamp()
-
-    #monitor = Monitor( takes_residual=True, keep_residuals=True, frequency=int(verbose), normb=normb )
-    monitor = Monitor( takes_residual=True, keep_residuals=True, frequency=1, normb=normb )
-
-    def monitor_callback(vec):
-        monitor.op(vec)
-
-    args = {}
-
-    #solver_name = ['scipy','gmres']
-    solver_name = ['pyamgcl','fgmres']
-    solver_name = ['pyamgcl','bicgstab']
-
-    x = None
-    info = None
-    niters = 0
-
-    if solver_name[0] == 'scipy':
-
-        args['restart'] = params.restart
-        args['callback'] = monitor_callback
-        args['tol'] = params.tolerance
-        args['maxiter'] = params.maxiters
-
-        solver = sp.linalg.gmres
-        x, info = solver( A, b, M=M, **args )
-
-        niters = monitor.niters
-
-    elif solver_name[0] == 'pyamgcl':
-
-        args['type']  = solver_name[1]
-        if 'gmres' in solver_name[1]:
-            args['M']     = params.restart
-        args['tol']   = params.tolerance
-        args['maxiter'] = params.maxiters
-
-        solver = pyamgcl.solver( P=M, prm=args )
-
-        x = solver( b )
-
-        print("err: {} iters: {}".format(solver.error, solver.iters ))
-        info = solver.error < params.tolerance
-        niters = solver.iters
-
-    time_end = timestamp()
-
-    print('info: {}, {}'.format( info, niters ))
-    print("{}.{} with PyAMGCL solve took {} (ms)".format(solver_name[0], solver_name[1], 1000.*(time_end-time_start)))
-
-    normr = linalg.norm( residual(x) )
-    print("abserr: {} relerr: {}".format(normr, normr/normb ))
-
-    if info == 0 and monitor.residuals is not None:
-        for i in range(0,len(monitor.residuals),params.restart):
-            r = monitor.residuals[i]
-            print("iter {}: {:10.5e}, {:10.5e}".format(i,r,r/normb))
+## Test out PyAMGCL
+#if has_pyamgcl and False:
+##try:
+##    import pyamgcl
+##except ImportError:
+##    print("PyAMGCL isn't available")
+##else:
+#
+#    time_start = timestamp()
+#
+#    opts = {}
+#    opts['coarse_enough'] = 500
+#    #opts['direct_coarse'] = True
+#    #opts['coarsening.type'] = 'ruge_stuben'
+#    #opts['coarsening.eps_strong'] = 0.5
+#    opts['relax.type'] = 'damped_jacobi'
+#    opts['relax.damping'] = 0.5333333333
+#    #opts['relax.type'] = 'gauss_seidel'
+#    opts['npre'] = 1
+#    opts['npost'] = 2
+#
+#    M = pyamgcl.amgcl(A, opts)
+#
+#    time_end = timestamp()
+#    print("PyAMGCL build took {} (ms)".format(1000.*(time_end-time_start)))
+#
+#    print(M)
+#
+#    time_start = timestamp()
+#
+#    #monitor = Monitor( takes_residual=True, keep_residuals=True, frequency=int(verbose), normb=normb )
+#    monitor = Monitor( takes_residual=True, keep_residuals=True, frequency=1, normb=normb )
+#
+#    def monitor_callback(vec):
+#        monitor.op(vec)
+#
+#    args = {}
+#
+#    #solver_name = ['scipy','gmres']
+#    solver_name = ['pyamgcl','fgmres']
+#    solver_name = ['pyamgcl','bicgstab']
+#
+#    x = None
+#    info = None
+#    niters = 0
+#
+#    if solver_name[0] == 'scipy':
+#
+#        args['restart'] = params.restart
+#        args['callback'] = monitor_callback
+#        args['tol'] = params.tolerance
+#        args['maxiter'] = params.maxiters
+#
+#        solver = sp.linalg.gmres
+#        x, info = solver( A, b, M=M, **args )
+#
+#        niters = monitor.niters
+#
+#    elif solver_name[0] == 'pyamgcl':
+#
+#        args['type']  = solver_name[1]
+#        if 'gmres' in solver_name[1]:
+#            args['M']     = params.restart
+#        args['tol']   = params.tolerance
+#        args['maxiter'] = params.maxiters
+#
+#        solver = pyamgcl.solver( P=M, prm=args )
+#
+#        x = solver( b )
+#
+#        print("err: {} iters: {}".format(solver.error, solver.iters ))
+#        info = solver.error < params.tolerance
+#        niters = solver.iters
+#
+#    time_end = timestamp()
+#
+#    print('info: {}, {}'.format( info, niters ))
+#    print("{}.{} with PyAMGCL solve took {} (ms)".format(solver_name[0], solver_name[1], 1000.*(time_end-time_start)))
+#
+#    normr = linalg.norm( residual(x) )
+#    print("abserr: {} relerr: {}".format(normr, normr/normb ))
+#
+#    if info == 0 and monitor.residuals is not None:
+#        for i in range(0,len(monitor.residuals),params.restart):
+#            r = monitor.residuals[i]
+#            print("iter {}: {:10.5e}, {:10.5e}".format(i,r,r/normb))
