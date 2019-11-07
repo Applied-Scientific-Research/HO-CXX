@@ -644,7 +644,7 @@ def create_preconditioner( A = None, params = Parameters(), opts = {} ):
     precon = name
 
     # Split the package name out of the request if present.
-    names = name.split('.')
+    names = name.split(':')
 
     if len(names) > 1:
         precon = names[1].lower()
@@ -842,6 +842,9 @@ def create_preconditioner( A = None, params = Parameters(), opts = {} ):
 
         M_ilu = sp.linalg.spilu( A_csc, fill_factor=fill_factor, drop_tol=drop_tol )
 
+        time_end = timestamp()
+        print("Finished ILU ( fill: {:.2f}% ) in {:.2f} ms".format( 100.*float(M_ilu.nnz) / A.nnz, 1000.*(time_end-time_start) ) )
+
         M_L = M_ilu.L.tocsr()
         M_U = M_ilu.U.tocsr()
         M_pr = M_ilu.perm_r
@@ -875,7 +878,7 @@ def create_preconditioner( A = None, params = Parameters(), opts = {} ):
 
         def M_op (xk):
             #print("Inside ilu precon")
-            return M_ilu.solve( xk )
+            #return M_ilu.solve( xk )
 
             #px_ = np.empty_like(xk)
 
@@ -885,11 +888,10 @@ def create_preconditioner( A = None, params = Parameters(), opts = {} ):
             #x_ = px_[ M_pc[:] ]
             #return x_
 
-            #return M_sp_solver.solve(xk)
+            return M_sp_solver.solve(xk)
 
         M = sp.linalg.LinearOperator( A.shape, M_op)
-        time_end = timestamp()
-        print("Instantiated ILU ( fill: {:.2f}% ) in {:.2f} ms".format( 100.*float(M_ilu.nnz) / A.nnz, 1000.*(time_end-time_start) ) )
+        print("Instantiated ILU preconditioner")
 
         return M
 
@@ -1081,7 +1083,7 @@ class Solver:
         solver = name
 
         # Split the package name out of the request if present.
-        names = name.split('.')
+        names = name.split(':')
 
         if len(names) > 1:
             solver = names[1].lower()
