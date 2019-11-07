@@ -37,7 +37,7 @@ class sp_solver:
 
     """ Python wrapper for the C shared library lib"""
  
-    def __init__( self, L, U, pr, pc, mixed_precision = False ):
+    def __init__( self, L, U, pr, pc ):
 
         lib = load_lib( "libsp_solver_impl.so" )
 
@@ -45,7 +45,10 @@ class sp_solver:
         c_float_p = ct.POINTER(ct.c_float)
         c_int_p = ct.POINTER(ct.c_int)
 
-        self.mixed_precision = mixed_precision
+        self.mixed_precision = False
+
+        assert L.data.dtype == U.data.dtype
+        self.mixed_precision = (L.data.dtype == np.float32)
 
         self.sp_dtrsv_wrapper = lib.sp_dtrsv
         self.sp_dtrsv_wrapper.argtypes = [ ct.c_int, ct.c_int, ct.c_int,
@@ -61,6 +64,18 @@ class sp_solver:
                                               ct.c_int, ct.c_int, ct.c_int,
                                               c_int_p, c_int_p, c_float_p,
                                               c_float_p ]
+
+        self.sp_strsv_bsr_wrapper = lib.sp_strsv_bsr
+        self.sp_strsv_bsr_wrapper.argtypes = [ ct.c_int, ct.c_int, ct.c_int, ct.c_int, # bs
+                                               ct.c_int, ct.c_int,
+                                               c_int_p, c_int_p, c_float_p,
+                                               c_float_p ]
+
+        self.sp_dtrsv_bsr_wrapper = lib.sp_dtrsv_bsr
+        self.sp_dtrsv_bsr_wrapper.argtypes = [ ct.c_int, ct.c_int, ct.c_int, ct.c_int, # bs
+                                               ct.c_int, ct.c_int,
+                                               c_int_p, c_int_p, c_double_p,
+                                               c_double_p ]
 
         self.use_mkl = False
 
@@ -81,16 +96,27 @@ class sp_solver:
 
         t_start = timestamp()
 
-        if self.mixed_precision and L.data.dtype == np.double and U.data.dtype == np.double:
-            L_data = L.data.astype( np.float32 )
-            U_data = U.data.astype( np.float32 )
-            self.L = sp.csr_matrix( (L_data, L.indices, L.indptr), shape=L.shape )
-            self.U = sp.csr_matrix( (U_data, U.indices, U.indptr), shape=U.shape )
-        else:
-            self.L = L
-            self.U = U
+        self.L = L
+        self.U = U
 
         print("ILU with dtype= ", self.L.dtype, self.mixed_precision)
+
+        self.L_bsr = None
+        self.U_bsr = None
+        if True:
+           bs = 4
+           print(bs)
+           L_bsr = sp.bsr_matrix( self.L, blocksize=(bs,bs))
+           U_bsr = sp.bsr_matrix( self.U, blocksize=(bs,bs))
+           print("L_bsr: {} {} {} {:.2f} {:.2f}".format(L_bsr.nnz, L_bsr.blocksize, L_bsr.indptr[-1], 100.*float(L_bsr.nnz)/(self.L.shape[0]**2), L_bsr.nnz/self.L.nnz))
+           print("U_bsr: {} {} {} {:.2f} {:.2f}".format(U_bsr.nnz, U_bsr.blocksize, U_bsr.indptr[-1], 100.*float(U_bsr.nnz)/(self.U.shape[0]**2), U_bsr.nnz/self.U.nnz))
+           #print(M_L_bsr.data[0])
+           #print(linalg.inv(M_L_bsr.data[0]))
+           #print(M_U_bsr.data[0])
+           #print(linalg.inv(M_U_bsr.data[0]))
+
+           self.L_bsr = L_bsr
+           self.U_bsr = U_bsr
 
         self.pr = pr
         self.pc = pc
@@ -102,27 +128,27 @@ class sp_solver:
 
         # Test of the columns are sorted (in rows)
         self.L_is_sorted = True
-        for i in range(self.L.shape[0]):
-            #k0 = self.L.indptr[i]
-            k1 = self.L.indptr[i+1]
-            #row_is_sorted = np.all(self.L.indices[k0:k1-1] < self.L.indices[k0+1:k1])
-            #if not (row_is_sorted and self.L.indices[k1-1] == i):
-            if not (self.L.indices[k1-1] == i):
-                self.L_is_sorted = False
-                break
+        #for i in range(self.L.shape[0]):
+        #    #k0 = self.L.indptr[i]
+        #    k1 = self.L.indptr[i+1]
+        #    #row_is_sorted = np.all(self.L.indices[k0:k1-1] < self.L.indices[k0+1:k1])
+        #    #if not (row_is_sorted and self.L.indices[k1-1] == i):
+        #    if not (self.L.indices[k1-1] == i):
+        #        self.L_is_sorted = False
+        #        break
 
         self.U_is_sorted = True
-        for i in range(self.U.shape[0]):
-            k0 = self.U.indptr[i]
-            #k1 = self.U.indptr[i+1]
-            #row_is_sorted = np.all(self.U.indices[k0:k1-1] < self.U.indices[k0+1:k1])
-            #if not (row_is_sorted and self.U.indices[k0] == i):
-            if not (self.U.indices[k0] == i):
-                self.U_is_sorted = False
-                break
+        #for i in range(self.U.shape[0]):
+        #    k0 = self.U.indptr[i]
+        #    #k1 = self.U.indptr[i+1]
+        #    #row_is_sorted = np.all(self.U.indices[k0:k1-1] < self.U.indices[k0+1:k1])
+        #    #if not (row_is_sorted and self.U.indices[k0] == i):
+        #    if not (self.U.indices[k0] == i):
+        #        self.U_is_sorted = False
+        #        break
 
-        t_finish = timestamp()
-        print("Finished analyzing L/U matrices: ", self.L_is_sorted, self.U_is_sorted, 1000.*(t_finish-t_start))
+        #t_finish = timestamp()
+        #print("Finished analyzing L/U matrices: ", self.L_is_sorted, self.U_is_sorted, 1000.*(t_finish-t_start))
 
         #L_levels = self.find_parallelism(self.L)
         #U_levels = self.find_parallelism(self.U)
@@ -216,10 +242,15 @@ class sp_solver:
     def __call__( self, x, y = None ):
         return self.solve(x,y)
 
-    def solve( self, x0, y = None ):
+    def solve( self, x, y = None ):
 
-        #assert x.dtype == np.double
+        assert x.dtype == np.double
+        if y is not None:
+            assert x.dtype == y.dtype
+
         assert self.sp_dtrsv_wrapper is not None
+        if self.mixed_precision:
+            assert self.sp_strsv_wrapper is not None
         if self.use_mkl:
             assert self.sp_mkl_dtrsv_wrapper is not None
 
@@ -228,22 +259,26 @@ class sp_solver:
         l_nnz = self.L.nnz
         u_nnz = self.U.nnz
 
-        if self.mixed_precision and x0.dtype == np.double:
-            x = x0.astype( np.float32 )
+        px = None
+        if self.mixed_precision:
+            px = np.empty( (mrows), dtype=np.float32)
         else:
-            x = x0
+            px = np.empty_like(x)
 
         # Permute the rhs vector.
-        px = np.empty_like(x)
         px[ self.pr[:] ] = x[:]
 
         pz = None
         if self.use_mkl:
-            pz = np.empty_like(x)
+            pz = np.empty_like(px)
 
         func = self.sp_dtrsv_wrapper
         if self.mixed_precision:
             func = self.sp_strsv_wrapper
+
+        bsr_func = self.sp_dtrsv_bsr_wrapper
+        if self.mixed_precision:
+            bsr_func = self.sp_strsv_bsr_wrapper
 
         # (Pr)Ly = (Pr)x
         isUpper = 0
@@ -258,10 +293,26 @@ class sp_solver:
                          ct_pointer( self.L.indptr ), ct_pointer( self.L.indices ), ct_pointer( self.L.data ),
                          ct_pointer( px ), ct_pointer( pz ) )
         else:
-            info = func (
+            if self.L_bsr is not None:
+                info = bsr_func (
+                         mrows, ncols, self.L_bsr.nnz, self.L_bsr.blocksize[0],
+                         isUpper, isUnit,
+                         ct_pointer( self.L_bsr.indptr ), ct_pointer( self.L_bsr.indices ), ct_pointer( self.L_bsr.data ),
+                         ct_pointer( px ) )
+            else:
+                #px_tmp = np.copy(px)
+                info = func (
                          mrows, ncols, l_nnz, isUpper, isUnit, isSorted,
                          ct_pointer( self.L.indptr ), ct_pointer( self.L.indices ), ct_pointer( self.L.data ),
                          ct_pointer( px ) )
+
+                #info = bsr_func (
+                #         mrows, ncols, self.L_bsr.nnz, self.L_bsr.blocksize[0],
+                #         isUpper, isUnit,
+                #         ct_pointer( self.L_bsr.indptr ), ct_pointer( self.L_bsr.indices ), ct_pointer( self.L_bsr.data ),
+                #         ct_pointer( px_tmp ) )
+
+                #print(np.linalg.norm( px - px_tmp ))
 
         # Ux' = y
         isUpper = 1
@@ -276,14 +327,22 @@ class sp_solver:
                          ct_pointer( self.U.indptr ), ct_pointer( self.U.indices ), ct_pointer( self.U.data ),
                          ct_pointer( pz ), ct_pointer( px ) )
         else:
-            info = func (
+            if self.U_bsr is not None:
+                info = bsr_func (
+                         mrows, ncols, l_nnz, self.U_bsr.blocksize[0],
+                         isUpper, isUnit,
+                         ct_pointer( self.U_bsr.indptr ), ct_pointer( self.U_bsr.indices ), ct_pointer( self.U_bsr.data ),
+                         ct_pointer( px ) )
+            else:
+                info = func (
                          mrows, ncols, u_nnz, isUpper, isUnit, isSorted,
                          ct_pointer( self.U.indptr ), ct_pointer( self.U.indices ), ct_pointer( self.U.data ),
                          ct_pointer( px ) )
 
         # x = (Pc)x'
         if y is None:
-            y = np.empty_like(x0)
+            y = np.empty_like(x)
 
-        y = px[ self.pc[:] ]
+        y[:] = px[ self.pc[:] ]
+
         return y

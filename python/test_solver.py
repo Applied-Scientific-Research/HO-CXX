@@ -840,7 +840,15 @@ def create_preconditioner( A = None, params = Parameters(), opts = {} ):
 
             #sys.exit(1)
 
-        M_ilu = sp.linalg.spilu( A_csc, fill_factor=fill_factor, drop_tol=drop_tol )
+        M_ilu = None
+
+        mixed_precision = False
+        if mixed_precision:
+            A_data = A_csc.data.astype(np.float32)
+            A_mixed = sp.csc_matrix( (A_data, A_csc.indices, A_csc.indptr), shape=A_csc.shape)
+            M_ilu = sp.linalg.spilu( A_mixed, fill_factor=fill_factor, drop_tol=drop_tol )
+        else:
+            M_ilu = sp.linalg.spilu( A_csc, fill_factor=fill_factor, drop_tol=drop_tol )
 
         time_end = timestamp()
         print("Finished ILU ( fill: {:.2f}% ) in {:.2f} ms".format( 100.*float(M_ilu.nnz) / A.nnz, 1000.*(time_end-time_start) ) )
@@ -862,11 +870,20 @@ def create_preconditioner( A = None, params = Parameters(), opts = {} ):
         #print("M_U.indptr:\n", M_U.indptr[:100])
         #print("M_U.indices:\n", M_U.indices[:100])
 
-        if False:
-           M_Lb = sp.bsr_matrix( M_L, blocksize=(9,9))
-           print("M_Lb: ", M_Lb.shape, M_Lb.nnz, M_Lb.blocksize, M_Lb.indptr[-1])
-           print(M_Lb.data[0])
-           print(M_Lb.data[1])
+        #if True:
+        #   bs = 4
+        #   print(bs)
+        #   M_Lb = sp.bsr_matrix( M_L, blocksize=(bs,bs))
+        #   M_Ub = sp.bsr_matrix( M_U, blocksize=(bs,bs))
+        #   print("M_Lb: {} {} {} {:.2f}".format(M_Lb.nnz, M_Lb.blocksize, M_Lb.indptr[-1], 100.*float(M_Lb.nnz)/(M_L.shape[0]**2)))
+        #   print("M_Ub: {} {} {} {:.2f}".format(M_Ub.nnz, M_Ub.blocksize, M_Ub.indptr[-1], 100.*float(M_Ub.nnz)/(M_U.shape[0]**2)))
+        #   print(M_Lb.data[0])
+        #   print(linalg.inv(M_Lb.data[0]))
+        #   print(M_Ub.data[0])
+        #   print(linalg.inv(M_Ub.data[0]))
+
+        #   M_L = M_Lb
+        #   M_U = M_Ub
 
         #print(M_ilu)
         #print(M_ilu.perm_c.shape, M_ilu.perm_c[:10])
