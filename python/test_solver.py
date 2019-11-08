@@ -9,6 +9,7 @@ import getopt
 #import block_sgs
 import cblock_sgs
 import sp_solver
+import bilum
 
 has_pyamg = False
 try:
@@ -605,16 +606,20 @@ class Monitor:
 
     def geometric_rate(self):
         l = len(self.residuals)
-        if l > 0:
+        if l > 1:
+            if self.residuals[0] == 0:
+                return -0.0
             return ( self.residuals[-1] /  self.residuals[0] ) ** (1.0 / float(l))
         else:
             return 0.0
 
     def average_rate(self):
         l = len(self.residuals)
-        if l > 0:
+        if l > 1:
             ave = 0.0
             for i in range(1,l):
+                if self.residuals[i-1] == 0:
+                    return -0.0
                 ave += self.residuals[i] / self.residuals[i-1]
             return ave / float(l)
         else:
@@ -679,6 +684,25 @@ def create_preconditioner( A = None, params = Parameters(), opts = {} ):
 
         print("Instantiated block Jacobi preconditioner")
         return M.M()
+
+    elif precon == 'bilum':
+
+        time_start = timestamp()
+
+        print("Building BILUM")
+
+        M_bilum = bilum.bilum( A )
+
+        def M_op (xk):
+            #print("Inside bilum precon")
+            return M_bilum.solve( xk )
+
+        M = sp.linalg.LinearOperator( A.shape, M_op)
+
+        time_stop = timestamp()
+        print("Instantiated BILUM preconditioner in {:.4f} s".format( time_stop-time_start))
+
+        return M
 
     elif 'ilu' in precon:
 

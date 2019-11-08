@@ -103,7 +103,7 @@ class sp_solver:
 
         self.L_bsr = None
         self.U_bsr = None
-        if True:
+        if False:
            bs = 4
            print(bs)
            L_bsr = sp.bsr_matrix( self.L, blocksize=(bs,bs))
