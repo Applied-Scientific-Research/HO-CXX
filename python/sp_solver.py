@@ -152,6 +152,8 @@ class sp_solver:
 
         #L_levels = self.find_parallelism(self.L)
         #U_levels = self.find_parallelism(self.U)
+        self.find_parallelism2(self.L)
+        self.find_parallelism2(self.U)
 
     def find_parallelism(self, A):
 
@@ -238,6 +240,84 @@ class sp_solver:
         else:
             print("Finished analysis in {:.2f} ms: {} levels with min/max {} / {}".format( t_ms, nlevels, nrows.min(), nrows.max()))
             return levels
+
+    def find_parallelism2(self, A):
+
+        t_start = timestamp()
+
+        assert isinstance(A,sp.csr_matrix)
+
+        mrows = A.shape[0] # csr format
+        nnz   = A.nnz
+
+        A_csc = sp.csc_matrix(A)
+
+        A_nnzs = np.empty( (mrows), dtype='i' )
+        for i in range(mrows):
+            k      = A.indptr[i]
+            k_stop = A.indptr[i+1]
+
+            A_nnzs[i] = k_stop - k
+
+        indrows = np.zeros(mrows, dtype='i')
+        levptr = [0]
+
+        maxiters = 10000
+        maxiters = mrows
+        level = 0
+
+        non_zeros = nnz
+        active_rows = mrows
+
+        while (level < maxiters) and active_rows > 0:
+
+            # Find any rows with only 1 dependency (that could be the diagonal).
+            one_connection = (A_nnzs == 1)
+
+            rows_to_remove = np.arange(mrows,dtype='i')[ one_connection ]
+            nrows_to_remove = rows_to_remove.shape[0]
+
+            #print("{}: rows with 1 connection: {}".format(level, nrows_to_remove))
+
+            n = levptr[level]
+            indrows[ n:n+nrows_to_remove ] = rows_to_remove[:]
+            levptr.append(n + nrows_to_remove )
+
+            # Clear the current candidates
+            for row in rows_to_remove:
+
+                # For each row 'i' to be removed, sweep down the 'i' column of the CSC matrix
+                # to find which other rows are connected and remove them.
+
+                k_begin = A_csc.indptr[row  ]
+                k_end   = A_csc.indptr[row+1]
+
+                for k in range(k_begin, k_end):
+                    other_row = A_csc.indices[k]
+                    A_nnzs[ other_row ] -= 1
+
+            active_rows -= nrows_to_remove
+            #if level % 10 == 0:
+            #    print(level, nrows_to_remove, active_rows)
+
+            level += 1
+
+        levptr = np.array( levptr, dtype='i' )
+        nlevels = levptr.shape[0] - 1
+        nrows = np.empty( (nlevels), dtype='i' )
+        for i in range(nlevels):
+           nrows[i] = levptr[i+1] - levptr[i]
+
+        t_stop = timestamp()
+        t_ms = 1000.*(t_stop - t_start)
+        if active_rows > 0:
+            print("Failed to complete analysis in {:.2f} ms: {} levels with min/max {} / {}".format( t_ms, nlevels, nrows.min(), nrows.max()))
+            return None
+        else:
+            single_rows = (nrows == 1)
+            singles = np.arange( (nlevels),dtype='i')[ single_rows ]
+            print("Finished analysis in {:.2f} ms: {} levels with min/max {} / {} singles {}".format( t_ms, nlevels, nrows.min(), nrows.max(), singles.shape[0]))
+            return [ indrows, levptr ]
 
     def __call__( self, x, y = None ):
         return self.solve(x,y)

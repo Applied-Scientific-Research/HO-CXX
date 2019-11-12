@@ -10,6 +10,7 @@ import getopt
 import cblock_sgs
 import sp_solver
 import bilum
+import itsol
 
 has_pyamg = False
 try:
@@ -29,7 +30,7 @@ else:
     print("PyAMGCL successfully loaded")
     has_pyamgcl = True
 
-packages = ['scipy']
+packages = ['scipy','itsol']
 if has_pyamg:
     packages.append('pyamg')
 if has_pyamgcl:
@@ -685,6 +686,25 @@ def create_preconditioner( A = None, params = Parameters(), opts = {} ):
         print("Instantiated block Jacobi preconditioner")
         return M.M()
 
+    elif package == 'itsol':
+
+        time_start = timestamp()
+
+        print("Building ITSOL ({}.{}) Preconditioner".format(package,precon))
+
+        M_itsol = itsol.itsol( A, precon )
+
+        def M_op (xk):
+            #print("Inside itsol precon")
+            return M_itsol.solve( xk )
+
+        M = sp.linalg.LinearOperator( A.shape, M_op)
+
+        time_stop = timestamp()
+        print("Instantiated ITSOL preconditioner in {:.4f} s".format( time_stop-time_start))
+
+        return M
+
     elif precon == 'bilum':
 
         time_start = timestamp()
@@ -866,6 +886,8 @@ def create_preconditioner( A = None, params = Parameters(), opts = {} ):
 
         M_ilu = None
 
+        use_superlu = False
+
         mixed_precision = False
         if mixed_precision:
             A_data = A_csc.data.astype(np.float32)
@@ -877,59 +899,54 @@ def create_preconditioner( A = None, params = Parameters(), opts = {} ):
         time_end = timestamp()
         print("Finished ILU ( fill: {:.2f}% ) in {:.2f} ms".format( 100.*float(M_ilu.nnz) / A.nnz, 1000.*(time_end-time_start) ) )
 
-        M_L = M_ilu.L.tocsr()
-        M_U = M_ilu.U.tocsr()
-        M_pr = M_ilu.perm_r
-        M_pc = M_ilu.perm_c
+        M_sp_solver = None
+        if not use_superlu:
+            M_L = M_ilu.L.tocsr()
+            M_U = M_ilu.U.tocsr()
+            M_pr = M_ilu.perm_r
+            M_pc = M_ilu.perm_c
 
-        print("M_L: {0:.2f}%".format(100.*(M_L.nnz / (M_L.shape[0]**2))))
-        #print("M_L:\n", M_L[:100])
-        #print("M_L.data:\n", M_L.data[:100])
-        #print("M_L.indptr:\n", M_L.indptr[:100])
-        #print("M_L.indices:\n", M_L.indices[:100])
+            print("M_L: {0:.2f}%".format(100.*(M_L.nnz / (M_L.shape[0]**2))))
+            #print("M_L:\n", M_L[:100])
+            #print("M_L.data:\n", M_L.data[:100])
+            #print("M_L.indptr:\n", M_L.indptr[:100])
+            #print("M_L.indices:\n", M_L.indices[:100])
 
-        print("M_U: {0:.2f}%".format(100.*(M_U.nnz / (M_U.shape[0]**2))))
-        #print("M_U:\n", M_U[:100])
-        #print("M_U.data:\n", M_U.data[:100])
-        #print("M_U.indptr:\n", M_U.indptr[:100])
-        #print("M_U.indices:\n", M_U.indices[:100])
+            print("M_U: {0:.2f}%".format(100.*(M_U.nnz / (M_U.shape[0]**2))))
+            #print("M_U:\n", M_U[:100])
+            #print("M_U.data:\n", M_U.data[:100])
+            #print("M_U.indptr:\n", M_U.indptr[:100])
+            #print("M_U.indices:\n", M_U.indices[:100])
 
-        #if True:
-        #   bs = 4
-        #   print(bs)
-        #   M_Lb = sp.bsr_matrix( M_L, blocksize=(bs,bs))
-        #   M_Ub = sp.bsr_matrix( M_U, blocksize=(bs,bs))
-        #   print("M_Lb: {} {} {} {:.2f}".format(M_Lb.nnz, M_Lb.blocksize, M_Lb.indptr[-1], 100.*float(M_Lb.nnz)/(M_L.shape[0]**2)))
-        #   print("M_Ub: {} {} {} {:.2f}".format(M_Ub.nnz, M_Ub.blocksize, M_Ub.indptr[-1], 100.*float(M_Ub.nnz)/(M_U.shape[0]**2)))
-        #   print(M_Lb.data[0])
-        #   print(linalg.inv(M_Lb.data[0]))
-        #   print(M_Ub.data[0])
-        #   print(linalg.inv(M_Ub.data[0]))
+            #if True:
+            #   bs = 4
+            #   print(bs)
+            #   M_Lb = sp.bsr_matrix( M_L, blocksize=(bs,bs))
+            #   M_Ub = sp.bsr_matrix( M_U, blocksize=(bs,bs))
+            #   print("M_Lb: {} {} {} {:.2f}".format(M_Lb.nnz, M_Lb.blocksize, M_Lb.indptr[-1], 100.*float(M_Lb.nnz)/(M_L.shape[0]**2)))
+            #   print("M_Ub: {} {} {} {:.2f}".format(M_Ub.nnz, M_Ub.blocksize, M_Ub.indptr[-1], 100.*float(M_Ub.nnz)/(M_U.shape[0]**2)))
+            #   print(M_Lb.data[0])
+            #   print(linalg.inv(M_Lb.data[0]))
+            #   print(M_Ub.data[0])
+            #   print(linalg.inv(M_Ub.data[0]))
 
-        #   M_L = M_Lb
-        #   M_U = M_Ub
+            #   M_L = M_Lb
+            #   M_U = M_Ub
 
-        #print(M_ilu)
-        #print(M_ilu.perm_c.shape, M_ilu.perm_c[:10])
-        #print(M_ilu.perm_r.shape, M_ilu.perm_r[:10])
-        #print(M_ilu.L.shape, M_ilu.L.nnz, isinstance(M_ilu.L, sp.csc_matrix))
-        #print(M_ilu.U.shape, M_ilu.U.nnz, isinstance(M_ilu.U, sp.csc_matrix))
+            #print(M_ilu)
+            #print(M_ilu.perm_c.shape, M_ilu.perm_c[:10])
+            #print(M_ilu.perm_r.shape, M_ilu.perm_r[:10])
+            #print(M_ilu.L.shape, M_ilu.L.nnz, isinstance(M_ilu.L, sp.csc_matrix))
+            #print(M_ilu.U.shape, M_ilu.U.nnz, isinstance(M_ilu.U, sp.csc_matrix))
 
-        M_sp_solver = sp_solver.sp_solver( M_L, M_U, M_pr, M_pc )
+            M_sp_solver = sp_solver.sp_solver( M_L, M_U, M_pr, M_pc )
 
         def M_op (xk):
             #print("Inside ilu precon")
-            #return M_ilu.solve( xk )
-
-            #px_ = np.empty_like(xk)
-
-            #px_[ M_pr[:] ] = xk[:]
-            #y_ = sp.linalg.spsolve_triangular( M_L, px_, lower=True, overwrite_A=True, overwrite_b=True)#, unit_diagonal=True)
-            #px_ = sp.linalg.spsolve_triangular( M_U,  y_, lower=False, overwrite_A=True, overwrite_b=True)#, unit_diagonal=False)
-            #x_ = px_[ M_pc[:] ]
-            #return x_
-
-            return M_sp_solver.solve(xk)
+            if use_superlu:
+                return M_ilu.solve( xk )
+            else:
+                return M_sp_solver.solve(xk)
 
         M = sp.linalg.LinearOperator( A.shape, M_op)
         print("Instantiated ILU preconditioner")
@@ -1004,8 +1021,10 @@ def create_preconditioner( A = None, params = Parameters(), opts = {} ):
         if package is not None and package == 'pyamgcl':
             use_pyamg = False
 
-        #amg_type = 'ruge_stuben'
-        amg_type = 'smoothed_aggregation'
+        amg_type = 'ruge_stuben'
+        #amg_type = 'smoothed_aggregation'
+
+        print("Matrix format: ", type(A))
 
         if use_pyamg:
 
@@ -1014,24 +1033,27 @@ def create_preconditioner( A = None, params = Parameters(), opts = {} ):
             # Set default options
             precon_opts = {}
             precon_opts['max_levels'] = 16
-            #precon_opts['max_coarse'] = 500
-            precon_opts['max_coarse'] = 50
+            precon_opts['max_coarse'] = 500
+            #precon_opts['max_coarse'] = 50
             precon_opts['coarse_solver'] = 'lu'
-            #omega=0.533333333
-            #precon_opts['presmoother' ] = ('jacobi', {'omega':omega,'iterations':1})
-            #precon_opts['postsmoother'] = ('jacobi', {'omega':omega,'iterations':2})
+            omega=0.533333333
+            precon_opts['presmoother' ] = ('jacobi', {'omega':omega,'iterations':1})
+            precon_opts['postsmoother'] = ('jacobi', {'omega':omega,'iterations':2})
             #precon_opts['presmoother' ] = ('jacobi', {'iterations':1})
             #precon_opts['postsmoother'] = ('jacobi', {'iterations':2})
 
             if amg_type == 'ruge_stuben':
                 precon_opts['strength'] = ('classical', {'theta':0.5} )
+                #precon_opts['strength'] = ('algebraic_distance')
+                #precon_opts['CF'] = 'PMIS'
             elif amg_type == 'smoothed_aggregation':
                 #precon_opts['strength'] = None
                 #precon_opts['strength'] = 'classical'
                 #precon_opts['strength'] = 'affinity'
-                precon_opts['strength'] = ('algebraic_distance')
+                #precon_opts['strength'] = ('algebraic_distance')
                 #precon_opts['strength'] = ('evolution')
                 #precon_opts['smooth'] = ('energy')
+                pass
 
             #for key in opts:
             #    precon_opts[k] = opts[key]
@@ -1072,12 +1094,12 @@ def create_preconditioner( A = None, params = Parameters(), opts = {} ):
                 precon_opts['coarsening.type'] = 'ruge_stuben'
                 precon_opts['coarsening.eps_strong'] = 0.5
             else:
-                #precon_opts['coarsening.type'] = 'smoothed_aggregation'
+                precon_opts['coarsening.type'] = 'smoothed_aggregation'
                 #precon_opts['coarsening.estimate_spectral_radius'] = 'true'
                 precon_opts['coarsening.type'] = 'smoothed_aggr_emin'
 
-            precon_opts['relax.type'] = 'damped_jacobi'
-            precon_opts['relax.damping'] = 0.53333333
+            #precon_opts['relax.type'] = 'damped_jacobi'
+            #precon_opts['relax.damping'] = 0.53333333
             precon_opts['npre'] = 1
             precon_opts['npost'] = 2
 
