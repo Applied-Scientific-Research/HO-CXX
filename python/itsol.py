@@ -37,10 +37,11 @@ def load_lib( lib_name ):
 shlib = load_lib( "./libitsol_impl.so" )
 
 class PreconTags(enum.IntEnum):
-   ILUK = 1
-   ARMS = 2
-   ILUT = 3
-   BILUK = 4
+   ILUK  = 1
+   ARMS2 = 2
+   ILUT  = 3
+   ILUC  = 4
+   BILUK = 5
    DEFAULT = ILUK
 
 class itsol:
@@ -72,44 +73,48 @@ class itsol:
            precon_tag = PreconTags.ILUK
         elif 'ilut' in precon:
            precon_tag = PreconTags.ILUT
+        elif 'iluc' in precon:
+           precon_tag = PreconTags.ILUC
+        elif 'arms' in precon:
+           precon_tag = PreconTags.ARMS2
 
-        lfil = 50
+        fill = 50
         droptol = 0.0001
+
+        if precon_tag == PreconTags.BILUK or precon_tag == PreconTags.ILUK:
+           fill = 5
+
+        first = precon.find('[')
+        last  = precon.find(']')
+        if first != -1 and last != -1:
+           opts = precon[first+1:last]
+           if len(opts) > 0:
+              opts = opts.split(',')
+              for i,opt in enumerate(opts):
+                 opt0 = opt.split('=')
+                 if len(opt0) > 1:
+                    [key,val] = opt0[0:2]
+                    if key == 'fill':
+                       fill = int(val)
+                    elif key == 'drop':
+                       droptol = float(val)
+                 elif precon_tag == PreconTags.BILUK or precon_tag == PreconTags.ILUK:
+                    fill = int(opt0[0])
 
         if precon_tag == PreconTags.ILUK or precon_tag == PreconTags.BILUK: # ILUK[fill]
 
-           lfil = 1
-           first = precon.find('[')
-           last  = precon.find(']')
-           if first != -1 and last != -1:
-              s = precon[first+1:last]
-              if len(s) > 0:
-                 lfil = int(s)
-
-           print("iluk({})".format(lfil))
+           print("iluk({})".format(fill))
 
         elif precon_tag == PreconTags.ILUT: # ILUT[drop,fill]
 
-           first = precon.find('[')
-           last  = precon.find(']')
-           if first != -1 and last != -1:
-              opts = precon[first+1:last]
-              if len(opts) > 0:
-                 opts = opts.split(',')
-                 for i,opt in enumerate(opts):
-                    opt0 = opt.split('=')
-                    if len(opt0) > 1:
-                       [key,val] = opt0[:2]
-                       if key == 'fill':
-                          lfil = int(val)
-                       elif key == 'drop':
-                          droptol = float(val)
-                    elif i == 0:
-                       droptol = float(opt0[0])
-                    elif i == 1:
-                       lfil = int(opt0[0])
+           print("ilut({},{})".format(droptol,fill))
 
-           print("ilut({},{})".format(droptol,lfil))
+        elif precon_tag == PreconTags.ILUC: # ILUT[drop,fill]
+
+           print("iluc({},{})".format(droptol,fill))
+
+        elif precon_tag == PreconTags.ARMS2:
+           print("arms({},{})".format(droptol,fill))
 
         build_func.argtypes = [ ct.c_int, ct.c_int, ct.c_double, # precon choice, fill, droptol
                                 ct.c_int, ct.c_int, # rows, nnz
@@ -142,7 +147,7 @@ class itsol:
 
         P = ct.c_void_p()
 
-        build_func( precon_tag, lfil, droptol,
+        build_func( precon_tag, fill, droptol,
                     mrows, nnz,
                     np_pointer(A_rowptr), np_pointer(A_colidx), np_pointer(A_values),
                     ct.byref(P) )

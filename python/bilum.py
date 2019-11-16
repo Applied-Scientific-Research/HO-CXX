@@ -38,7 +38,7 @@ shlib = load_lib( "BILUM/libilum_mp.so" )
 
 class bilum:
 
-    def __init__( self, A ):
+    def __init__( self, A, options = None ):
 
         assert shlib is not None
 
@@ -99,6 +99,33 @@ class bilum:
         fill = 10
         droptol = 1e-3
         nmax = 3*nnz
+
+        print("options: ", options)
+        if options is not None:
+           first = options.find('[')
+           last  = options.find(']')
+           if first != -1 and last != -1:
+              opts = options[first+1:last]
+              print(opts)
+              if len(opts) > 0:
+                 opts = opts.split(',')
+                 for i,opt in enumerate(opts):
+                    opt0 = opt.split('=')
+                    print(opt0)
+                    if len(opt0) > 1:
+                       [key,val] = opt0[0:2]
+                       if key == 'fill':
+                          fill = int(val)
+                       elif key == 'drop' or key == 'droptol':
+                          droptol = float(val)
+                       elif key == 'levels':
+                          nlevels = int(val)
+                       elif key == 'bs' or key == 'blocksize':
+                          bs = int(val)
+                       else:
+                          print("Unknown option {}: {} {}".format(i,key,val))
+
+        print("fill: {} droptol: {} nlevels: {} bs: {}".format(fill, droptol, nlevels, bs))
 
         jlu = np.empty( (nlevels*nmax), dtype=np.intc)
         ilu = np.empty( (nlevels*(mrows+1)), dtype=np.intc)

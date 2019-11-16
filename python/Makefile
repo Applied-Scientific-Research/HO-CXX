@@ -28,7 +28,7 @@ libsp_solver_impl.so: sp_solver_impl.o
 	$(CXX) $(CXXFLAGS) $(SHLIB) -o $@ $^ $(LDFLAGS)
 
 libitsol_impl.so: itsol_impl.cpp
-	$(CXX) $(CXXFLAGS) $(SHLIB) -o $@ $^ $(LDFLAGS) -I $(ITSOL_DIR)/INC $(ITSOL_LIBS)
+	$(CXX) $(CXXFLAGS) $(SHLIB) -fopenmp -o $@ $^ $(LDFLAGS) -I $(ITSOL_DIR)/INC $(ITSOL_LIBS)
 
 .PHONY: itsol
 itsol: libitsol_impl.so

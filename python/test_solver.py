@@ -12,6 +12,8 @@ import sp_solver
 import bilum
 import itsol
 
+import matplotlib.pylab as plt
+
 has_pyamg = False
 try:
     import pyamg
@@ -705,13 +707,13 @@ def create_preconditioner( A = None, params = Parameters(), opts = {} ):
 
         return M
 
-    elif precon == 'bilum':
+    elif 'bilum' in precon:
 
         time_start = timestamp()
 
         print("Building BILUM")
 
-        M_bilum = bilum.bilum( A )
+        M_bilum = bilum.bilum( A, precon )
 
         def M_op (xk):
             #print("Inside bilum precon")
@@ -1287,9 +1289,26 @@ def main( argv ):
     print("normb = {}".format(normb))
     
     verbose = (params.verbosity > 0)
+
+    if True:
+        perm = sp.csgraph.reverse_cuthill_mckee(A, symmetric_mode=False)
+        print(type(perm))
+        print(perm[:10])
+        #sys.exit(1)
+
+        #plt.spy(A, markersize=1)
+        #plt.show()
+
+        #A_coo = A.tocoo()
+        #p_rows = perm[A_coo.row]
+        #p_cols = perm[A_coo.col]
+        #p_A_coo = sp.coo_matrix( (A_coo.data, (p_rows, p_cols)), shape=A_coo.shape)
+
+        #plt.spy(p_A_coo, markersize=1)
+        #plt.show()
     
     bs = 9
-    Ab = test_bsr( A, b, bs )
+    #Ab = test_bsr( A, b, bs )
     #A = Ab
     #BlkM = block_diagonal_precond( A, bs )
     #sys.exit(0)
