@@ -70,6 +70,7 @@ namespace details
           return;
       }
 
+#ifndef _OPENMP
       template <int _bs>
       int _solve_bs( double *b, double *x, VBILUSpar *LU, const int bs_rt = 0 )
       {
@@ -127,6 +128,157 @@ namespace details
 
          return 0;
       }
+#else
+      template <int _bs>
+      int _solve_bs( double *b, double *x, VBILUSpar *LU, const int bs_rt = 0 )
+      {
+         const int min_rows = 5;
+
+         const int bs = (_bs > 0) ? _bs : bs_rt;
+         const int n = LU->n;
+
+         vbsptr L = LU->L;
+         vbsptr U = LU->U;
+         BData *D = LU->D;
+
+         #pragma omp parallel
+         {
+            double xtmp[bs];
+
+         /* Block L solve */
+         const int num_levels_L = this->L.level_ptr.size()-1;
+
+         auto forward_op = [&](const int i) {
+               int nBs = bs * i;
+               double *x_i = x + nBs;
+               for (int k = 0; k < bs; k++)
+                  x_i[k] = b[nBs+k];
+
+               int nzcount = L->nzcount[i];
+               int *ja = L->ja[i];
+               double **ba = L->ba[i];
+               for (int j = 0; j < nzcount; j++)
+               {
+                  int jcol = ja[j];
+                  double *data = ba[j];
+                  double *x_j = x + jcol * bs;
+                  gemv( bs, -1.0, data, x_j, 1.0, x_i ); 
+               }
+            };
+
+         for (int level = 0; level < num_levels_L; ++level)
+         {
+            const int nrows = this->L.level_ptr[level+1] - this->L.level_ptr[level];
+            if ( nrows == min_rows )
+            {
+               #pragma omp master
+               for (int ii = this->L.level_ptr[level]; ii < this->L.level_ptr[level+1]; ++ii)
+                  forward_op( this->L.row_sets[ ii ] );
+            }
+            else
+            {
+               #pragma omp barrier
+
+            #pragma omp for
+            for (int ii = this->L.level_ptr[level]; ii < this->L.level_ptr[level+1]; ++ii)
+            {
+               const int i = this->L.row_sets[ii];
+
+               forward_op(i);
+               /*int nBs = bs * i;
+               double *x_i = x + nBs;
+               for (int k = 0; k < bs; k++)
+                  x_i[k] = b[nBs+k];
+
+               int nzcount = L->nzcount[i];
+               int *ja = L->ja[i];
+               double **ba = L->ba[i];
+               for (int j = 0; j < nzcount; j++)
+               {
+                  int jcol = ja[j];
+                  double *data = ba[j];
+                  double *x_j = x + jcol * bs;
+                  gemv( bs, -1.0, data, x_j, 1.0, x_i ); 
+               }*/
+            }
+
+            }
+         }
+
+         /* Block -- U solve */
+         const int num_levels_U = this->U.level_ptr.size()-1;
+
+         auto backward_op = [&]( const int i ) {
+               int nzcount = U->nzcount[i];
+               double *x_i = x + i*bs;
+
+               int *ja = U->ja[i];
+               double **ba = U->ba[i];
+
+               for (int j = 0; j < nzcount; j++ )
+               {
+                  int jcol = ja[j];
+                  double *x_j = x + jcol*bs;
+                  double *data = ba[j];
+                  gemv( bs, -1.0, data, x_j, 1.0, x_i ); 
+               }
+
+               double *data = D[i];
+               gemv( bs, 1.0, data, x_i, 0.0, xtmp );
+
+               for (int k = 0; k < bs; ++k)
+                  x_i[k] = xtmp[k];
+            };
+
+         for (int level = 0; level < num_levels_U; ++level)
+         {
+            const int nrows = this->U.level_ptr[level+1] - this->U.level_ptr[level];
+            if ( nrows < min_rows )
+            {
+               #pragma omp master
+               for (int ii = this->U.level_ptr[level]; ii < this->U.level_ptr[level+1]; ++ii)
+                  backward_op( this->U.row_sets[ii] );
+            }
+            else
+            {
+
+            #pragma omp barrier
+
+            #pragma omp for
+            for (int ii = this->U.level_ptr[level]; ii < this->U.level_ptr[level+1]; ++ii)
+            {
+               const int i = this->U.row_sets[ii];
+
+               backward_op(i);
+               /*int nzcount = U->nzcount[i];
+               double *x_i = x + i*bs;
+
+               int *ja = U->ja[i];
+               double **ba = U->ba[i];
+
+               for (int j = 0; j < nzcount; j++ )
+               {
+                  int jcol = ja[j];
+                  double *x_j = x + jcol*bs;
+                  double *data = ba[j];
+                  gemv( bs, -1.0, data, x_j, 1.0, x_i ); 
+               }
+
+               double *data = D[i];
+               gemv( bs, 1.0, data, x_i, 0.0, xtmp );
+
+               for (int k = 0; k < bs; ++k)
+                  x_i[k] = xtmp[k];*/
+            }
+
+            }
+         }
+
+         } // end parallel
+
+         return 0;
+      }
+#endif
 
       int solve_constant_bs( double *b, double *x, VBILUSpar *LU )
       {
@@ -246,6 +398,7 @@ namespace details
       ILUT = 3,
       ILUC = 4,
       BILUK= 5,
+      BILUT= 6,
    }
    PreconTag;
 
@@ -258,6 +411,7 @@ namespace details
          case(ILUT ): return ILUT;
          case(ILUC ): return ILUC;
          case(BILUK): return BILUK;
+         case(BILUT): return BILUT;
          default:
          {
             fprintf(stderr,"Unknown tag %d\n", precon);
@@ -443,19 +597,34 @@ namespace details
          level++;
       }
 
-      printf("nlevels = %d\n", level_ptr.size()-1);
+      const int nlevels = level_ptr.size()-1;
 
-      for (int i = 0; i < min(20,level_ptr.size()-1); i++) {
-         int len = level_ptr[i+1]-level_ptr[i];
-         printf("level: %d count: %d\n", i, len);
+      printf("nlevels = %d\n", nlevels);
+
+      std::vector<int> level_sizes(nlevels), level_index(nlevels);
+      for (int i = 0; i < nlevels; i++) {
+         level_sizes[i] = level_ptr[i+1] - level_ptr[i];
+         level_index[i] = i;
+      }
+
+      auto sort_sizes = [&] ( const int& i, const int& j ) { return level_sizes[i] > level_sizes[j]; };
+
+      std::stable_sort( level_index.begin(), level_index.end(), sort_sizes );
+
+      //for (int i = 0; i < min(20,level_ptr.size()-1); i++) {
+      for (int i = 0; i < min(20,nlevels); i++)
+      {
+         int level = level_index[i];
+         int len = level_ptr[level+1]-level_ptr[level];
+         printf("level: %d count: %d\n", level, len);
          printf("[");
          len = min(20,len);
          for (int j = 0; j < len; ++j)
-            printf("%d%s", row_sets[level_ptr[i]+j], (j != len-1) ? ", " : "]\n");
+            printf("%d%s", row_sets[level_ptr[level]+j], (j != len-1) ? ", " : "]\n");
       }
    }
 
-   SPreptr create_arms2( csptr spmat, int lfil0, double tol0 )
+   SPreptr create_arms2( csptr spmat, int lfil0, double tol0, int max_levels = 20)
    {
       armsMat *arms_p = new armsMat;
       setup_arms( arms_p );
@@ -475,7 +644,7 @@ namespace details
       for (int i = 0; i < 18; ++i)
          ipar[i] = 0;
 
-      ipar[0] = 10; // max levels to consider (hardwired at 10 max)
+      ipar[0] = max_levels; // max levels to consider (hardwired at 10 max)
 
       //ipar[1] = 0; // level reordering
       //ipar[1] = 1; // ddPQ
@@ -503,6 +672,9 @@ namespace details
       droptol[4] = 0.004;   /* dropcoef for forming schur comple. */
       droptol[5] = 0.004;   /* dropcoef for last level L */
       droptol[6] = 0.004;   /* dropcoef for last level U */
+
+      droptol[4] = droptol[5] = droptol[6] = 1./1.6;
+      droptol[4] = droptol[5] = droptol[6] = 1.;
 
       for (int i = 0; i < 4; i++)
          printf("%s : %d\n", names[i], ipar[i]);
@@ -624,7 +796,7 @@ namespace details
 
       return P;
    }
-   SPreptr create_vbiluk( csptr spmat, int lfil )
+   SPreptr create_vbilu( csptr spmat, int lfil, double tol, const bool useLevelDropMethod = true)
    {
       int nBlocks;
       int *blockDim;
@@ -658,14 +830,41 @@ namespace details
          printf("block vals: %d %d %f\n", nnz, bnnz, (double) nnz/ bnnz);
       }
 
+      // Test if all are the same blocksize.
+      bool A_all_equal = true;
+      int max_blk_sz = 0;
+      for (int i = 0; i < vbmat->n; ++i) {
+         A_all_equal &= ( B_DIM(vbmat->bsz, 0) == B_DIM(vbmat->bsz,i) );
+         max_blk_sz = max( max_blk_sz, B_DIM(vbmat->bsz,i) );
+      }
+      printf("max_blk_sz: %d %d\n", A_all_equal, max_blk_sz);
+
       auto *lu = new VBILUSpar;
 
-      printf("starting vbiluk(%d)\n", lfil);
-      int ierr = vbilukC( lfil, vbmat, lu, stderr );
-      if (ierr != 0)
+      if ( useLevelDropMethod )
       {
-         fprintf(stderr,"VBILUK error %d\n", ierr);
-         exit(1);
+         printf("starting vbiluk(%d)\n", lfil);
+         int ierr = vbilukC( lfil, vbmat, lu, stderr );
+         if (ierr != 0)
+         {
+            fprintf(stderr,"VBILUK error %d\n", ierr);
+            exit(1);
+         }
+      }
+      else
+      {
+         std::vector<double*> wp( vbmat->n );
+         std::vector<double> w( vbmat->n * max_blk_sz * max_blk_sz );
+         for (int i = 0; i < vbmat->n; ++i)
+            wp[i] = w.data() + i * max_blk_sz * max_blk_sz;
+
+         printf("starting vbilut(%d,%.2e)\n", lfil, tol);
+         int ierr = vbilutC( vbmat, lu, lfil, tol, wp.data(), stderr );
+         if (ierr != 0)
+         {
+            fprintf(stderr,"VBILUT error %d\n", ierr);
+            exit(1);
+         }
       }
 
       auto fill = (double) nnz_vbilu(lu) / nnz_cs(spmat);
@@ -682,16 +881,11 @@ namespace details
             break;
          }
 
-      // Test if all are the same blocksize.
-      bool A_all_equal = true;
-      for (int i = 0; i < vbmat->n; ++i)
-         A_all_equal &= ( B_DIM(vbmat->bsz, 0) == B_DIM(vbmat->bsz,i) );
-
       bool LU_all_equal = true;
       for (int i = 0; i < lu->n; ++i)
          LU_all_equal &= ( B_DIM(lu->bsz, 0) == B_DIM(lu->bsz,i) );
 
-      printf("built VBILUK %x fill-factor= %f permuted=%d diag= %d equal-blocks= %d %d %d\n", P, fill, permuted, lu->DiagOpt, A_all_equal, LU_all_equal, B_DIM(lu->bsz, 0));
+      printf("built VBILUx %x fill-factor= %f permuted=%d diag= %d equal-blocks= %d %d %d\n", P, fill, permuted, lu->DiagOpt, A_all_equal, LU_all_equal, B_DIM(lu->bsz, 0));
 
       {
          auto ptr = std::make_shared< BlockLUIndependentSets >();
@@ -723,6 +917,7 @@ int itsol_create(
                const int precon, // choice of precon
                const int lfil,
                const double droptol,
+               const int max_levels,
                const int mrows, const int nnz,
                int A_rowptr[], int A_colidx[], double A_values[],
                void **v_P )
@@ -731,7 +926,7 @@ int itsol_create(
 
    PreconTag tag = getPreconTag(precon);
 
-   printf("Inside itsol_create %d %d %d %d %d %f\n", precon, tag, mrows, nnz, lfil, droptol);
+   printf("Inside itsol_create %d %d %d %d %d %f %d\n", precon, tag, mrows, nnz, lfil, droptol, max_levels);
 
    int ierr = 0;
 
@@ -747,11 +942,12 @@ int itsol_create(
    SPreptr P = NULL;
    switch(tag)
    {
-      case(ARMS2) : { P = create_arms2( spmat, lfil, droptol ); break; }
+      case(ARMS2) : { P = create_arms2( spmat, lfil, droptol, max_levels ); break; }
       case(ILUK)  : { P = create_iluk( spmat, lfil ); break; }
       case(ILUT)  : { P = create_ilut( spmat, lfil, droptol ); break; }
       case(ILUC)  : { P = create_iluc( spmat, lfil, droptol ); break; }
-      case(BILUK) : { P = create_vbiluk( spmat, lfil ); break; }
+      case(BILUK) : { P = create_vbilu( spmat, lfil, droptol ); break; }
+      case(BILUT) : { P = create_vbilu( spmat, lfil, droptol, false ); break; }
    }
 
    cleanCS( spmat );
@@ -786,7 +982,7 @@ int itsol_destroy( SPre *P )
 int itsol_solve( double *b, double *x, SPre *P )
 {
 //   printf("solve P %x %d\n", P, P->Ptype);
-   if (P->VBILU)
+/*   if (P->VBILU)
    {
       using details::blocklu_ptr_map;
       auto it = blocklu_ptr_map.find(P);
@@ -795,7 +991,7 @@ int itsol_solve( double *b, double *x, SPre *P )
             return it->second->solve_constant_bs( b, x, P->VBILU );
          else
             return it->second->solve( b, x, P->VBILU );
-   }
+   }*/
 
    return P->precon( b, x, P );
 }

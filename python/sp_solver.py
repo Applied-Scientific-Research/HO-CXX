@@ -152,8 +152,8 @@ class sp_solver:
 
         #L_levels = self.find_parallelism(self.L)
         #U_levels = self.find_parallelism(self.U)
-        self.find_parallelism2(self.L)
-        self.find_parallelism2(self.U)
+        #self.find_parallelism2(self.L)
+        #self.find_parallelism2(self.U)
 
     def find_parallelism(self, A):
 

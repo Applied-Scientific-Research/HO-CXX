@@ -11,6 +11,8 @@ import cblock_sgs
 import sp_solver
 import bilum
 import itsol
+import color
+import indset
 
 import matplotlib.pylab as plt
 
@@ -150,27 +152,29 @@ def test_bsr( A, b, bs ):
     #    for k in range(nz):
     #        print("  {}, {}".format( Ablk.indices[n0+k], Ablk.data[n0+k] ))
 
-    r = None
-    rb = None
+    if b is not None:
 
-    for i in range(2):
-        if i % 2 == 0:
-            t_start = timestamp()
-            sumr = 0
-            for i in range(100):
-                r  = A    * b
-                sumr += r[0]
-            t_stop = timestamp()
-            print("scalar: ", t_stop - t_start)
-        else:
-            t_start = timestamp()
-            for i in range(100):
-                rb = Ablk * b
-                sumr += r[0]
-            t_stop = timestamp()
-            print("block: ", t_stop - t_start)
+        r = None
+        rb = None
 
-    print("error: ", linalg.norm( r - rb ) )
+        for i in range(2):
+            if i % 2 == 0:
+                t_start = timestamp()
+                sumr = 0
+                for i in range(100):
+                    r  = A    * b
+                    sumr += r[0]
+                t_stop = timestamp()
+                print("scalar: ", t_stop - t_start)
+            else:
+                t_start = timestamp()
+                for i in range(100):
+                    rb = Ablk * b
+                    sumr += r[0]
+                t_stop = timestamp()
+                print("block: ", t_stop - t_start)
+
+        print("error: ", linalg.norm( r - rb ) )
 
     return Ablk
 
@@ -735,36 +739,32 @@ def create_preconditioner( A = None, params = Parameters(), opts = {} ):
         else:
             A_csc = sp.csc_matrix(A)
 
-        drop_tol = None
-        fill_factor = None
+        drop_tol = 1e-4
+        fill_factor = 10
+        other_options = {}
 
-        if precon == 'ilu0':
-           fill_factor = 1
-        elif 'ilut' in precon:
-           #drop_tol = 1e-3
-           #fill_factor = 4.5
+        # Look for ilut(#.#,#.#)
+        first = precon.find('[')
+        last = precon.find(']')
+        if first != -1 and last != -1:
+            tmp = precon[first+1:last]
+            _opts = tmp.split(',')
+            for o in _opts:
+                # split about the '='
+                kv = o.split('=')
+                if len(kv) != 2:
+                    print("key/value pair not value {}".format(kv))
+                else:
+                    key = kv[0]
+                    val = kv[1]
 
-           # Look for ilut(#.#,#.#)
-           first = precon.find('[')
-           last = precon.find(']')
-           if first != -1 and last != -1:
-               tmp = precon[first+1:last]
-               _opts = tmp.split(',')
-               for o in _opts:
-                   # split about the '='
-                   kv = o.split('=')
-                   if len(kv) != 2:
-                       print("key/value pair not value {}".format(kv))
-                   else:
-                       key = kv[0]
-                       val = kv[1]
-
-                       if key == 'drop':
-                           drop_tol = float(val)
-                       elif key == 'fill':
-                           fill_factor = float(val)
-                       else:
-                           print("Unknown ilut option: ", key, val)
+                    if key == 'drop':
+                        drop_tol = float(val)
+                    elif key == 'fill':
+                        fill_factor = float(val)
+                    else:
+                        #other_options[key] = val
+                        print("Unknown ilut option: ", key, val)
 
         print("Building ILU ({}) with drop={} and fill={}".format(precon, drop_tol, fill_factor))
 
@@ -920,6 +920,9 @@ def create_preconditioner( A = None, params = Parameters(), opts = {} ):
             #print("M_U.indptr:\n", M_U.indptr[:100])
             #print("M_U.indices:\n", M_U.indices[:100])
 
+            indset.find_matrix_trisolve_parallelism(M_L)
+            indset.find_matrix_trisolve_parallelism(M_U)
+
             #if True:
             #   bs = 4
             #   print(bs)
@@ -1023,8 +1026,8 @@ def create_preconditioner( A = None, params = Parameters(), opts = {} ):
         if package is not None and package == 'pyamgcl':
             use_pyamg = False
 
-        amg_type = 'ruge_stuben'
-        #amg_type = 'smoothed_aggregation'
+        #amg_type = 'ruge_stuben'
+        amg_type = 'smoothed_aggregation'
 
         print("Matrix format: ", type(A))
 
@@ -1038,11 +1041,16 @@ def create_preconditioner( A = None, params = Parameters(), opts = {} ):
             precon_opts['max_coarse'] = 500
             #precon_opts['max_coarse'] = 50
             precon_opts['coarse_solver'] = 'lu'
-            omega=0.533333333
-            precon_opts['presmoother' ] = ('jacobi', {'omega':omega,'iterations':1})
-            precon_opts['postsmoother'] = ('jacobi', {'omega':omega,'iterations':2})
+            #omega=0.533333333
+            #precon_opts['presmoother' ] = ('jacobi', {'omega':omega,'iterations':1})
+            #precon_opts['postsmoother'] = ('jacobi', {'omega':omega,'iterations':2})
             #precon_opts['presmoother' ] = ('jacobi', {'iterations':1})
             #precon_opts['postsmoother'] = ('jacobi', {'iterations':2})
+            #precon_opts['presmoother' ] = ('gauss_seidel', {'iterations':1, 'sweep':'symmetric'})
+            #precon_opts['postsmoother'] = ('gauss_seidel', {'iterations':1, 'sweep':'symmetric'})
+            #precon_opts['presmoother' ] = [('block_gauss_seidel', {'blocksize':9, 'iterations':1, 'sweep':'symmetric'}),
+            #                               ('gauss_seidel',                      {'iterations':1, 'sweep':'symmetric'})]
+            #precon_opts['postsmoother'] = precon_opts['presmoother']
 
             if amg_type == 'ruge_stuben':
                 precon_opts['strength'] = ('classical', {'theta':0.5} )
@@ -1052,7 +1060,7 @@ def create_preconditioner( A = None, params = Parameters(), opts = {} ):
                 #precon_opts['strength'] = None
                 #precon_opts['strength'] = 'classical'
                 #precon_opts['strength'] = 'affinity'
-                #precon_opts['strength'] = ('algebraic_distance')
+                precon_opts['strength'] = ('algebraic_distance')
                 #precon_opts['strength'] = ('evolution')
                 #precon_opts['smooth'] = ('energy')
                 pass
@@ -1073,6 +1081,27 @@ def create_preconditioner( A = None, params = Parameters(), opts = {} ):
             M = ml.aspreconditioner(cycle='V')
             #M = ml.aspreconditioner(cycle='W')
             #M = ml.aspreconditioner(cycle='F')
+            #M = ml.aspreconditioner(cycle='AMLI')
+
+            for lvl,level in enumerate(ml.levels):
+               print(lvl)
+               print(type(level.A))
+               bs = 9
+               #if lvl == 0 and level.A.shape[0] % bs == 0:
+               #    _Ab = test_bsr(A=level.A,b=None,bs=bs)
+               #    level.A = _Ab
+               print(type(level.A))
+               print(level.A.shape, level.A.nnz)
+               if isinstance(level.A, sp.bsr_matrix):
+                  print(level.A.blocksize)
+               #color.coloring_order( level.A )
+               if lvl == len(ml.levels)-1:
+                  print(ml.coarse_solver)
+               else:
+                  print(level.R.shape, level.R.nnz)
+                  print(level.P.shape, level.P.nnz)
+                  print(level.presmoother)
+                  print(level.postsmoother)
 
             time_end = timestamp()
 
@@ -1308,10 +1337,15 @@ def main( argv ):
         #plt.show()
     
     bs = 9
-    #Ab = test_bsr( A, b, bs )
+    Ab = test_bsr( A, b, bs )
     #A = Ab
     #BlkM = block_diagonal_precond( A, bs )
     #sys.exit(0)
+
+    #color.coloring_order( A )
+    #if A is not Ab:
+    #   color.coloring_order( Ab )
+    #return
     
     #if True:
     #    _D = block_diagonal_precond (A, bs)

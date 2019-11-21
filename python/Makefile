@@ -27,11 +27,20 @@ all: libsp_solver_impl.so \
 libsp_solver_impl.so: sp_solver_impl.o
 	$(CXX) $(CXXFLAGS) $(SHLIB) -o $@ $^ $(LDFLAGS)
 
+.PHONY: sp_solver
+sp_solver: libsp_solver_impl.so
+
 libitsol_impl.so: itsol_impl.cpp
-	$(CXX) $(CXXFLAGS) $(SHLIB) -fopenmp -o $@ $^ $(LDFLAGS) -I $(ITSOL_DIR)/INC $(ITSOL_LIBS)
+	$(CXX) $(CXXFLAGS) $(SHLIB) -o $@ $^ $(LDFLAGS) -I $(ITSOL_DIR)/INC $(ITSOL_LIBS)
 
 .PHONY: itsol
 itsol: libitsol_impl.so
+
+libindset_impl.so: indset_impl.cpp
+	$(CXX) $(CXXFLAGS) $(SHLIB) -o $@ $^ $(LDFLAGS)
+
+.PHONY: indset
+indset: libindset_impl.so
 
 mkl libmkl_sparse_impl.so: mkl_sparse_impl.cpp
 	$(CXX) $(CXXFLAGS) $(SHLIB) $(MKL_INCS) -o $@ $^ $(LDFLAGS) $(MKL_LIBS)

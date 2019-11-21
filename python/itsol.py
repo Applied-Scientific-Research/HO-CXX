@@ -42,6 +42,7 @@ class PreconTags(enum.IntEnum):
    ILUT  = 3
    ILUC  = 4
    BILUK = 5
+   BILUT = 6
    DEFAULT = ILUK
 
 class itsol:
@@ -69,6 +70,8 @@ class itsol:
         precon_tag = PreconTags.DEFAULT
         if 'biluk' in precon:
            precon_tag = PreconTags.BILUK
+        elif 'bilut' in precon:
+           precon_tag = PreconTags.BILUT
         elif 'iluk' in precon:
            precon_tag = PreconTags.ILUK
         elif 'ilut' in precon:
@@ -80,6 +83,7 @@ class itsol:
 
         fill = 50
         droptol = 0.0001
+        max_levels = 10
 
         if precon_tag == PreconTags.BILUK or precon_tag == PreconTags.ILUK:
            fill = 5
@@ -98,6 +102,8 @@ class itsol:
                        fill = int(val)
                     elif key == 'drop':
                        droptol = float(val)
+                    elif 'levels' in key:
+                       max_levels = int(val)
                  elif precon_tag == PreconTags.BILUK or precon_tag == PreconTags.ILUK:
                     fill = int(opt0[0])
 
@@ -105,7 +111,7 @@ class itsol:
 
            print("iluk({})".format(fill))
 
-        elif precon_tag == PreconTags.ILUT: # ILUT[drop,fill]
+        elif precon_tag == PreconTags.ILUT or precon_tag == PreconTags.BILUT: # ILUT[drop,fill]
 
            print("ilut({},{})".format(droptol,fill))
 
@@ -114,9 +120,9 @@ class itsol:
            print("iluc({},{})".format(droptol,fill))
 
         elif precon_tag == PreconTags.ARMS2:
-           print("arms({},{})".format(droptol,fill))
+           print("arms(drop={},fill={},levels={})".format(droptol,fill,max_levels))
 
-        build_func.argtypes = [ ct.c_int, ct.c_int, ct.c_double, # precon choice, fill, droptol
+        build_func.argtypes = [ ct.c_int, ct.c_int, ct.c_double, ct.c_int, # precon choice, fill, droptol
                                 ct.c_int, ct.c_int, # rows, nnz
                                 ct.POINTER(ct.c_int), # A_rowptr(rows+1)
                                 ct.POINTER(ct.c_int), # A_colidx(nnz)
@@ -147,7 +153,7 @@ class itsol:
 
         P = ct.c_void_p()
 
-        build_func( precon_tag, fill, droptol,
+        build_func( precon_tag, fill, droptol, max_levels,
                     mrows, nnz,
                     np_pointer(A_rowptr), np_pointer(A_colidx), np_pointer(A_values),
                     ct.byref(P) )
