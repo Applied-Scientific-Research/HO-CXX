@@ -13,8 +13,12 @@ import bilum
 import itsol
 import color
 import indset
+import my_vcycle
 
-import matplotlib.pylab as plt
+try:
+    import matplotlib.pylab as plt
+except ImportError:
+    print("matplotlib isn't available")
 
 has_pyamg = False
 try:
@@ -888,7 +892,7 @@ def create_preconditioner( A = None, params = Parameters(), opts = {} ):
 
         M_ilu = None
 
-        use_superlu = False
+        use_superlu = True
 
         mixed_precision = False
         if mixed_precision:
@@ -920,8 +924,8 @@ def create_preconditioner( A = None, params = Parameters(), opts = {} ):
             #print("M_U.indptr:\n", M_U.indptr[:100])
             #print("M_U.indices:\n", M_U.indices[:100])
 
-            indset.find_matrix_trisolve_parallelism(M_L)
-            indset.find_matrix_trisolve_parallelism(M_U)
+            #indset.find_matrix_trisolve_parallelism(M_L)
+            #indset.find_matrix_trisolve_parallelism(M_U)
 
             #if True:
             #   bs = 4
@@ -1044,8 +1048,8 @@ def create_preconditioner( A = None, params = Parameters(), opts = {} ):
             #omega=0.533333333
             #precon_opts['presmoother' ] = ('jacobi', {'omega':omega,'iterations':1})
             #precon_opts['postsmoother'] = ('jacobi', {'omega':omega,'iterations':2})
-            #precon_opts['presmoother' ] = ('jacobi', {'iterations':1})
-            #precon_opts['postsmoother'] = ('jacobi', {'iterations':2})
+            precon_opts['presmoother' ] = ('jacobi', {'iterations':1})
+            precon_opts['postsmoother'] = ('jacobi', {'iterations':3})
             #precon_opts['presmoother' ] = ('gauss_seidel', {'iterations':1, 'sweep':'symmetric'})
             #precon_opts['postsmoother'] = ('gauss_seidel', {'iterations':1, 'sweep':'symmetric'})
             #precon_opts['presmoother' ] = [('block_gauss_seidel', {'blocksize':9, 'iterations':1, 'sweep':'symmetric'}),
@@ -1083,25 +1087,34 @@ def create_preconditioner( A = None, params = Parameters(), opts = {} ):
             #M = ml.aspreconditioner(cycle='F')
             #M = ml.aspreconditioner(cycle='AMLI')
 
-            for lvl,level in enumerate(ml.levels):
-               print(lvl)
-               print(type(level.A))
-               bs = 9
-               #if lvl == 0 and level.A.shape[0] % bs == 0:
-               #    _Ab = test_bsr(A=level.A,b=None,bs=bs)
-               #    level.A = _Ab
-               print(type(level.A))
-               print(level.A.shape, level.A.nnz)
-               if isinstance(level.A, sp.bsr_matrix):
-                  print(level.A.blocksize)
-               #color.coloring_order( level.A )
-               if lvl == len(ml.levels)-1:
-                  print(ml.coarse_solver)
-               else:
-                  print(level.R.shape, level.R.nnz)
-                  print(level.P.shape, level.P.nnz)
-                  print(level.presmoother)
-                  print(level.postsmoother)
+            #ml_new = my_vcycle.amg_vcycle_solver(ml.levels)
+            #print(ml_new)
+            #M = ml_new.aspreconditioner()
+
+            if True:
+                ml_gpu = my_vcycle.amg_vcycle_solver_gpu(ml.levels)
+                print(ml_gpu)
+                M = ml_gpu.aspreconditioner()
+
+            #for lvl,level in enumerate(ml.levels):
+            #   print(lvl)
+            #   print(type(level.A))
+            #   bs = 9
+            #   #if lvl == 0 and level.A.shape[0] % bs == 0:
+            #   #    _Ab = test_bsr(A=level.A,b=None,bs=bs)
+            #   #    level.A = _Ab
+            #   print(type(level.A))
+            #   print(level.A.shape, level.A.nnz)
+            #   if isinstance(level.A, sp.bsr_matrix):
+            #      print(level.A.blocksize)
+            #   #color.coloring_order( level.A )
+            #   if lvl == len(ml.levels)-1:
+            #      print(ml.coarse_solver)
+            #   else:
+            #      print(level.R.shape, level.R.nnz)
+            #      print(level.P.shape, level.P.nnz)
+            #      print(level.presmoother)
+            #      print(level.postsmoother)
 
             time_end = timestamp()
 
@@ -1325,16 +1338,17 @@ def main( argv ):
         print(perm[:10])
         #sys.exit(1)
 
-        #plt.spy(A, markersize=1)
-        #plt.show()
+        #if 'matplotlib.pylab' in sys.modules:
+        #    plt.spy(A, markersize=1)
+        #    plt.show()
 
-        #A_coo = A.tocoo()
-        #p_rows = perm[A_coo.row]
-        #p_cols = perm[A_coo.col]
-        #p_A_coo = sp.coo_matrix( (A_coo.data, (p_rows, p_cols)), shape=A_coo.shape)
+        #    A_coo = A.tocoo()
+        #    p_rows = perm[A_coo.row]
+        #    p_cols = perm[A_coo.col]
+        #    p_A_coo = sp.coo_matrix( (A_coo.data, (p_rows, p_cols)), shape=A_coo.shape)
 
-        #plt.spy(p_A_coo, markersize=1)
-        #plt.show()
+        #    plt.spy(p_A_coo, markersize=1)
+        #    plt.show()
     
     bs = 9
     Ab = test_bsr( A, b, bs )

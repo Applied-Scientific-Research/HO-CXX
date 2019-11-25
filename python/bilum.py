@@ -33,8 +33,8 @@ def load_lib( lib_name ):
 
     return lib
 
-#shlib = load_lib( "BILUM/libilum.so" )
-shlib = load_lib( "BILUM/libilum_mp.so" )
+shlib = load_lib( "BILUM/libilum.so" )
+#shlib = load_lib( "BILUM/libilum_mp.so" )
 
 class bilum:
 
