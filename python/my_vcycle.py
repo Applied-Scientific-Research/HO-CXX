@@ -151,72 +151,115 @@ class amg_vcycle_solver:
         #return sp.linalg.lu_solve(self.coarse_PLU, b)
         return self.coarse_Ainv.dot( b )
 
-class gpu_level:
-    def __init__(self, A, D_inv, R = None, P = None):
+def get_exec_space(arg):
+    if 'cupy' in sys.modules:
+        return cupy.get_array_module(A)
+    else:
+        return np
+    
+class ml_level:
+    def __init__(self, A, D_inv, R = None, P = None, n_pre = 1, n_post = 1, omega = 1.0, on_device = False):
         self.A = A
         self.D_inv = D_inv
         self.R = R
         self.P = P
-        self.n_pre = 1
-        self.n_post = 3
-        self.omega = 1.
+        self.n_pre = n_pre
+        self.n_post = n_post
+        self.omega = omega
+        self.on_device = on_device
+
+        self.exec_space = get_exec_space(A)
+        #self.exec_space = np
+        #if 'cupyx.scipy.sparse' in sys.modules:
+        #    self.exec_space = cupy.get_array_module(A)
+
+        #print("exec_space: ", self.exec_space)
+
+class coarse_solver:
+    def __init__(self, A_inv, on_device = False):
+        self.A_inv = A_inv
+
+        if on_device:
+            self.A_inv = cupy.asarray(A_inv)
+
+            _b = cupy.ones( A_inv.shape[0], dtype=A_inv.dtype )
+            _x = cupy.matmul( self.A_inv, _b )
+
+        #self.exec_space = cupy.get_array_module(self.A_inv)
+        self.exec_space = get_exec_space(self.A_inv)
+
+        #print(self.A_inv.shape)
+
+    def __call__(self, b, x = None):
+        if x is None:
+            x = self.exec_space.empty_like(b)
+        #print(self.A_inv.shape, x.shape, b.shape)
+        x[:] = self.exec_space.matmul( self.A_inv, b )
+        return x
 
 class amg_vcycle_solver_gpu:
 
-    def __init__(self, levels):
+    def __init__(self, pyamg_levels):
 
-        self.levels = levels
-
-        self.omega = []
+        self.levels = []
 
         from pyamg.util.utils import scale_rows, get_block_diag, get_diagonal
         from pyamg.util.linalg import approximate_spectral_radius
 
-        if True:
-            for lvl,level in enumerate(levels[:-1]):
+        for lvl,level in enumerate(pyamg_levels):
+            print('host: ', lvl)
+            A = level.A
+            D_inv = get_diagonal(level.A, inv=True)
+            R = None
+            P = None
+            if hasattr(level, 'R'):
+                R = level.R
+            if hasattr(level, 'P'):
+                P = level.P
+
+            omega = 1.
+
+            if lvl < len(pyamg_levels)-1:
                 rho_D_inv = None
                 if hasattr(level.A, 'rho_D_inv'):
                     rho_D_inv = level.A.rho_D_inv
-                    print(lvl,'reused')
+                    #print(lvl,'reused')
                 else:
-                    D_inv = get_diagonal(level.A, inv=True)
                     D_inv_A = scale_rows(level.A, D_inv, copy=True)
                     rho_D_inv = approximate_spectral_radius(D_inv_A)
 
                 # limit rho to [4/3,2)
                 omega = 1.0 / rho_D_inv
                 omega = 1.0 / max(4./3., min(2., rho_D_inv))
-                self.omega.append( omega )
+                omega = (4./3.)/2.5
+
                 print(lvl, omega, rho_D_inv)
 
-        self.coarse_PLU  = sp.linalg.lu_factor( self.levels[-1].A.todense() )
-        self.coarse_Ainv = sp.linalg.inv( self.levels[-1].A.todense() )
+            new_level = ml_level( A, D_inv, R=R, P=P, omega=omega, on_device=False )
+            self.levels.append( new_level )
+
+        self.coarse_solver = coarse_solver( sp.linalg.inv( self.levels[-1].A.todense() ), on_device=False )
 
         self.gpu_levels = None
-        self.gpu_coarse_Ainv = None
+        self.gpu_coarse_solver = None
 
         if 'cupyx.scipy.sparse' in sys.modules:
             self.gpu_levels = []
-            for lvl,level in enumerate(levels):
+            for lvl,level in enumerate(self.levels):
                 R = None
                 P = None
-                assert hasattr(level,'A')
-                A = cupy_sp.csr_matrix(level.A)
-                D_inv_host = get_diagonal(level.A, inv=True)
-                D_inv = cupy.asarray( D_inv_host)
-                if hasattr(level,'R'):
+                A = cupy_sp.csr_matrix( level.A )
+                D_inv = cupy.asarray( level.D_inv)
+                if level.R is not None:
                     R = cupy_sp.csr_matrix(level.R)
-                if hasattr(level,'P'):
+                if level.P is not None:
                     P = cupy_sp.csr_matrix(level.P)
 
-                self.gpu_levels.append( gpu_level( A, D_inv, R, P ) )
-                print("gpu level: ", lvl)
+                self.gpu_levels.append( ml_level( A, D_inv, R=R, P=P, n_pre=level.n_pre, n_post=level.n_post, omega=level.omega, on_device = True) )
+                #print("gpu level: ", lvl)
 
-            self.gpu_coarse_Ainv = cupy.asarray( self.coarse_Ainv )
-            print("gpu coarse: ", lvl)
-
-            _b = cupy.ones( self.coarse_Ainv.shape[0] )
-            _x = cupy.matmul( self.gpu_coarse_Ainv, _b )
+            self.gpu_coarse_solver = coarse_solver( self.coarse_solver.A_inv, on_device=True )
+            #print("gpu coarse: ")
 
     def __repr__(self):
         """Print basic statistics about the multigrid hierarchy."""
@@ -233,6 +276,9 @@ class amg_vcycle_solver_gpu:
             output += '   %2d   %10d   %10d [%5.2f%%]\n' %\
                 (n, A.shape[1], A.nnz,
                  (100 * float(A.nnz) / float(total_nnz)))
+
+        if self.gpu_levels is not None:
+            output += "\nEnabled GPU offloading\n"
 
         return output
 
@@ -291,56 +337,81 @@ class amg_vcycle_solver_gpu:
 
     def vcycle(self, b, ncycles=1):
 
-        #print('gpu vcycle')
+        x = None
 
-        A = self.gpu_levels[0].A
+        if self.gpu_levels is not None:
+            #print('gpu vcycle')
 
-        assert A.dtype == b.dtype
+            A = self.gpu_levels[0].A
 
-        b_dev = cupy.asarray(b)
-        x_dev = cupy.zeros_like(b_dev)
+            assert A.dtype == b.dtype
 
-        for iter in range(ncycles):
-            if len(self.gpu_levels) == 1:
-                # hierarchy has only 1 level
-                x_dev[:] = cupy.matmul( self.gpu_coarse_Ainv, b_dev )
-            else:
-                self.__vcycle(0, x_dev, b_dev)
+            b_dev = cupy.asarray(b)
+            x_dev = cupy.zeros_like(b_dev)
 
-        x = cupy.asnumpy(x_dev)
+            for iter in range(ncycles):
+                if len(self.gpu_levels) == 1:
+                    # hierarchy has only 1 level
+                    self.gpu_coarse_solver( b_dev, x_dev )
+                else:
+                    self.__vcycle(self.gpu_levels, 0, x_dev, b_dev)
+
+            x = cupy.asnumpy(x_dev)
+
+        else:
+
+            #print('cpu vcycle')
+
+            A = self.levels[0].A
+
+            assert A.dtype == b.dtype
+
+            b = np.asarray(b)
+            x = np.zeros_like(b)
+
+            for iter in range(ncycles):
+                if len(self.levels) == 1:
+                    # hierarchy has only 1 level
+                    self.coarse_solver( b, x )
+                else:
+                    self.__vcycle(self.levels, 0, x, b)
 
         return x
 
     def residual(self, A, x, b):
         return b - A.dot( x )
 
-    def jacobi(self, lvl, x, b, zero_guess = False):
+    def jacobi(self, level, x, b, zero_guess = False):
         if zero_guess: # Ax = 0
-            x = self.omega[lvl] * self.gpu_levels[lvl].D_inv * b
+            x = level.omega * level.D_inv * b
         else:
-            x += self.omega[lvl] * self.gpu_levels[lvl].D_inv * self.residual( self.gpu_levels[lvl].A, x, b )
+            x += level.omega * level.D_inv * self.residual( level.A, x, b )
 
-    def __vcycle(self, lvl, x, b):
+    def __vcycle(self, levels, lvl, x, b):
 
-        #print('starting: ', lvl)
-        A = self.gpu_levels[lvl].A
+        level = levels[lvl]
+        #print('starting: ', lvl, len(levels), level.R is None, level.P is None)
+        A = level.A
 
         # presmoother (1 iteration)
-        for i in range(self.gpu_levels[lvl].n_pre):
-            self.jacobi( lvl, x, b, (i==0) )
+        for i in range(level.n_pre):
+            self.jacobi( level, x, b, (i==0) )
 
-        coarse_b = self.gpu_levels[lvl].R * self.residual( A, x, b )
-        coarse_x = cupy.zeros_like(coarse_b)
+        coarse_b = level.R * self.residual( A, x, b )
+        coarse_x = level.exec_space.zeros_like(coarse_b)
 
-        if lvl == len(self.gpu_levels) - 2:
-            coarse_x[:] = cupy.matmul( self.gpu_coarse_Ainv, coarse_b )
+        if lvl == len(levels) - 2:
+            if levels[-1].on_device:
+                self.gpu_coarse_solver( coarse_b, coarse_x )
+            else:
+                self.coarse_solver( coarse_b, coarse_x )
         else:
-            self.__vcycle(lvl + 1, coarse_x, coarse_b)
+            self.__vcycle(levels, lvl + 1, coarse_x, coarse_b)
 
-        x += self.gpu_levels[lvl].P * coarse_x   # coarse grid correction
+        x += level.P * coarse_x   # coarse grid correction
 
         # postsmoother
-        for i in range(self.gpu_levels[lvl].n_post):
-            self.jacobi( lvl, x, b )
+        for i in range(level.n_post):
+            self.jacobi( level, x, b )
 
         #print('finished: ', lvl)
