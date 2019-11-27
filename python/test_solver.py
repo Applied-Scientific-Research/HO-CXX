@@ -578,17 +578,17 @@ class Monitor:
 
         #print(self)
 
-    def op(self, xk_or_rk):
+    def op(self, xk_or_rk, normr = None):
 
-        #if self.keep_residuals or (self.frequency > 0 and self.niters % self.frequency == 0):
-        normr = None
-        if self.takes_residual:
-            normr = linalg.norm( xk_or_rk )
-        else:
-            if self.b is None:
-                print("Must specify b in Monitor")
-                sys.exit(-1)
-            normr = linalg.norm( self.b - self.A * xk_or_rk )
+        if normr is None:
+            #if self.keep_residuals or (self.frequency > 0 and self.niters % self.frequency == 0):
+            if self.takes_residual:
+                normr = linalg.norm( xk_or_rk )
+            else:
+                if self.b is None:
+                    print("Must specify b in Monitor")
+                    sys.exit(-1)
+                normr = linalg.norm( self.b - self.A * xk_or_rk )
 
         #if self.keep_residuals:
         #    self.residuals.append( normr )
@@ -636,8 +636,8 @@ class Monitor:
         else:
             return 0.0
 
-    def __call__(self, xk_or_rk):
-        self.op( xk_or_rk )
+    def __call__(self, xk_or_rk, normr = None):
+        self.op( xk_or_rk, normr )
 
     def __str__(self):
         s  = "Monitor:\n"
@@ -1095,6 +1095,7 @@ def create_preconditioner( A = None, params = Parameters(), opts = {} ):
                 ml_gpu = my_vcycle.amg_vcycle_solver_gpu(ml.levels)
                 print(ml_gpu)
                 M = ml_gpu.aspreconditioner()
+                M = ml_gpu
 
             #for lvl,level in enumerate(ml.levels):
             #   print(lvl)
@@ -1247,6 +1248,8 @@ class Solver:
                 self.func = pyamg.krylov.bicgstab
             elif package == 'scipy':
                 self.func = sp.linalg.bicgstab
+
+            self.func = my_vcycle.bicgstab
 
             self.opts = {}
             self.opts['tol']     = params.tolerance

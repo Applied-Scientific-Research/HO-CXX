@@ -151,7 +151,7 @@ class amg_vcycle_solver:
         #return sp.linalg.lu_solve(self.coarse_PLU, b)
         return self.coarse_Ainv.dot( b )
 
-def get_exec_space(arg):
+def get_exec_space(A):
     if 'cupy' in sys.modules:
         return cupy.get_array_module(A)
     else:
@@ -231,7 +231,7 @@ class amg_vcycle_solver_gpu:
                 # limit rho to [4/3,2)
                 omega = 1.0 / rho_D_inv
                 omega = 1.0 / max(4./3., min(2., rho_D_inv))
-                omega = (4./3.)/2.5
+                #omega = (4./3.)/2.5
 
                 print(lvl, omega, rho_D_inv)
 
@@ -320,9 +320,9 @@ class amg_vcycle_solver_gpu:
         return sum([level.A.shape[0] for level in self.levels]) /\
             float(self.levels[0].A.shape[0])
 
-    #def psolve(self, b):
-    #    """Lagacy solve interface."""
-    #    return self.solve(b, maxiter=1)
+    def psolve(self, b):
+        """Lagacy solve interface."""
+        return self.solve(b, ncycles=1)
 
     def aspreconditioner(self):
         from scipy.sparse.linalg import LinearOperator
@@ -331,11 +331,11 @@ class amg_vcycle_solver_gpu:
         dtype = self.levels[0].A.dtype
 
         def matvec(b):
-            return self.vcycle(b, ncycles=1)
+            return self.solve(b, ncycles=1)
 
         return LinearOperator(shape, matvec, dtype=dtype)
 
-    def vcycle(self, b, ncycles=1):
+    def solve(self, b, ncycles=1):
 
         x = None
 
@@ -344,19 +344,35 @@ class amg_vcycle_solver_gpu:
 
             A = self.gpu_levels[0].A
 
+            exec_space = get_exec_space(A)
+            #print(exec_space)
+            #print(get_exec_space(b))
+
             assert A.dtype == b.dtype
 
-            b_dev = cupy.asarray(b)
-            x_dev = cupy.zeros_like(b_dev)
+            b_dev = None
+            if exec_space == get_exec_space(b):
+                #print('b is on device')
+                b_dev = b
+            else:
+                b_dev = cupy.asarray(b)
+            x_dev = exec_space.zeros_like(b_dev)
+            #b_dev = cupy.asarray(b)
+            #x_dev = cupy.zeros_like(b_dev)
 
             for iter in range(ncycles):
                 if len(self.gpu_levels) == 1:
                     # hierarchy has only 1 level
                     self.gpu_coarse_solver( b_dev, x_dev )
                 else:
-                    self.__vcycle(self.gpu_levels, 0, x_dev, b_dev)
+                    self.__solve(self.gpu_levels, 0, x_dev, b_dev)
 
-            x = cupy.asnumpy(x_dev)
+            if exec_space == get_exec_space(b):
+                #print('leaving x on device')
+                x = x_dev
+            else:
+                x = cupy.asnumpy(x_dev)
+            #x = cupy.asnumpy(x_dev)
 
         else:
 
@@ -374,7 +390,7 @@ class amg_vcycle_solver_gpu:
                     # hierarchy has only 1 level
                     self.coarse_solver( b, x )
                 else:
-                    self.__vcycle(self.levels, 0, x, b)
+                    self.__solve(self.levels, 0, x, b)
 
         return x
 
@@ -387,7 +403,7 @@ class amg_vcycle_solver_gpu:
         else:
             x += level.omega * level.D_inv * self.residual( level.A, x, b )
 
-    def __vcycle(self, levels, lvl, x, b):
+    def __solve(self, levels, lvl, x, b):
 
         level = levels[lvl]
         #print('starting: ', lvl, len(levels), level.R is None, level.P is None)
@@ -406,7 +422,7 @@ class amg_vcycle_solver_gpu:
             else:
                 self.coarse_solver( coarse_b, coarse_x )
         else:
-            self.__vcycle(levels, lvl + 1, coarse_x, coarse_b)
+            self.__solve(levels, lvl + 1, coarse_x, coarse_b)
 
         x += level.P * coarse_x   # coarse grid correction
 
@@ -415,3 +431,234 @@ class amg_vcycle_solver_gpu:
             self.jacobi( level, x, b )
 
         #print('finished: ', lvl)
+
+def my_bicgstab(A, b, M=None, x0=None, tol=1e-5, maxiter=None, callback=None, residuals=None):
+    """Biconjugate Gradient Algorithm with Stabilization.
+
+    Solves the linear system Ax = b. Left preconditioning is supported.
+
+    Parameters
+    ----------
+    A : array, matrix, sparse matrix, LinearOperator
+        n x n, linear system to solve
+    b : array, matrix
+        right hand side, shape is (n,) or (n,1)
+    M : array, matrix, sparse matrix, LinearOperator
+        n x n, inverted preconditioner, i.e. solve M A A.H x = M b.
+    x0 : array, matrix
+        initial guess, default is a vector of zeros
+    tol : float
+        relative convergence tolerance, i.e. tol is scaled by ||r_0||_2
+    maxiter : int
+        maximum number of allowed iterations
+    callback : function
+        User-supplied function is called after each iteration as
+        callback(xk), where xk is the current solution vector
+    residuals : list
+        residuals has the residual norm history,
+        including the initial residual, appended to it
+
+    Returns
+    -------
+    (xNew, info)
+    xNew : an updated guess to the solution of Ax = b
+    info : halting status of bicgstab
+
+            ==  ======================================
+            0   successful exit
+            >0  convergence to tolerance not achieved,
+                return iteration count instead.
+            <0  numerical breakdown, or illegal input
+            ==  ======================================
+
+    Notes
+    -----
+    The LinearOperator class is in scipy.sparse.linalg.interface.
+    Use this class if you prefer to define A or M as a mat-vec routine
+    as opposed to explicitly constructing the matrix.  A.psolve(..) is
+    still supported as a legacy.
+
+    Examples
+    --------
+    >>> from pyamg.krylov.bicgstab import bicgstab
+    >>> from pyamg.util.linalg import norm
+    >>> import numpy as np
+    >>> from pyamg.gallery import poisson
+    >>> A = poisson((10,10))
+    >>> b = np.ones((A.shape[0],))
+    >>> (x,flag) = bicgstab(A,b, maxiter=2, tol=1e-8)
+    >>> print norm(b - A*x)
+    4.68163045309
+
+    References
+    ----------
+    .. [1] Yousef Saad, "Iterative Methods for Sparse Linear Systems,
+       Second Edition", SIAM, pp. 231-234, 2003
+       http://www-users.cs.umn.edu/~saad/books.html
+
+    """
+    exec_space = get_exec_space(A)
+
+    if b.dtype != A.dtype:
+        raise TypeError('b and A types do not match: ' + b.dtype.char + ' ' + A.dtype.char)
+
+    dtype = b.dtype
+
+    n = A.shape[0]
+
+    #print("bicgstab: ", n, dtype, exec_space, tol, M)
+
+    x = None
+    if x0 is None:
+        x = exec_space.zeros( (n), dtype=dtype )
+    else:
+        x = exec_space.asarray( x0, dtype=dtype )
+
+    if M is None:
+        #print('Creating dummy idenity precon')
+        from scipy.sparse.linalg import LinearOperator
+
+        def matvec(b):
+            return b
+
+        M = LinearOperator( A.shape, matvec, dtype=dtype )
+
+    # Check iteration numbers
+    if maxiter is None:
+        maxiter = n + 5
+    elif maxiter < 1:
+        raise ValueError('Number of iterations must be positive')
+
+    def norm(v):
+        return exec_space.linalg.norm(v)
+
+    def dot(x,y):
+        return exec_space.dot(x,y)
+
+    def axpby(alpha, x, beta, y, z = None):
+        # DAXPY-like function with optional output array.
+        # z = alpha*x + beta*y ... or ...
+        # y = alpha*x + beta*y
+        if z is None:
+            z = y
+
+        z = alpha * x + beta * y
+
+        return z
+
+    # Prep for method
+    r = None
+    if x0 is None:
+        r = b.copy()
+    else:
+        r = b - A*x
+    normr = norm(r)
+
+    if residuals is not None:
+        residuals[:] = [normr]
+
+    # Check initial guess ( scaling by b, if b != 0,
+    #   must account for case when norm(b) is very small)
+    normb = norm(b)
+    #print(normr, normb)
+    if normb == 0.0:
+        normb = 1.0
+    if normr < tol*normb:
+        return (x, 0)
+
+    # Scale tol by ||r_0||_2
+    if normr != 0.0:
+        tol = tol*normr
+
+    rstar = r.copy()
+    p = r.copy()
+
+    rrstarOld = dot(rstar, r)
+
+    niters = 0
+
+    # Begin BiCGStab
+    #while niters < maxiter and normr > tol:
+    while True:
+        #Mp = M*p
+        Mp = M.psolve(p)
+        AMp = A*Mp
+
+        # alpha = (r_j, rstar) / (A*M*p_j, rstar)
+        alpha = rrstarOld / dot(rstar, AMp)
+
+        # s_j = r_j - alpha*A*M*p_j
+        s = r - alpha*AMp
+        #Ms = M*s
+        Ms = M.psolve(s)
+        AMs = A*Ms
+
+        # omega = (A*M*s_j, s_j)/(A*M*s_j, A*M*s_j)
+        omega = dot( AMs, s) / dot( AMs, AMs )
+
+        # x_{j+1} = x_j +  alpha*M*p_j + omega*M*s_j
+        x += alpha*Mp + omega*Ms
+
+        # r_{j+1} = s_j - omega*A*M*s
+        r = s - omega*AMs
+
+        # beta_j = (r_{j+1}, rstar)/(r_j, rstar) * (alpha/omega)
+        rrstarNew = dot( rstar, r)
+        beta = (rrstarNew / rrstarOld) * (alpha / omega)
+        rrstarOld = rrstarNew
+
+        # p_{j+1} = r_{j+1} + beta*(p_j - omega*A*M*p)
+        p = r + beta*(p - omega*AMp)
+
+        niters += 1
+
+        normr = norm(r)
+        #if niters % 10 == 0:
+        #    print(niters, normr, normr/normb)
+
+        if residuals is not None:
+            residuals.append(normr)
+
+        if callback is not None:
+            if not isinstance(normr, np.ndarray):
+                normr = normr.get().item()
+            callback( None, normr=normr )
+
+        if normr < tol:
+            return (x, 0)
+
+        if niters >= maxiter:
+            return (x, niters)
+
+    return (x, niters)
+
+#class bicgstab:
+#
+#    def __init__(self, on_device = False):
+#        self.on_device = on_device
+#
+#    def __call__(self, A, b, M=None, x0=None, tol=1e-5, maxiter=None, callback=None, residuals=None):
+#
+#        if 'cupy' in sys.modules and self.on_device:
+#            _A = cupy_sp.csr_matrix( A )
+#            _b = cupy.asarray( b )
+#
+#            return my_bicgstab(A=_A, b=_b, M=M, x0=x0, tol=tol, maxiter=maxiter, callback=callback, residuals=residuals)
+#        else:
+#            return my_bicgstab(A=A, b=b, M=M, x0=x0, tol=tol, maxiter=maxiter, callback=callback, residuals=residuals)
+
+def bicgstab(A, b, M=None, x0=None, tol=1e-5, maxiter=None, callback=None, residuals=None):
+    x = None
+    info = None
+
+    if 'cupy' in sys.modules:
+        #print('bicgstab on device')
+        _A = cupy_sp.csr_matrix( A )
+        _b = cupy.asarray( b )
+
+        _x, info = my_bicgstab(_A, _b, M, x0=x0, tol=tol, maxiter=maxiter, callback=callback, residuals=residuals)
+        x = _x.get()
+    else:
+        x, info = my_bicgstab(A, b, M, x0=x0, tol=tol, maxiter=maxiter, callback=callback, residuals=residuals)
+
+    return (x,info)
