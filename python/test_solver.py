@@ -487,6 +487,7 @@ class Parameters:
         self.numtrials = 1
         self.solver    = 'gmres'
         self.precon    = 'ilu'
+        self.use_gpu   = False
 
     def __str__(self):
 
@@ -499,6 +500,7 @@ class Parameters:
         s += "  numtrials: {}\n".format(self.numtrials)
         s += "     solver: {}\n".format(self.solver)
         s += "     precon: {}\n".format(self.precon)
+        s += "    use gpu: {}\n".format(self.use_gpu)
         return s;
 
 def help():
@@ -513,7 +515,7 @@ def get_options( argv ):
     params = Parameters()
 
     try:
-        opts, args = getopt.getopt( argv,"hA:b:x:t:vs:m:",["help","A=","b=","rhs=","x=","tol=","maxiters=","restart=","verbosity=","numtrials=","ntrials=",'solver=','precon=','M=','abstol='])
+        opts, args = getopt.getopt( argv,"hA:b:x:t:vs:m:",["help","A=","b=","rhs=","x=","tol=","maxiters=","restart=","verbosity=","numtrials=","ntrials=",'solver=','precon=','M=','abstol=','gpu'])
     except getopt.GetoptError:
         help()
         sys.exit(2)
@@ -546,6 +548,8 @@ def get_options( argv ):
             params.solver = arg
         elif opt in ("-m", "--precon", "--M"):
             params.precon = arg
+        elif opt in ("--enable_gpu", "--gpu"):
+            params.use_gpu = True
 
     print('A file is ', A_file)
     print('b file is ', b_file)
@@ -1092,7 +1096,7 @@ def create_preconditioner( A = None, params = Parameters(), opts = {} ):
             #M = ml_new.aspreconditioner()
 
             if True:
-                ml_gpu = my_vcycle.amg_vcycle_solver_gpu(ml.levels)
+                ml_gpu = my_vcycle.amg_solver_gpu(ml.levels, use_device=params.use_gpu)
                 print(ml_gpu)
                 M = ml_gpu.aspreconditioner()
                 M = ml_gpu
@@ -1249,7 +1253,7 @@ class Solver:
             elif package == 'scipy':
                 self.func = sp.linalg.bicgstab
 
-            self.func = my_vcycle.bicgstab
+            self.func = my_vcycle.bicgstab(use_device=params.use_gpu)
 
             self.opts = {}
             self.opts['tol']     = params.tolerance
@@ -1418,7 +1422,7 @@ def main( argv ):
             print("Error: invalid input parameter")
             sys.exit(10)
         else:
-            print("Solved linear system {} times in {} iterations and {:.2f} ms".format( num_tests, niters, 1000.*run_time/num_tests ))
+            print("Solved linear system {} times in {} iterations and {:.2f} ms (per-iteration {:.2f})".format( num_tests, niters, 1000.*run_time/num_tests, (1000.*run_time/num_tests)/niters))
     
             if S.monitor.residuals is not None and params.verbosity > 1:
                 print("Residuals:")

@@ -14,7 +14,7 @@ try:
 except ImportError:
     print("cuPy isn't available")
 
-class amg_vcycle_solver:
+class amg_solver:
 
     def __init__(self, levels):
 
@@ -94,11 +94,11 @@ class amg_vcycle_solver:
         dtype = self.levels[0].A.dtype
 
         def matvec(b):
-            return self.vcycle(b, ncycles=1)
+            return self.solve(b, maxiter=1)
 
         return LinearOperator(shape, matvec, dtype=dtype)
 
-    def vcycle(self, b, ncycles=1):
+    def solve(self, b, maxiter=1):
 
         x = np.zeros_like(b)
 
@@ -114,16 +114,16 @@ class amg_vcycle_solver:
 
         A = self.levels[0].A
 
-        for iter in range(ncycles):
+        for iter in range(maxiter):
             if len(self.levels) == 1:
                 # hierarchy has only 1 level
                 x = self.coarse_solve(b)
             else:
-                self.__vcycle(0, x, b)
+                self.__solve(0, x, b)
 
         return x
 
-    def __vcycle(self, lvl, x, b):
+    def __solve(self, lvl, x, b):
 
         #print('starting: ', lvl)
         A = self.levels[lvl].A
@@ -138,7 +138,7 @@ class amg_vcycle_solver:
         if lvl == len(self.levels) - 2:
             coarse_x[:] = self.coarse_solve(coarse_b)
         else:
-            self.__vcycle(lvl + 1, coarse_x, coarse_b)
+            self.__solve(lvl + 1, coarse_x, coarse_b)
 
         x += self.levels[lvl].P * coarse_x   # coarse grid correction
 
@@ -197,9 +197,9 @@ class coarse_solver:
         x[:] = self.exec_space.matmul( self.A_inv, b )
         return x
 
-class amg_vcycle_solver_gpu:
+class amg_solver_gpu:
 
-    def __init__(self, pyamg_levels):
+    def __init__(self, pyamg_levels, use_device = True):
 
         self.levels = []
 
@@ -243,7 +243,7 @@ class amg_vcycle_solver_gpu:
         self.gpu_levels = None
         self.gpu_coarse_solver = None
 
-        if 'cupyx.scipy.sparse' in sys.modules:
+        if 'cupyx.scipy.sparse' in sys.modules and use_device:
             self.gpu_levels = []
             for lvl,level in enumerate(self.levels):
                 R = None
@@ -321,8 +321,8 @@ class amg_vcycle_solver_gpu:
             float(self.levels[0].A.shape[0])
 
     def psolve(self, b):
-        """Lagacy solve interface."""
-        return self.solve(b, ncycles=1)
+        """Legacy solve interface."""
+        return self.solve(b, maxiter=1)
 
     def aspreconditioner(self):
         from scipy.sparse.linalg import LinearOperator
@@ -331,11 +331,11 @@ class amg_vcycle_solver_gpu:
         dtype = self.levels[0].A.dtype
 
         def matvec(b):
-            return self.solve(b, ncycles=1)
+            return self.solve(b, maxiter=1)
 
         return LinearOperator(shape, matvec, dtype=dtype)
 
-    def solve(self, b, ncycles=1):
+    def solve(self, b, maxiter=1):
 
         x = None
 
@@ -360,7 +360,7 @@ class amg_vcycle_solver_gpu:
             #b_dev = cupy.asarray(b)
             #x_dev = cupy.zeros_like(b_dev)
 
-            for iter in range(ncycles):
+            for iter in range(maxiter):
                 if len(self.gpu_levels) == 1:
                     # hierarchy has only 1 level
                     self.gpu_coarse_solver( b_dev, x_dev )
@@ -385,7 +385,7 @@ class amg_vcycle_solver_gpu:
             b = np.asarray(b)
             x = np.zeros_like(b)
 
-            for iter in range(ncycles):
+            for iter in range(maxiter):
                 if len(self.levels) == 1:
                     # hierarchy has only 1 level
                     self.coarse_solver( b, x )
@@ -620,7 +620,7 @@ def my_bicgstab(A, b, M=None, x0=None, tol=1e-5, maxiter=None, callback=None, re
             residuals.append(normr)
 
         if callback is not None:
-            if not isinstance(normr, np.ndarray):
+            if hasattr(normr, 'get'): # If this is a CuPy object, pull it back.
                 normr = normr.get().item()
             callback( None, normr=normr )
 
@@ -632,33 +632,24 @@ def my_bicgstab(A, b, M=None, x0=None, tol=1e-5, maxiter=None, callback=None, re
 
     return (x, niters)
 
-#class bicgstab:
-#
-#    def __init__(self, on_device = False):
-#        self.on_device = on_device
-#
-#    def __call__(self, A, b, M=None, x0=None, tol=1e-5, maxiter=None, callback=None, residuals=None):
-#
-#        if 'cupy' in sys.modules and self.on_device:
-#            _A = cupy_sp.csr_matrix( A )
-#            _b = cupy.asarray( b )
-#
-#            return my_bicgstab(A=_A, b=_b, M=M, x0=x0, tol=tol, maxiter=maxiter, callback=callback, residuals=residuals)
-#        else:
-#            return my_bicgstab(A=A, b=b, M=M, x0=x0, tol=tol, maxiter=maxiter, callback=callback, residuals=residuals)
+class bicgstab:
 
-def bicgstab(A, b, M=None, x0=None, tol=1e-5, maxiter=None, callback=None, residuals=None):
-    x = None
-    info = None
+    def __init__(self, use_device = False):
+        self.use_device = use_device
 
-    if 'cupy' in sys.modules:
-        #print('bicgstab on device')
-        _A = cupy_sp.csr_matrix( A )
-        _b = cupy.asarray( b )
+    def __call__(self, A, b, M=None, x0=None, tol=1e-5, maxiter=None, callback=None, residuals=None):
+        x = None
+        info = None
 
-        _x, info = my_bicgstab(_A, _b, M, x0=x0, tol=tol, maxiter=maxiter, callback=callback, residuals=residuals)
-        x = _x.get()
-    else:
-        x, info = my_bicgstab(A, b, M, x0=x0, tol=tol, maxiter=maxiter, callback=callback, residuals=residuals)
+        if 'cupy' in sys.modules and self.use_device:
+            print('bicgstab on device')
+            _A = cupy_sp.csr_matrix( A )
+            _b = cupy.asarray( b )
 
-    return (x,info)
+            _x, info = my_bicgstab(_A, _b, M, x0=x0, tol=tol, maxiter=maxiter, callback=callback, residuals=residuals)
+            x = _x.get()
+        else:
+            print('bicgstab on host')
+            x, info = my_bicgstab(A, b, M, x0=x0, tol=tol, maxiter=maxiter, callback=callback, residuals=residuals)
+
+        return (x,info)
