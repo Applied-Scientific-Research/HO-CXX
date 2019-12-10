@@ -172,134 +172,134 @@ struct StaticArrayType
            ; }
 
    /// rank 4
-   template <typename Int>
-      typename std::enable_if< std::is_integral<Int>::value and rank == 4, ValueType >::type &
+   template <typename Int, int R = rank>
+      typename std::enable_if< std::is_integral<Int>::value and R == 4, ValueType >::type &
    operator()( const Int i, const Int j, const Int k, const Int m)
    {
       return this->m_data[m][k][j][i];
    }
 
-   template <typename Int>
-     const typename std::enable_if< std::is_integral<Int>::value and rank == 4, ValueType >::type &
+   template <typename Int, int R = rank>
+     const typename std::enable_if< std::is_integral<Int>::value and R == 4, ValueType >::type &
    operator()( const Int i, const Int j, const Int k, const Int m ) const
    {
       return this->m_data[m][k][j][i];
    }
 
    /// rank 3
-   template <typename Int>
-      typename std::enable_if< std::is_integral<Int>::value and rank == 3, ValueType >::type &
+   template <typename Int, int R = rank>
+      typename std::enable_if< std::is_integral<Int>::value and R == 3, ValueType >::type &
    operator()( const Int i, const Int j, const Int k )
    {
       return this->m_data[k][j][i];
    }
 
-   template <typename Int>
-     const typename std::enable_if< std::is_integral<Int>::value and rank == 3, ValueType >::type &
+   template <typename Int, int R = rank>
+     const typename std::enable_if< std::is_integral<Int>::value and R == 3, ValueType >::type &
    operator()( const Int i, const Int j, const Int k ) const
    {
       return this->m_data[k][j][i];
    }
 
    /// rank 2
-   template <typename Int>
-      typename std::enable_if< std::is_integral<Int>::value and rank == 2, ValueType >::type &
+   template <typename Int, int R = rank>
+      typename std::enable_if< std::is_integral<Int>::value and R == 2, ValueType >::type &
    operator()( const Int i, const Int j )
    {
       return this->m_data[j][i];
    }
 
-   template <typename Int>
-     const typename std::enable_if< std::is_integral<Int>::value and rank == 2, ValueType >::type &
+   template <typename Int, int R = rank>
+     const typename std::enable_if< std::is_integral<Int>::value and R == 2, ValueType >::type &
    operator()( const Int i, const Int j ) const
    {
       return this->m_data[j][i];
    }
 
    /// rank 1
-   template <typename Int>
-      typename std::enable_if< std::is_integral<Int>::value and rank == 1, ValueType >::type &
+   template <typename Int, int R = rank>
+      typename std::enable_if< std::is_integral<Int>::value and R == 1, ValueType >::type &
    operator()( const Int i )
    {
       return this->m_data[i];
    }
 
-   template <typename Int>
-     const typename std::enable_if< std::is_integral<Int>::value and rank == 1, ValueType >::type &
+   template <typename Int, int R = rank>
+     const typename std::enable_if< std::is_integral<Int>::value and R == 1, ValueType >::type &
    operator()( const Int i ) const
    {
       return this->m_data[i];
    }
 
    /// rank 1 ... to match normal access format.
-   template <typename Int>
-      typename std::enable_if< std::is_integral<Int>::value and rank == 1, ValueType >::type &
+   template <typename Int, int R = rank>
+      typename std::enable_if< std::is_integral<Int>::value and R == 1, ValueType >::type &
    operator[]( const Int i )
    {
       return this->m_data[i];
    }
 
-   template <typename Int>
-     const typename std::enable_if< std::is_integral<Int>::value and rank == 1, ValueType >::type &
+   template <typename Int, int R = rank>
+     const typename std::enable_if< std::is_integral<Int>::value and R == 1, ValueType >::type &
    operator[]( const Int i ) const
    {
       return this->m_data[i];
    }
 
-   template <int Dim>
-   const typename std::enable_if< (Dim < rank and rank == 2), SliceType< StaticArrayType, Dim > >::type slice( const int index = 0 ) const
+   template <int Dim, int R = rank>
+   const typename std::enable_if< (Dim < rank and R == 2), SliceType< StaticArrayType, Dim > >::type slice( const int index = 0 ) const
    {
       return SliceType< StaticArrayType, Dim >( *this, index );
    }
 
-   template <int Dim>
-         typename std::enable_if< (Dim < rank and rank == 2), SliceType< StaticArrayType, Dim > >::type slice( const int index = 0 ) 
+   template <int Dim, int R = rank>
+         typename std::enable_if< (Dim < rank and R == 2), SliceType< StaticArrayType, Dim > >::type slice( const int index = 0 ) 
    {
       return SliceType< StaticArrayType, Dim >( *this, index );
    }
 
-   template <typename T>
-      typename std::enable_if< std::is_scalar<T>::value and rank == 1, void >::type
+   template <typename T, int R = rank>
+      typename std::enable_if< std::is_scalar<T>::value and R == 1, void >::type
    set( const T& val )
    {
       auto f = [&](const int& i) { (*this)(i) = val; };
       forall( I0, f );
    }
 
-   template <typename T>
-      typename std::enable_if< std::is_scalar<T>::value and rank == 2, void >::type
+   template <typename T, int R = rank>
+      typename std::enable_if< std::is_scalar<T>::value and R == 2, void >::type
    set( const T& val )
    {
       auto f = [&](const int& i, const int& j) { (*this)(i,j) = val; };
       forall( I0, I1, f );
    }
 
-   template <typename T>
-      typename std::enable_if< std::is_same<T,ThisType>::value and rank == 1, void >::type
+   template <typename T, int R = rank>
+      typename std::enable_if< std::is_same<T,ThisType>::value and R == 1, void >::type
    copy( const T& obj )
    {
       auto f = [&]( const int& i) { (*this)(i) = obj(i); };
       forall( I0, f );
    }
 
-   template <typename T>
-      typename std::enable_if< std::is_same<T,ThisType>::value and rank == 2, void >::type
+   template <typename T, int R = rank>
+      typename std::enable_if< std::is_same<T,ThisType>::value and R == 2, void >::type
    copy( const T& obj )
    {
       auto f = [&]( const int& i, const int& j) { (*this)(i,j) = obj(i,j); };
       forall( I0, I1, f );
    }
 
-   template <typename T>
-      typename std::enable_if< std::is_same<T,ValueType>::value and rank == 1, void >::type
+   template <typename T, int R = rank>
+      typename std::enable_if< std::is_same<T,ValueType>::value and R == 1, void >::type
    copy( const T obj[] )
    {
       auto f = [&]( const int& i) { (*this)(i) = obj[ flatten(i) ]; };
       forall( I0, f );
    }
 
-   template <typename T>
-      typename std::enable_if< std::is_same<T,ValueType>::value and rank == 2, void >::type
+   template <typename T, int R = rank>
+      typename std::enable_if< std::is_same<T,ValueType>::value and R == 2, void >::type
    copy( const T obj[] )
    {
       auto f = [&]( const int& i, const int& j) { (*this)(i,j) = obj[ flatten(i,j) ]; };
@@ -325,8 +325,8 @@ struct SliceType
    SliceType (       ArrayType& array, const int index = 0 ) : m_index(index), m_base_array( array ) {}
    SliceType ( const ArrayType& array, const int index = 0 ) : m_index(index), m_base_array( const_cast<ArrayType&>(array) ) {}
 
-   template <typename Int>
-      typename std::enable_if< std::is_integral<Int>::value and base_rank == 2, ValueType >::type &
+   template <typename Int, int R = base_rank>
+      typename std::enable_if< std::is_integral<Int>::value and R == 2, ValueType >::type &
    operator[]( const Int i )
    {
       if ( dim == 0 )
@@ -335,8 +335,8 @@ struct SliceType
          return this->m_base_array(this->m_index,i);
    }
 
-   template <typename Int>
-   const typename std::enable_if< std::is_integral<Int>::value and base_rank == 2, ValueType >::type & 
+   template <typename Int, int R = base_rank>
+   const typename std::enable_if< std::is_integral<Int>::value and R == 2, ValueType >::type & 
    operator[]( const Int i ) const
    {
       if ( dim == 0 )
@@ -345,8 +345,8 @@ struct SliceType
          return this->m_base_array(this->m_index,i);
    }
 
-   template <typename Int>
-           typename std::enable_if< std::is_integral<Int>::value and base_rank == 2, ValueType >::type &
+   template <typename Int, int R = base_rank>
+           typename std::enable_if< std::is_integral<Int>::value and R == 2, ValueType >::type &
    operator()( const Int i )
    {
       if ( dim == 0 )
@@ -355,8 +355,8 @@ struct SliceType
          return this->m_base_array(this->m_index,i);
    }
 
-   template <typename Int>
-     const typename std::enable_if< std::is_integral<Int>::value and base_rank == 2, ValueType >::type &
+   template <typename Int, int R = base_rank>
+     const typename std::enable_if< std::is_integral<Int>::value and R == 2, ValueType >::type &
    operator()( const Int i ) const
    {
       if ( dim == 0 )

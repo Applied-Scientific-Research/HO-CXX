@@ -1,14 +1,29 @@
-APLLES_DIR ?= ../ApllesSolver
-AMGCL_DIR ?= ../AMGCL
+APLLES_DIR ?= ../../ApllesSolver
+AMGCL_INC ?= ../../amgcl/
+EIGEN3_INC ?= $(EIGEN_DIR)/include
 
-OPT	= -O3 -mtune=native
+OPT	= -O3
 OMP	= -fopenmp
-F90	= gfortran
-F90FLAGS= -g -ggdb -gdwarf-2 $(OPT) -ffixed-line-length-none #-ffpe-summary='none'
-CXX	= g++
-CXXFLAGS= -g -ggdb -gdwarf-2 $(OPT) -std=c++17
+DBG	= -g #-ggdb -gdwarf-2
+F90	?= gfortran
+F90FLAGS= $(DBG) $(OPT)
+MODFLAGS=
+CXX	?= g++
+CXXFLAGS= $(DBG) $(OPT) -std=c++17
 
-CXXFLAGS += -I /usr/include/eigen3
+ifeq ($(F90),gfortran)
+  F90FLAGS += -mtune=native -ffixed-line-length-none #-ffpe-summary='none'
+endif
+ifeq ($(CXX),g++)
+  CXXFLAGS += -mtune=native
+endif
+
+ifeq ($(F90),ifort)
+  F90FLAGS += -xHost
+endif
+ifeq ($(CXX),icpc)
+  CXXFLAGS += -xHost -Wno-unknown-pragmas
+endif
 
 LDFLAGS = $(OMP)
 LIBS    =
@@ -22,14 +37,34 @@ DEPS_MP	= $(CXXSRC:.cpp=_mp.d)
 
 include $(APLLES_DIR)/lib/Makefile.aplles
 
+#APLLES_LIBS = -laplles_debug
+
 F90FLAGS += $(APLLES_F90_MODULE)
 CXXFLAGS += -I $(APLLES_DIR)/user
 CXXFLAGS += -I ../cxx
-CXXFLAGS += -I $(AMGCL_DIR)/include
+CXXFLAGS += -I $(AMGCL_INC) -DENABLE_AMGCL
+#CXXFLAGS += -I $(APLLES_DIR)/include
+CXXFLAGS += -I $(EIGEN3_INC) -DENABLE_EIGEN
 CXXFLAGS += -I $(APLLES_DIR)/include
 CXXFLAGS += -Wfatal-errors
 
+ifeq ($(F90),gfortran)
+  F90FLAGS += -I. -J.
+endif
+ifeq ($(F90),ifort)
+  F90FLAGS += -I. -module .
+endif
+
 all: seq omp
+
+MODS = aplles_interface_fortran.o
+MODS_MP += aplles_interface_fortran_mp.o
+
+aplles_interface_fortran.o: $(APLLES_DIR)/user/aplles_interface_fortran.F90
+	$(F90) $(F90FLAGS) $(MODFLAGS) $< -c -o $@
+
+aplles_interface_fortran_mp.o: $(APLLES_DIR)/user/aplles_interface_fortran.F90
+	$(F90) $(F90FLAGS) $(MODFLAGS) $< -c -o $@
 
 -include $(DEPS)
 
@@ -53,11 +88,11 @@ all: seq omp
 %_mp.o : %.f90
 	$(F90) $(OMP) $(F90FLAGS) $< -c -o $@
 
-seq: VTM.o $(OBJS) $(APLLES_OBJS)
-	$(F90) $(F90FLAGS) -o VTM $< $(OBJS) $(APLLES_OBJS) $(LDFLAGS) $(APLLES_LIBS) $(APLLES_LINK_FLAGS)
+seq: $(MODS) VTM.o $(OBJS) $(APLLES_OBJS)
+	$(F90) $(F90FLAGS) -o VTM $^ $(LDFLAGS) $(APLLES_LIBS) $(APLLES_LINK_FLAGS)
 
-omp: VTM_mp.o $(OBJS_MP) $(APLLES_OBJS)
-	$(F90) $(OMP) $(F90FLAGS) -o VTM_mp $< $(OBJS_MP) $(APLLES_OBJS) $(LDFLAGS) $(APLLES_MT_LIBS) $(APLLES_LINK_FLAGS)
+omp: $(MODS_MP) VTM_mp.o $(OBJS_MP) $(APLLES_OBJS)
+	$(F90) $(OMP) $(F90FLAGS) -o VTM_mp $^ $(LDFLAGS) $(APLLES_MT_LIBS) $(APLLES_LINK_FLAGS)
 
 clean:
 	/bin/rm -fv *.o $(OBJS) $(OBJS_MP) *.mod $(DEPS)

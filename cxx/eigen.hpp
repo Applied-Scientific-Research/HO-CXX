@@ -134,10 +134,10 @@ struct EigenSolver
       if (failed)
          std::cout << "Solver failed to converge!" << std::endl;
 
-      std::cout << "solver time: " << getElapsedTime( t_start, t_stop ) << std::endl;
-      std::cout << "       tolr: " << solver.tolerance() << std::endl;
-      std::cout << "       erro: " << solver.error() << std::endl;
-      std::cout << "       iter: " << solver.iterations() << std::endl;
+      std::cout << "eigen solver time: " << getElapsedTime( t_start, t_stop ) << std::endl;
+      std::cout << "             tolr: " << solver.tolerance() << std::endl;
+      std::cout << "             erro: " << solver.error() << std::endl;
+      std::cout << "             iter: " << solver.iterations() << std::endl;
 
       if (true)
       std::cout << " true enorm: " << ( this->A * u - f ).norm() << std::endl;
