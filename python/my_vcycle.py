@@ -14,6 +14,18 @@ try:
 except ImportError:
     print("cuPy isn't available")
 
+def _spmv(A,x):
+    return A * x
+SpMV = _spmv
+
+try:
+    import sp_solver
+except ImportError:
+    print("local sp_solver isn't available")
+else:
+    SpMV = sp_solver.SpMV_viaMKL
+    print("Using MKL SpMV")
+
 class amg_solver:
 
     def __init__(self, levels):
@@ -235,7 +247,9 @@ class amg_solver_gpu:
 
                 print(lvl, omega, rho_D_inv)
 
-            new_level = ml_level( A, D_inv, R=R, P=P, omega=omega, on_device=False )
+            n_post = 2
+            n_pre = 1
+            new_level = ml_level( A, D_inv, R=R, P=P, omega=omega, on_device=False, n_post=2, n_pre=1 )
             self.levels.append( new_level )
 
         self.coarse_solver = coarse_solver( sp.linalg.inv( self.levels[-1].A.todense() ), on_device=False )
@@ -395,7 +409,8 @@ class amg_solver_gpu:
         return x
 
     def residual(self, A, x, b):
-        return b - A.dot( x )
+        #return b - A.dot( x )
+        return b - SpMV( A, x )
 
     def jacobi(self, level, x, b, zero_guess = False):
         if zero_guess: # Ax = 0
@@ -413,7 +428,8 @@ class amg_solver_gpu:
         for i in range(level.n_pre):
             self.jacobi( level, x, b, (i==0) )
 
-        coarse_b = level.R * self.residual( A, x, b )
+        #coarse_b = level.R * self.residual( A, x, b )
+        coarse_b = SpMV( level.R, self.residual( A, x, b ) )
         coarse_x = level.exec_space.zeros_like(coarse_b)
 
         if lvl == len(levels) - 2:
@@ -424,7 +440,8 @@ class amg_solver_gpu:
         else:
             self.__solve(levels, lvl + 1, coarse_x, coarse_b)
 
-        x += level.P * coarse_x   # coarse grid correction
+        #x += level.P * coarse_x   # coarse grid correction
+        x += SpMV( level.P, coarse_x )   # coarse grid correction
 
         # postsmoother
         for i in range(level.n_post):
@@ -546,12 +563,27 @@ def my_bicgstab(A, b, M=None, x0=None, tol=1e-5, maxiter=None, callback=None, re
 
         return z
 
+    psolve = None
+    if hasattr( M, '__call__' ):
+        def _psolve(M, b):
+            return M(b)
+
+        psolve = _psolve
+    elif hasattr( M, 'psolve' ):
+        def _psolve(M, b):
+            return M.psolve(b)
+
+        psolve = _psolve
+    else:
+        raise "Unknow psolve method"
+
     # Prep for method
     r = None
     if x0 is None:
         r = b.copy()
     else:
-        r = b - A*x
+        #r = b - A*x
+        r = b - SpMV(A,x)
     normr = norm(r)
 
     if residuals is not None:
@@ -570,45 +602,49 @@ def my_bicgstab(A, b, M=None, x0=None, tol=1e-5, maxiter=None, callback=None, re
     if normr != 0.0:
         tol = tol*normr
 
-    rstar = r.copy()
+    rhat = r.copy()
     p = r.copy()
 
-    rrstarOld = dot(rstar, r)
+    rho_old = 1.0
+    alpha = 1.0
+    omega = 1.0
+    beta  = 1.0
 
     niters = 0
 
     # Begin BiCGStab
-    #while niters < maxiter and normr > tol:
     while True:
-        #Mp = M*p
-        Mp = M.psolve(p)
-        AMp = A*Mp
+        rho = dot(rhat, r)
 
-        # alpha = (r_j, rstar) / (A*M*p_j, rstar)
-        alpha = rrstarOld / dot(rstar, AMp)
+        if niters > 0:
+            beta = ( rho / rho_old ) * (alpha / omega)
+            p = r + beta * (p - omega * v)
 
-        # s_j = r_j - alpha*A*M*p_j
-        s = r - alpha*AMp
-        #Ms = M*s
-        Ms = M.psolve(s)
-        AMs = A*Ms
+        #phat = M.psolve(p)
+        phat = psolve( M, p )
+        #v = A * phat
+        v = SpMV(A, phat)
 
-        # omega = (A*M*s_j, s_j)/(A*M*s_j, A*M*s_j)
-        omega = dot( AMs, s) / dot( AMs, AMs )
+        alpha = rho / dot( rhat, v)
+        s = r - alpha * v
 
-        # x_{j+1} = x_j +  alpha*M*p_j + omega*M*s_j
-        x += alpha*Mp + omega*Ms
+        norms = norm(s)
+        if norms < tol:
+            x += alpha * phat
+            return (x, 0)
 
-        # r_{j+1} = s_j - omega*A*M*s
-        r = s - omega*AMs
+        #shat = M.psolve(s)
+        shat = psolve( M, s )
+        #t = A * shat
+        t = SpMV( A, shat )
 
-        # beta_j = (r_{j+1}, rstar)/(r_j, rstar) * (alpha/omega)
-        rrstarNew = dot( rstar, r)
-        beta = (rrstarNew / rrstarOld) * (alpha / omega)
-        rrstarOld = rrstarNew
+        omega = dot(t, s) / dot( t, t )
 
-        # p_{j+1} = r_{j+1} + beta*(p_j - omega*A*M*p)
-        p = r + beta*(p - omega*AMp)
+        x += alpha*phat + omega*shat
+
+        r = s - omega * t
+
+        rho_old = rho
 
         niters += 1
 

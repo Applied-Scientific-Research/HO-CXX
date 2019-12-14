@@ -33,6 +33,154 @@ def load_lib( lib_name ):
 
     return lib
 
+libmkl_impl = load_lib( "./libmkl_sparse_impl.so" )
+mkl = load_lib( "libmkl_rt.so" )
+
+def csrSpMV_viaMKL( A, x ):
+
+   if mkl is None:
+       raise Exception("MKL runtime library not present")
+
+   SpMV = mkl.mkl_cspblas_dcsrgemv
+   # Dissecting the "cspblas_dcsrgemv" name:
+   # "c" - for "c-blas" like interface (as opposed to fortran)
+   #    Also means expects sparse arrays to use 0-based indexing, which python does
+   # "sp"  for sparse
+   # "d"   for double-precision
+   # "csr" for compressed row format
+   # "ge"  for "general", e.g., the matrix has no special structure such as symmetry
+   # "mv"  for "matrix-vector" multiply
+
+   if not sp.isspmatrix_csr(A):
+       raise Exception("Matrix must be in csr format")
+
+   (m,n) = A.shape
+
+   # The data of the matrix
+   data    = A.data.ctypes.data_as(ct.POINTER(ct.c_double))
+   indptr  = A.indptr.ctypes.data_as(ct.POINTER(ct.c_int))
+   indices = A.indices.ctypes.data_as(ct.POINTER(ct.c_int))
+
+   # Allocate output, using same conventions as input
+   nVectors = 1
+   if x.ndim is 1:
+      y = np.empty(m,dtype=np.double,order='F')
+      if x.size != n:
+          raise Exception("x must have n entries. x.size is %d, n is %d" % (x.size,n))
+   elif x.shape[1] is 1:
+      y = np.empty((m,1),dtype=np.double,order='F')
+      if x.shape[0] != n:
+          raise Exception("x must have n entries. x.size is %d, n is %d" % (x.size,n))
+   else:
+      nVectors = x.shape[1]
+      y = np.empty((m,nVectors),dtype=np.double,order='F')
+      if x.shape[0] != n:
+          raise Exception("x must have n entries. x.size is %d, n is %d" % (x.size,n))
+
+   # Check input
+   if x.dtype.type is not np.double:
+      x = x.astype(np.double,copy=True)
+
+   # Put it in column-major order, otherwise for nVectors > 1 this FAILS completely
+   if x.flags['F_CONTIGUOUS'] is not True:
+      x = x.copy(order='F')
+
+   if nVectors == 1:
+      np_x = x.ctypes.data_as(ct.POINTER(ct.c_double))
+      np_y = y.ctypes.data_as(ct.POINTER(ct.c_double))
+      # now call MKL. This returns the answer in np_y, which links to y
+
+      trans = "N"
+      SpMV(ct.c_wchar_p(trans), ct.byref(ct.c_int(m)),data ,indptr, indices, np_x, np_y ) 
+   else:
+      for columns in xrange(nVectors):
+          xx = x[:,columns]
+          yy = y[:,columns]
+          np_x = xx.ctypes.data_as(POINTER(ct.c_double))
+          np_y = yy.ctypes.data_as(POINTER(ct.c_double))
+          SpMV(byref(ct.c_char("N")), byref(ct.c_int(m)),data,indptr, indices, np_x, np_y ) 
+
+   return y
+
+def bsrSpMV_viaMKL( A, x ):
+
+   if mkl is None:
+       raise Exception("MKL runtime library not present")
+
+   SpMV = mkl.mkl_cspblas_dbsrgemv
+
+   if not sp.isspmatrix_bsr(A):
+       raise Exception("Matrix must be in bsr format")
+
+   (m,n) = A.shape
+
+   # The data of the matrix
+   data    = A.data.ctypes.data_as(ct.POINTER(ct.c_double))
+   indptr  = A.indptr.ctypes.data_as(ct.POINTER(ct.c_int))
+   indices = A.indices.ctypes.data_as(ct.POINTER(ct.c_int))
+
+   # Allocate output, using same conventions as input
+   nVectors = 1
+   if x.ndim is 1:
+      y = np.empty(m,dtype=np.double,order='F')
+      if x.size != n:
+          raise Exception("x must have n entries. x.size is %d, n is %d" % (x.size,n))
+   elif x.shape[1] is 1:
+      y = np.empty((m,1),dtype=np.double,order='F')
+      if x.shape[0] != n:
+          raise Exception("x must have n entries. x.size is %d, n is %d" % (x.size,n))
+   else:
+      nVectors = x.shape[1]
+      y = np.empty((m,nVectors),dtype=np.double,order='F')
+      if x.shape[0] != n:
+          raise Exception("x must have n entries. x.size is %d, n is %d" % (x.size,n))
+
+   # Check input
+   if x.dtype.type is not np.double:
+      x = x.astype(np.double,copy=True)
+
+   # Put it in column-major order, otherwise for nVectors > 1 this FAILS completely
+   if x.flags['F_CONTIGUOUS'] is not True:
+      x = x.copy(order='F')
+
+   bs = A.blocksize[0]
+   mb = m // bs
+
+   if nVectors == 1:
+      np_x = x.ctypes.data_as(ct.POINTER(ct.c_double))
+      np_y = y.ctypes.data_as(ct.POINTER(ct.c_double))
+      # now call MKL. This returns the answer in np_y, which links to y
+
+      trans = "N"
+
+      SpMV(ct.c_wchar_p(trans), ct.byref(ct.c_int(mb)), ct.byref(ct.c_int(bs)),
+             data, indptr, indices, np_x, np_y ) 
+   else:
+      for columns in xrange(nVectors):
+          xx = x[:,columns]
+          yy = y[:,columns]
+          np_x = xx.ctypes.data_as(POINTER(ct.c_double))
+          np_y = yy.ctypes.data_as(POINTER(ct.c_double))
+          SpMV(byref(ct.c_char("N")), byref(ct.c_int(m)),data,indptr, indices, np_x, np_y ) 
+
+   return y
+
+def SpMV_viaMKL( A, x ):
+
+   if mkl is None:
+       raise Exception("MKL runtime library not present")
+
+   y = None
+
+   if sp.isspmatrix_csr(A):
+       y = csrSpMV_viaMKL( A, x )
+   elif sp.isspmatrix_bsr(A):
+       y = bsrSpMV_viaMKL( A, x )
+   else:
+       raise Exception("Matrix must be in csr or bsr format")
+
+   return y
+
 class sp_solver:
 
     """ Python wrapper for the C shared library lib"""
@@ -79,9 +227,8 @@ class sp_solver:
 
         self.use_mkl = False
 
-        #libmkl = load_lib( "libmkl_sparse_impl.so" )
-        #if libmkl is not None:
-        #    self.sp_mkl_dtrsv_wrapper = libmkl.sp_mkl_dtrsv
+        #if libmkl_impl is not None:
+        #    self.sp_mkl_dtrsv_wrapper = libmkl_impl.sp_mkl_dtrsv
         #    self.sp_mkl_dtrsv_wrapper.argtypes = [ ct.c_int, ct.c_int, ct.c_int,
         #                                          ct.c_int, ct.c_int, ct.c_int,
         #                                          c_int_p, c_int_p, c_double_p,
@@ -90,7 +237,7 @@ class sp_solver:
         #    self.use_mkl = True
 
         if self.use_mkl:
-            print("Loaded sp_mkl_dtrsv routine: ", libmkl.sp_mkl_dtrsv)
+            print("Loaded sp_mkl_dtrsv routine: ", libmkl_impl.sp_mkl_dtrsv)
         else:
             print("Disabled mkl routines")
 

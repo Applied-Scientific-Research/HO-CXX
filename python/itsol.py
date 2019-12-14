@@ -170,6 +170,10 @@ class itsol:
         return self.solve(b,x)
 
     # Solve Mx = b
+    def psolve( self, b, x = None ):
+        return self.solve(b,x)
+
+    # Solve Mx = b
     def solve( self, b, x = None ):
 
         if x is None:

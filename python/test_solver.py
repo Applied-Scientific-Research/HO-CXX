@@ -161,24 +161,43 @@ def test_bsr( A, b, bs ):
         r = None
         rb = None
 
-        for i in range(2):
-            if i % 2 == 0:
-                t_start = timestamp()
-                sumr = 0
-                for i in range(100):
-                    r  = A    * b
-                    sumr += r[0]
-                t_stop = timestamp()
-                print("scalar: ", t_stop - t_start)
-            else:
-                t_start = timestamp()
-                for i in range(100):
-                    rb = Ablk * b
-                    sumr += r[0]
-                t_stop = timestamp()
-                print("block: ", t_stop - t_start)
+        t_start = timestamp()
+        sumr = 0
+        for i in range(100):
+            r  = A    * b
+            sumr += r[0]
+        t_stop = timestamp()
+        print("scalar: ", t_stop - t_start)
+
+        if isinstance(A, sp.csr_matrix ):
+           t_start = timestamp()
+           sumr_mkl = 0
+           for i in range(100):
+               r_mkl  = sp_solver.SpMV_viaMKL( A, b )
+               sumr_mkl += r_mkl[0]
+           t_stop = timestamp()
+           print("MKL csrSpMV: ", t_stop - t_start)
+           print("error: ", linalg.norm( r - r_mkl ) )
+
+        t_start = timestamp()
+        for i in range(100):
+            rb = Ablk * b
+            sumr += r[0]
+        t_stop = timestamp()
+        print("block: ", t_stop - t_start)
 
         print("error: ", linalg.norm( r - rb ) )
+
+        if True:
+           t_start = timestamp()
+           sumr_mkl = 0
+           for i in range(100):
+               r_mkl  = sp_solver.SpMV_viaMKL( Ablk, b )
+               sumr_mkl += r_mkl[0]
+           t_stop = timestamp()
+           print("MKL bsrSpMV: ", t_stop - t_start)
+           print("error: ", linalg.norm( r - r_mkl ) )
+
 
     return Ablk
 
@@ -1053,7 +1072,7 @@ def create_preconditioner( A = None, params = Parameters(), opts = {} ):
             #precon_opts['presmoother' ] = ('jacobi', {'omega':omega,'iterations':1})
             #precon_opts['postsmoother'] = ('jacobi', {'omega':omega,'iterations':2})
             precon_opts['presmoother' ] = ('jacobi', {'iterations':1})
-            precon_opts['postsmoother'] = ('jacobi', {'iterations':3})
+            precon_opts['postsmoother'] = ('jacobi', {'iterations':2})
             #precon_opts['presmoother' ] = ('gauss_seidel', {'iterations':1, 'sweep':'symmetric'})
             #precon_opts['postsmoother'] = ('gauss_seidel', {'iterations':1, 'sweep':'symmetric'})
             #precon_opts['presmoother' ] = [('block_gauss_seidel', {'blocksize':9, 'iterations':1, 'sweep':'symmetric'}),
@@ -1095,7 +1114,7 @@ def create_preconditioner( A = None, params = Parameters(), opts = {} ):
             #print(ml_new)
             #M = ml_new.aspreconditioner()
 
-            if True:
+            if False:
                 ml_gpu = my_vcycle.amg_solver_gpu(ml.levels, use_device=params.use_gpu)
                 print(ml_gpu)
                 M = ml_gpu.aspreconditioner()
@@ -1332,14 +1351,29 @@ def main( argv ):
     if x_file is not None:
         xref = load_vector( x_file, A.shape[0] )
         print('shape(xref): ', xref.shape)
-    
-    
+
     normb = linalg.norm( b )
     print("normb = {}".format(normb))
     
     verbose = (params.verbosity > 0)
 
-    if True:
+    if False:
+       nrows = A.shape[0]
+       with open( 'A_csr.txt', 'w' ) as f:
+          f.write("{}\n".format(nrows))
+          for iptr in A.indptr:
+             f.write("{}\n".format(iptr+1))
+          for j in A.indices:
+             f.write("{}\n".format(j+1))
+          for v in A.data:
+             f.write("{:15.10e}\n".format(v))
+
+       with open( 'b.txt', 'w' ) as f:
+          f.write("{}\n".format(nrows))
+          for v in b:
+             f.write("{:15.10e}\n".format(v))
+
+    if False:
         perm = sp.csgraph.reverse_cuthill_mckee(A, symmetric_mode=False)
         print(type(perm))
         print(perm[:10])

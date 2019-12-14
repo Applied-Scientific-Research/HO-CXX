@@ -34,7 +34,7 @@ def load_lib( lib_name ):
     return lib
 
 shlib = load_lib( "BILUM/libilum.so" )
-#shlib = load_lib( "BILUM/libilum_mp.so" )
+shlib = load_lib( "BILUM/libilum_mp.so" )
 
 class bilum:
 
@@ -197,6 +197,11 @@ class bilum:
 
     def __call__( self, b, x = None ):
         return self.solve(b,x)
+
+    # Solve Mx = b
+    def psolve( self, b, x = None ):
+
+        return self.solve(b, x)
 
     # Solve Mx = b
     def solve( self, b, x = None ):

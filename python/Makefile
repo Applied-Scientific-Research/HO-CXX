@@ -20,9 +20,8 @@ MKL_LIBS = -L${MKLROOT}/lib/intel64 -Wl,--no-as-needed \
 
 all: libsp_solver_impl.so \
      libcblock_sgs_impl.so \
-     libitsol_impl.so 
-#
-#    libmkl_sparse_impl.so
+     libitsol_impl.so  \
+     libmkl_sparse_impl.so
 
 libsp_solver_impl.so: sp_solver_impl.o
 	$(CXX) $(CXXFLAGS) $(SHLIB) -o $@ $^ $(LDFLAGS)

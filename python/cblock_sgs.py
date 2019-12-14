@@ -22,7 +22,7 @@ class cblock_sgs:
  
     def __init__( self, niters = 1 ):
 
-        lib_name = "libcblock_sgs_impl.so"
+        lib_name = "./libcblock_sgs_impl.so"
         # Find the library and load it
         #lib_path = ct.util.find_library("cblock_sgs_impl")
         #if not lib_path:
