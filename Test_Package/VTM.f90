@@ -1629,6 +1629,7 @@ SUBROUTINE SolveConvectionDiffusion(HuynhSolver_type, tIntegrator_type, Reyn, dt
        type(APLLES_SolverHandleType) :: S_handle
 
        type(timer_type) :: t_start, t_end
+       logical :: dump_results
 
 INTERFACE
 
@@ -1661,7 +1662,7 @@ END INTERFACE
        t_end = t_start
 
        DO nt = 1, numStep
-        print *,'timestep ',nt, get_elapsed_time( t_start, t_end )
+        print *,'starting timestep ',nt!, get_elapsed_time( t_start, t_end )
          t_start = get_timestamp()
 
          Vort_tmp = Vort
@@ -1752,7 +1753,11 @@ if (.false.) then
          ENDIF
 
 !         IF (MOD(nt,dumpFreq) .eq. 0) CALL dumpResult(nt, Reyn, dt, HuynhSolver_type, tIntegrator_type, prob_type)
-         IF (MOD(nt,dumpFreq) .eq. 0) THEN
+         dump_results = .false.
+         if (dumpFreq > 0) dump_results = (MOD(nt,dumpFreq).eq.0)
+
+         !IF (MOD(nt,dumpFreq) .eq. 0) THEN
+         IF ( dump_results ) THEN
 
        OPEN(unit = 8, file = 'Vorticity'//trim(itoa(nt))//'.vtk', status = 'unknown')
        write(8,'(a)') '# vtk DataFile Version 3.0'
@@ -1827,6 +1832,7 @@ endif
          ENDIF 
 
          t_end = get_timestamp()
+        print *,'finished timestep ',nt, get_elapsed_time( t_start, t_end )
 
        ENDDO
 
@@ -2799,7 +2805,7 @@ SUBROUTINE GetLaplacian(HuynhSolver_type, Vortin, psi, A_handle, P_handle, S_han
        type(APLLES_PreconHandleType) :: P_handle
        type(APLLES_SolverHandleType) :: S_handle
 
-       type(timer_type) :: t_start, t_end
+       type(timer_type) :: t_start, t_end, t_middle
 
 interface
   subroutine get_laplacian_c( Vort, Psi, BndrySrc, BndryVals ) &
@@ -2868,6 +2874,8 @@ end interface
        ENDDO
 !      print *, 'temp2: ', sqrt( sum( b**2 ) ), maxval( abs(b) )
 
+       t_middle = get_timestamp()
+
        ierr = APLLES_Solve(A_handle, x, b, S_handle, P_handle)
 
 !      print *, 'solved: ', ierr, sqrt( sum( x**2 ) ), maxval( abs(x) )
@@ -2885,7 +2893,8 @@ end interface
        deAllocate (x, b)
 
        t_end = get_timestamp()
-       print *, 'aplles solver: ', get_elapsed_time( t_start, t_end )
+       print *, 'aplles solver: ', get_elapsed_time( t_start, t_middle ), &
+                                   get_elapsed_time( t_middle, t_end )
 
        call get_laplacian_c( Vortin, psi, BndrySrc, BC_Values )
   
@@ -3162,7 +3171,12 @@ SUBROUTINE GetDiffusedFlux(HuynhSolver_type, Phi, LapPhi)
        comPhi = 0.d0
        comGradPhi = 0.d0
 
+!$omp parallel private( i, j, jx, jy, el, eln, ijP, ijPm, idir, ibnd )&
+!$omp&         private( f_tilda, g_tilda, f_tildaB, g_tildaB, du_dxsi, du_deta )
+
        ! Extrapolate the unknown, uin, and its derivative to the mesh boundaries using Lagrange polynomials of order Knod-1
+
+!$omp  do
        DO el = 1, Nel
          DO j = 1, Knod
 
@@ -3200,6 +3214,8 @@ SUBROUTINE GetDiffusedFlux(HuynhSolver_type, Phi, LapPhi)
          ! Get the common values of Phi at the mesh interfaces (we use simple averaging in this case)
          ! We definitely need a more efficient strategy - right now we're saving com-s twice, and can probably save on bndrGradPhi as well
          ! We probably can and should write a more compact method so that we don't repeat the same stuff for NEWS (which becomes messier for NEWSBT in 3D)
+
+!$omp    do
          DO el = 1, Nel
 
            ijP = 0
@@ -3334,6 +3350,8 @@ SUBROUTINE GetDiffusedFlux(HuynhSolver_type, Phi, LapPhi)
          ENDDO
 
        ENDDO
+
+!$omp end parallel
   
 END SUBROUTINE GetDiffusedFlux
 

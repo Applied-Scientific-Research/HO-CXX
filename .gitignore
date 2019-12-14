@@ -6,6 +6,7 @@
 *.lo
 *.o
 *.obj
+*.optrpt
 
 # Precompiled Headers
 *.gch
@@ -30,3 +31,8 @@
 *.exe
 *.out
 *.app
+
+# Test problem output
+Test_Package/Problem*.csv
+Test_Package/Problem*.stat
+Test_Package/*.vtk

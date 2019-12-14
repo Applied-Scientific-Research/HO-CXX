@@ -10,6 +10,8 @@ F90FLAGS= $(DBG) $(OPT)
 MODFLAGS=
 CXX	?= g++
 CXXFLAGS= $(DBG) $(OPT) -std=c++17
+LDFLAGS	= $(OMP)
+LIBS	=
 
 ifeq ($(F90),gfortran)
   F90FLAGS += -mtune=native -ffixed-line-length-none #-ffpe-summary='none'
@@ -24,9 +26,6 @@ endif
 ifeq ($(CXX),icpc)
   CXXFLAGS += -xHost -Wno-unknown-pragmas
 endif
-
-LDFLAGS = $(OMP)
-LIBS    =
 
 CXXSRC	= ../cxx/laplacian.cpp
 OBJS	= $(CXXSRC:.cpp=.o)
@@ -89,10 +88,10 @@ aplles_interface_fortran_mp.o: $(APLLES_DIR)/user/aplles_interface_fortran.F90
 	$(F90) $(OMP) $(F90FLAGS) $< -c -o $@
 
 seq: $(MODS) VTM.o $(OBJS) $(APLLES_OBJS)
-	$(F90) $(F90FLAGS) -o VTM $^ $(LDFLAGS) $(APLLES_LIBS) $(APLLES_LINK_FLAGS)
+	$(F90) $(F90FLAGS) -o VTM $^ $(LDFLAGS) $(LIBS) $(APLLES_LIBS) $(APLLES_LINK_FLAGS)
 
 omp: $(MODS_MP) VTM_mp.o $(OBJS_MP) $(APLLES_OBJS)
-	$(F90) $(OMP) $(F90FLAGS) -o VTM_mp $^ $(LDFLAGS) $(APLLES_MT_LIBS) $(APLLES_LINK_FLAGS)
+	$(F90) $(OMP) $(F90FLAGS) -o VTM_mp $^ $(LDFLAGS) $(LIBS) $(APLLES_MT_LIBS) $(APLLES_LINK_FLAGS)
 
 clean:
 	/bin/rm -fv *.o $(OBJS) $(OBJS_MP) *.mod $(DEPS)
