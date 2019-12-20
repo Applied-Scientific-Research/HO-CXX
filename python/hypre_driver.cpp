@@ -81,7 +81,7 @@ struct SolverParams
    int k;
    int two_norm;
 
-   SolverParams() : max_iters(100), rtol(1e-8), atol(0), verbosity(1), normb(1), k(16), two_norm(1) {}
+   SolverParams() : max_iters(100), rtol(1e-8), atol(0), verbosity(0), normb(1), k(16), two_norm(1) {}
 };
 
 SolverParams solver_params;
@@ -102,7 +102,7 @@ bool compareStrings( const std::string a, const std::string b )
 
 struct SolverType
 {
-   enum Tags : int { GMRES = 1, FlexGMRES, BiCGSTAB, BoomerAMG, DiagScaling };
+   enum Tags : int { None, GMRES, FlexGMRES, BiCGSTAB, BoomerAMG, DiagScaling };
    static std::vector< std::string > Names;
 
    static std::string getName( Tags tag )
@@ -135,36 +135,57 @@ struct SolverType
       return getTag(-1);
    }
 
-   typedef HYPRE_Int (*Destructor)( HYPRE_Solver solver );
+   typedef HYPRE_Int (*DestructorFcn)( HYPRE_Solver solver );
+   typedef HYPRE_Int (*GetNumIterationsFcn)( HYPRE_Solver solver, int* );
 
    Tags tag;
    HYPRE_Solver object;
+
    HYPRE_PtrToSolverFcn solve;
    HYPRE_PtrToSolverFcn setup;
-
-   Destructor destruct;
+   DestructorFcn destructor;
    SolverType *precon;
+   GetNumIterationsFcn getNumIterationsFcn;
+
+   int getNumIterations(void)
+   {
+      if (this->getNumIterationsFcn)
+      {
+         int n;
+         this->getNumIterationsFcn( this->object, &n );
+         return n;
+      }
+      else
+         return -1;
+   }
+
+   void setNumIterationsFcn( GetNumIterationsFcn fp )
+   {
+      this->getNumIterationsFcn = fp;
+   }
+
+   SolverType(void)
+      : tag(None), object(NULL), solve(NULL), setup(NULL), destructor(NULL), precon(NULL), getNumIterationsFcn(NULL)
+   {}
 
    SolverType(Tags tag, HYPRE_Solver obj,
                               HYPRE_PtrToSolverFcn solve,
                               HYPRE_PtrToSolverFcn setup,
-                              Destructor destruct,
+                              DestructorFcn destructor,
               SolverType* precon = NULL)
-      : tag(tag), object(obj), solve(solve), setup(setup), destruct(destruct), precon(precon)
+      : tag(tag), object(obj), solve(solve), setup(setup), destructor(destructor), precon(precon), getNumIterationsFcn(NULL)
    {}
 
    ~SolverType()
    {
       std::cout << "Destroying " << this << " with tag: " << int(this->tag) << " name: " << this->name() << "\n";
       if ( this->object ) {
-         this->destruct( this->object );
+         this->destructor( this->object );
          this->object = NULL;
       }
    }
 
    std::string name(void) const { return getName( this->tag ); }
-private:
-   SolverType(void);
 };
 
 std::vector< std::string > SolverType::Names = { "none", "GMRES", "FlexGMRES", "BiCGSTAB", "BoomerAMG", "DiagScaling" };
@@ -181,6 +202,7 @@ SolverType create_BoomerAMG( int argc, char* argv[], const bool as_precon = true
    int interp_type = 6; // extended classical
    double theta = 0.25;
    double trunc_factor = 0.; // truncation factor for coarsening.
+   double agg_trunc_factor = 0.; // aggressive truncation factor for interpolation.
 
    for (int arg_index = 0; arg_index < argc; arg_index++ )
    {
@@ -246,6 +268,10 @@ SolverType create_BoomerAMG( int argc, char* argv[], const bool as_precon = true
       {
          trunc_factor = atof(argv[ ++arg_index ]);
       }
+      else if ( strcmp(argv[arg_index], "-agg_trunc_factor") == 0 )
+      {
+         agg_trunc_factor = atof(argv[ ++arg_index ]);
+      }
    }
 
    /* Now set up the AMG preconditioner and specify any parameters */
@@ -258,7 +284,8 @@ SolverType create_BoomerAMG( int argc, char* argv[], const bool as_precon = true
    HYPRE_BoomerAMGSetInterpType(solver, interp_type);
    HYPRE_BoomerAMGSetStrongThreshold( solver, theta ); // strong threshold
 
-   HYPRE_ParCSRHybridSetTruncFactor(solver, trunc_factor);
+   HYPRE_BoomerAMGSetTruncFactor(solver, trunc_factor);
+   HYPRE_BoomerAMGSetAggTruncFactor(solver, agg_trunc_factor);
 
    HYPRE_BoomerAMGSetNumSweeps(solver, 1);
    HYPRE_BoomerAMGSetCycleNumSweeps(solver, 1, 3); // # coarse solves
@@ -280,11 +307,14 @@ SolverType create_BoomerAMG( int argc, char* argv[], const bool as_precon = true
       printf("rt: %d %d %d %d\n", rt[0], rt[1], rt[2], rt[3]);
    }
 
-   return SolverType( SolverType::BoomerAMG,
-                      solver, 
-                      (HYPRE_PtrToSolverFcn) HYPRE_BoomerAMGSolve,
-                      (HYPRE_PtrToSolverFcn) HYPRE_BoomerAMGSetup,
-                      HYPRE_BoomerAMGDestroy );
+   SolverType st( SolverType::BoomerAMG,
+                  solver, 
+                  (HYPRE_PtrToSolverFcn) HYPRE_BoomerAMGSolve,
+                  (HYPRE_PtrToSolverFcn) HYPRE_BoomerAMGSetup,
+                  HYPRE_BoomerAMGDestroy );
+   st.setNumIterationsFcn( HYPRE_BoomerAMGGetNumIterations );
+
+   return st;
 }
 
 SolverType create_DiagScaling(void)
@@ -325,12 +355,16 @@ SolverType create_GMRES( int argc, char* argv[], SolverType *precon )
                              (HYPRE_PtrToSolverFcn) precon->setup,
                              (HYPRE_Solver) precon->object );
 
-   return SolverType( SolverType::GMRES,
+   SolverType st( SolverType::GMRES,
                       solver,
                       (HYPRE_PtrToSolverFcn) HYPRE_ParCSRGMRESSolve,
                       (HYPRE_PtrToSolverFcn) HYPRE_ParCSRGMRESSetup,
                       HYPRE_ParCSRGMRESDestroy,
                       precon );
+
+   st.setNumIterationsFcn( HYPRE_GMRESGetNumIterations );
+
+   return st;
 }
 
 SolverType create_FlexGMRES( int argc, char* argv[], SolverType *precon )
@@ -352,12 +386,16 @@ SolverType create_FlexGMRES( int argc, char* argv[], SolverType *precon )
                              (HYPRE_PtrToSolverFcn) precon->setup,
                              (HYPRE_Solver) precon->object );
 
-   return SolverType( SolverType::FlexGMRES,
+   SolverType st( SolverType::FlexGMRES,
                       solver,
                       (HYPRE_PtrToSolverFcn) HYPRE_ParCSRFlexGMRESSolve,
                       (HYPRE_PtrToSolverFcn) HYPRE_ParCSRFlexGMRESSetup,
                       HYPRE_ParCSRFlexGMRESDestroy,
                       precon );
+
+   st.setNumIterationsFcn( HYPRE_FlexGMRESGetNumIterations );
+
+   return st;
 }
 
 SolverType create_BiCGSTAB( int argc, char* argv[], SolverType *precon )
@@ -378,12 +416,16 @@ SolverType create_BiCGSTAB( int argc, char* argv[], SolverType *precon )
                              (HYPRE_PtrToSolverFcn) precon->setup,
                              (HYPRE_Solver) precon->object );
 
-   return SolverType( SolverType::BiCGSTAB,
+   SolverType st( SolverType::BiCGSTAB,
                       solver,
                       (HYPRE_PtrToSolverFcn) HYPRE_ParCSRBiCGSTABSolve,
                       (HYPRE_PtrToSolverFcn) HYPRE_ParCSRBiCGSTABSetup,
                       HYPRE_ParCSRBiCGSTABDestroy,
                       precon );
+
+   st.setNumIterationsFcn( HYPRE_BiCGSTABGetNumIterations );
+
+   return st;
 }
 
 SolverType create_solver( std::string name, SolverType* precon, int argc, char* argv[] )
@@ -738,7 +780,7 @@ int main( int argc, char* argv[] )
 
       auto t_end = getTimestamp();
 
-      printf("Solve time (ms): %f\n", getElapsedTime( t_start, t_end ));
+      printf("Solve time (ms): %f %d\n", getElapsedTime( t_start, t_end ), solver.getNumIterations() );
 
       normr = compute_normr();
       if (mpi_id == 0)
