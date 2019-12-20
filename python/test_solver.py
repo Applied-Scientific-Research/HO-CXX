@@ -213,48 +213,56 @@ class block_diagonal_precond:
             print("shape does not conform to blocksize {} {} {}".format( shape[0], shape[1], bs ))
             sys.exit(1)
 
-        Ablk = sp.bsr_matrix( A, blocksize=(bs,bs) )
+        if bs == 1:
 
-        print("Ablk: ", Ablk.shape, Ablk.nnz, Ablk.blocksize)
+            aii = A.diagonal()
+            self.A = A
+            self.Dinv = np.reciprocal( aii )
 
-        t_start = timestamp()
+        else:
 
-        nbrows = Ablk.shape[0] // bs
-        _Dinv = []
-        for brow in range( nbrows ):
-            k0 = Ablk.indptr[brow]
-            nbcols = Ablk.indptr[brow+1] - k0
-            #if brow % 100 == 0:
-            #    print("brow: ", brow, k0, nbcols)
-            for k in range(nbcols):
-                #print("  {}".format( Ablk.indices[k0+k] ))
-                if Ablk.indices[k0+k] == brow:
-                    binv = linalg.inv( Ablk.data[k0+k] )
-                    _Dinv.append(binv)
-                    #print("  {}".format( binv ))
+            Ablk = sp.bsr_matrix( A, blocksize=(bs,bs) )
 
-        Dinv = np.asarray(_Dinv)
+            print("Ablk: ", Ablk.shape, Ablk.nnz, Ablk.blocksize)
 
-        nrows = A.shape[0]
-        indptr = np.arange( nbrows+1 )
-        indices = np.arange( nbrows )
-        print(indptr)
-        print(indices)
+            t_start = timestamp()
 
-        self.A = Ablk
-        self.Dinv = sp.bsr_matrix( (Dinv, indices, indptr), blocksize=(bs,bs) )#shape=Ablk.shape, blocksize=bs )
+            nbrows = Ablk.shape[0] // bs
+            _Dinv = []
+            for brow in range( nbrows ):
+                k0 = Ablk.indptr[brow]
+                nbcols = Ablk.indptr[brow+1] - k0
+                #if brow % 100 == 0:
+                #    print("brow: ", brow, k0, nbcols)
+                for k in range(nbcols):
+                    #print("  {}".format( Ablk.indices[k0+k] ))
+                    if Ablk.indices[k0+k] == brow:
+                        binv = linalg.inv( Ablk.data[k0+k] )
+                        _Dinv.append(binv)
+                        #print("  {}".format( binv ))
 
-        t_stop = timestamp()
-        print("block-diagonal build: ", t_stop - t_start)
-        #print(Dinv.shape)
-        #print(self.Dinv)
+            Dinv = np.asarray(_Dinv)
+
+            nrows = A.shape[0]
+            indptr = np.arange( nbrows+1 )
+            indices = np.arange( nbrows )
+            print(indptr)
+            print(indices)
+
+            self.A = Ablk
+            self.Dinv = sp.bsr_matrix( (Dinv, indices, indptr), blocksize=(bs,bs) )#shape=Ablk.shape, blocksize=bs )
+
+            t_stop = timestamp()
+            print("block-diagonal build: ", t_stop - t_start)
+            #print(Dinv.shape)
+            #print(self.Dinv)
 
     def M(self):
 
         def M_op(x):
             return self.Dinv * x
 
-        M = sp.linalg.LinearOperator( self.Dinv.shape, M_op )
+        M = sp.linalg.LinearOperator( self.A.shape, M_op )
 
         return M
 
@@ -705,6 +713,13 @@ def create_preconditioner( A = None, params = Parameters(), opts = {} ):
 
         return sp.linalg.LinearOperator( A.shape, M_op)
 
+    elif precon == 'diag':
+
+        M = block_diagonal_precond( A, bs=1 )
+
+        print("Instantiated scalar diagonal preconditioner")
+        return M.M()
+
     elif precon == 'block-diag':
 
         M = block_diagonal_precond( A, bs=9 )
@@ -1053,8 +1068,8 @@ def create_preconditioner( A = None, params = Parameters(), opts = {} ):
         if package is not None and package == 'pyamgcl':
             use_pyamg = False
 
-        #amg_type = 'ruge_stuben'
-        amg_type = 'smoothed_aggregation'
+        amg_type = 'ruge_stuben'
+        #amg_type = 'smoothed_aggregation'
 
         print("Matrix format: ", type(A))
 
@@ -1114,7 +1129,7 @@ def create_preconditioner( A = None, params = Parameters(), opts = {} ):
             #print(ml_new)
             #M = ml_new.aspreconditioner()
 
-            if False:
+            if True:
                 ml_gpu = my_vcycle.amg_solver_gpu(ml.levels, use_device=params.use_gpu)
                 print(ml_gpu)
                 M = ml_gpu.aspreconditioner()
@@ -1354,6 +1369,13 @@ def main( argv ):
 
     normb = linalg.norm( b )
     print("normb = {}".format(normb))
+
+    if True:
+        x1 = np.ones_like(b)
+        print("norm(Ax-b) with x=1: {}".format( linalg.norm( b - A*x1 ) ) )
+
+        x0 = np.zeros_like(b)
+        print("norm(Ax-b) with x=0: {}".format( linalg.norm( b - A*x0 ) ) )
     
     verbose = (params.verbosity > 0)
 
@@ -1442,21 +1464,24 @@ def main( argv ):
             time_end = timestamp()
             run_time += (time_end - time_start)
             num_tests += 1
+
+            niters = S.monitor.niters
+    
             if info != 0:
                 break
-    
-            niters = S.monitor.niters
     
             if max_tests > 1:
                 print("test {} finished in {:.2f} ms".format( num_tests, 1000.*(time_end-time_start) ))
     
-        if info > 0:
-            print("Failed to solve the problem in {} iterations {} and {} (ms)".format( info, linalg.norm( residual(x) ), 1000.*run_time) )
-        elif info < 0:
+        if info < 0:
             print("Error: invalid input parameter")
             sys.exit(10)
         else:
-            print("Solved linear system {} times in {} iterations and {:.2f} ms (per-iteration {:.2f})".format( num_tests, niters, 1000.*run_time/num_tests, (1000.*run_time/num_tests)/niters))
+            status = "Failed to"
+            if info == 0:
+               status = "Solved"
+
+            print("{} linear system {} times in {} iterations and {:.2f} ms (per-iteration {:.2f})".format( status, num_tests, niters, 1000.*run_time/num_tests, (1000.*run_time/num_tests)/niters))
     
             if S.monitor.residuals is not None and params.verbosity > 1:
                 print("Residuals:")
