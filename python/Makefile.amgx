@@ -1,0 +1,25 @@
+AMGXDIR ?= ../../amgx/nompi
+
+NVCC    ?= nvcc
+NVFLAGS = -g -std=c++11
+LDFLAGS =
+
+AMGX_FLAGS = -I$(AMGXDIR)/include
+AMGX_LIBS  = -lamgx -L$(AMGXDIR)/lib -lcusparse -lcublas -lcusolver -lcudart -L$(CUDADIR)/lib64
+
+
+all: amgx_driver
+
+clean:
+	-rm -f amgx_driver amgx_driver.o
+
+.SUFFIXES:
+
+-include *.d
+
+%.o: %.cpp
+	$(NVCC) -x cu $(NVFLAGS) $(AMGX_FLAGS) -c -o $@ $<
+	$(NVCC) -x cu $(NVFLAGS) $(AMGX_FLAGS) -MM $< >$*.d
+
+amgx_driver: amgx_driver.o
+	$(NVCC) $(NVFLAGS) $(AMGX_FLAGS) $(LDFLAGS) -o $@ $^ $(AMGX_LIBS)
