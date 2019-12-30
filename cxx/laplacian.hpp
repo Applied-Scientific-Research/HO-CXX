@@ -18,13 +18,7 @@
 #include "basis.hpp"
 #include "geometry.hpp"
 
-#ifdef ENABLE_EIGEN
-# include "eigen.hpp"
-#endif
-
-#ifdef ENABLE_AMGCL
-# include "amgcl.hpp"
-#endif
+#include "linsolver.hpp"
 
 namespace HighOrderFEM
 {
@@ -49,13 +43,16 @@ struct LaplacianType
    DynamicArrayType< StaticArrayType< value_type[K] > > bndryVal;
 
 #ifdef ENABLE_AMGCL
-   typedef LinearSolver::AMGCL_SolverType linear_solver_type;
-#else
-#error 'No linear solve specified'
+   typedef LinearSolver::AMGCL_SolverType amgcl_solver_type;
+   std::shared_ptr< amgcl_solver_type > amgcl_solver;
 #endif
 
+#ifdef ENABLE_EIGEN
+   typedef LinearSolver::EigenSolver eigen_solver_type;
+   std::shared_ptr< eigen_solver_type > eigen_solver;
+#endif
 
-   std::shared_ptr< linear_solver_type > linear_solver;
+   std::shared_ptr< LinearSolver::BaseLinearSolver > linear_solver;
 
    LaplacianType( const GeometryType<K,L,value_type>& geo )
       : geometry(geo)
@@ -353,12 +350,15 @@ struct LaplacianType
       std::cout << "nrows: " << nrows << std::endl;
       std::cout << "nnz:   " << nnz << std::endl;
 
+#ifdef ENABLE_AMGCL
+
       // Construct the AMGCL solver/preconditioner.
       auto A = std::tie( nrows, rowptr,
                                 colidx,
                                 values );
 
-      this->linear_solver = std::make_shared< linear_solver_type >( A );
+      this->amgcl_solver = std::make_shared< amgcl_solver_type >( A );
+#endif
 
       static bool write_matrix = true;
       if (write_matrix) {
@@ -375,7 +375,9 @@ struct LaplacianType
 
 #ifdef ENABLE_EIGEN
       {
-         build_eigen( nrows, rowptr.data(), colidx.data(), values.data() );
+         this->eigen_solver = std::make_shared< eigen_solver_type > ();
+         this->eigen_solver->build( nrows, rowptr.data(), colidx.data(), values.data() );
+         this->linear_solver = this->eigen_solver;
       }
 #endif
 
@@ -459,7 +461,7 @@ struct LaplacianType
 
       auto t_middle = getTimeStamp();
 
-      int ierr = (*this->linear_solver)( xflat, bflat );
+      int ierr = (*this->amgcl_solver)( xflat, bflat );
 
       VectorType psi(Nel);
 
@@ -482,9 +484,8 @@ struct LaplacianType
       }
 
 #ifdef ENABLE_EIGEN
-      {
-         test_eigen( nrows, bflat.data(), xflat.data() );
-      }
+      //this->eigen_solver->solve( bflat.data(), NULL, xflat.data() );
+      this->linear_solver->solve( bflat.data(), NULL, xflat.data() );
 #endif
 
       return psi;

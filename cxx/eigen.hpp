@@ -9,6 +9,13 @@
 
 #include "my_IncompleteLUT.h"
 
+#include "linsolver.hpp"
+
+namespace HighOrderFEM
+{
+namespace LinearSolver
+{
+
 namespace details
 {
 
@@ -47,45 +54,52 @@ std::shared_ptr< Eigen::MappedSparseMatrix<ValueType, Eigen::RowMajor, IndexType
    return A;
 }
 
-struct EigenSolver
-{
-   typedef double value_type;
-   typedef int    index_type;
+} // details
 
-   typedef Eigen::SparseMatrix<value_type>              matrix_type;
+struct EigenSolver : BaseLinearSolver
+{
+   typedef Eigen::SparseMatrix<value_type> matrix_type;
 
    typedef Eigen::BiCGSTAB< matrix_type, Eigen::my_IncompleteLUT<value_type> > solver_type;
 
    solver_type solver;
    matrix_type A;
 
-   double abstol, reltol;
-   int maxiters;
    double fill_factor, droptol;
 
-   template <typename IndexType, typename ValueType>
-   EigenSolver( const size_t nrows, IndexType* rowptr, IndexType* colidx, ValueType* values )
-      : abstol(1e-10), reltol(0), maxiters(200), fill_factor(10), droptol(1e-5),
-        solver()
+   EigenSolver()
+      : fill_factor(10), droptol(1e-5),
+        solver(),
+        BaseLinearSolver( LinearSolverTag::EIGEN )
    {
-      this->solver.preconditioner().setFillfactor( 10 );
-      this->solver.preconditioner().setDroptol( 1e-5 );
-
-      this->build( nrows, rowptr, colidx, values );
+      std::cout << "EigenSolver: " << this << std::endl;
    }
 
    ~EigenSolver()
    {
-      std::cout << "~EigenSolver" << std::endl;
+      std::cout << "~EigenSolver: " << this << std::endl;
    }
 
-   template <typename IndexType, typename ValueType>
-   int build( const size_t nrows, IndexType* rowptr, IndexType* colidx, ValueType* values )
+   void setFillFactor( const double fill_factor )
+   {
+      this->fill_factor = fill_factor;
+   }
+   void setDropTol( const double droptol )
+   {
+      this->droptol = droptol;
+   }
+
+   int build( const index_type nrows, index_type* rowptr, index_type* colidx, value_type* values )
    {
       using HighOrderFEM::getTimeStamp;
       using HighOrderFEM::getElapsedTime;
 
-      auto A_map = build_eigen_matrix( nrows, rowptr, colidx, values );
+      this->num_rows = nrows;
+
+      this->solver.preconditioner().setFillfactor( this->fill_factor );
+      this->solver.preconditioner().setDroptol( this->droptol );
+
+      auto A_map = details::build_eigen_matrix( nrows, rowptr, colidx, values );
 
       this->A = *A_map;
 
@@ -93,17 +107,16 @@ struct EigenSolver
       this->solver.compute( this->A ); // Compute the ILUT factorization and other solver/precond initializations.
       auto t_stop_compute = getTimeStamp();
 
-      std::cout << "Build info: " << (solver.preconditioner().info() == Eigen::Success) << std::endl;
-      std::cout << "Build time: " << getElapsedTime( t_start_compute, t_stop_compute ) << std::endl;
+      std::cout << "Eigen Build info: " << (solver.preconditioner().info() == Eigen::Success) << std::endl;
+      std::cout << "Eigen Build time: " << getElapsedTime( t_start_compute, t_stop_compute ) << std::endl;
 
       auto LU_nnz = solver.preconditioner().m_lu.nonZeros();
-      std::cout << "fill factor: " << double(LU_nnz) / this->A.nonZeros() << std::endl;
+      std::cout << "Eigen fill factor: " << double(LU_nnz) / this->A.nonZeros() << std::endl;
 
       return (solver.preconditioner().info() == Eigen::Success);
    }
 
-   template < typename ValueType >
-   int solve ( const size_t nrows, const ValueType* fp, const ValueType* up = NULL )
+   int solve ( const value_type* fp, value_type* up, const value_type* u0 = NULL )
    {
       using namespace Eigen;
       using HighOrderFEM::getTimeStamp;
@@ -111,7 +124,7 @@ struct EigenSolver
 
       std::cout << "Inside EigenSolver::solve" << std::endl;
 
-      Map<const VectorXd> f_map(fp, nrows);
+      Map<const VectorXd> f_map(fp, this->num_rows);
       VectorXd f = f_map;
 
       auto normf = f.norm();
@@ -131,6 +144,11 @@ struct EigenSolver
 
       bool failed = solver.info() != Eigen::Success;
 
+      //Map<VectorXd> u_map(up, this->num_rows);
+      //VectorXd u_out = u_map;
+      //for (int i = 0; i < num_rows; ++i)
+      //   u_out[i] = u[i];
+
       if (failed)
          std::cout << "Solver failed to converge!" << std::endl;
 
@@ -147,22 +165,7 @@ struct EigenSolver
    }
 };
 
-std::shared_ptr< EigenSolver > eigen_solver;
-
-} // namespace details
-
-template <typename IndexType, typename ValueType>
-void build_eigen ( const size_t nrows, IndexType* rowptr, IndexType* colidx, ValueType* values )
-{
-   details::eigen_solver = std::make_shared< details::EigenSolver > ( nrows, rowptr, colidx, values );
-
-   return;
-}
-
-template <typename ValueType>
-int test_eigen ( const size_t nrows, const ValueType* fp, const ValueType* up )
-{
-   return details::eigen_solver->solve( nrows, fp, up );
-}
+} // LinearSolver
+} // HighOrder
 
 #endif
