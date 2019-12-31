@@ -7,8 +7,6 @@
 #include <Eigen/SparseCore>
 #include <Eigen/IterativeLinearSolvers>
 
-#include "my_IncompleteLUT.h"
-
 #include "linsolver.hpp"
 
 namespace HighOrderFEM
@@ -49,7 +47,7 @@ std::shared_ptr< Eigen::MappedSparseMatrix<ValueType, Eigen::RowMajor, IndexType
    /// Copy matrix from builtin backend.
    auto A = std::make_shared< matrix_type > ( nrows, ncols, nnz, rowptr, colidx, values );
 
-   print_info ( *A );
+   //print_info ( *A );
 
    return A;
 }
@@ -60,7 +58,8 @@ struct EigenSolver : BaseLinearSolver
 {
    typedef Eigen::SparseMatrix<value_type> matrix_type;
 
-   typedef Eigen::BiCGSTAB< matrix_type, Eigen::my_IncompleteLUT<value_type> > solver_type;
+   typedef Eigen::IncompleteLUT<value_type> precon_type;
+   typedef Eigen::BiCGSTAB< matrix_type, precon_type > solver_type;
 
    solver_type solver;
    matrix_type A;
@@ -80,16 +79,12 @@ struct EigenSolver : BaseLinearSolver
       std::cout << "~EigenSolver: " << this << std::endl;
    }
 
-   void setFillFactor( const double fill_factor )
-   {
-      this->fill_factor = fill_factor;
-   }
-   void setDropTol( const double droptol )
-   {
-      this->droptol = droptol;
-   }
+   void setFillFactor( const double fill_factor ) { this->fill_factor = fill_factor; }
+   void setDropTol( const double droptol ) { this->droptol = droptol; }
 
-   int build( const index_type nrows, index_type* rowptr, index_type* colidx, value_type* values )
+   int build( const index_type nrows, const std::vector<index_type>& rowptr,
+                                      const std::vector<index_type>& colidx,
+                                      const std::vector<value_type>& values )
    {
       using HighOrderFEM::getTimeStamp;
       using HighOrderFEM::getElapsedTime;
@@ -99,7 +94,9 @@ struct EigenSolver : BaseLinearSolver
       this->solver.preconditioner().setFillfactor( this->fill_factor );
       this->solver.preconditioner().setDroptol( this->droptol );
 
-      auto A_map = details::build_eigen_matrix( nrows, rowptr, colidx, values );
+      auto A_map = details::build_eigen_matrix( nrows, const_cast<index_type*>(rowptr.data()),
+                                                       const_cast<index_type*>(colidx.data()),
+                                                       const_cast<value_type*>(values.data()) );
 
       this->A = *A_map;
 
@@ -110,30 +107,30 @@ struct EigenSolver : BaseLinearSolver
       std::cout << "Eigen Build info: " << (solver.preconditioner().info() == Eigen::Success) << std::endl;
       std::cout << "Eigen Build time: " << getElapsedTime( t_start_compute, t_stop_compute ) << std::endl;
 
-      auto LU_nnz = solver.preconditioner().m_lu.nonZeros();
-      std::cout << "Eigen fill factor: " << double(LU_nnz) / this->A.nonZeros() << std::endl;
+      //auto LU_nnz = solver.preconditioner().m_lu.nonZeros();
+      //std::cout << "Eigen fill factor: " << double(LU_nnz) / this->A.nonZeros() << std::endl;
 
       return (solver.preconditioner().info() == Eigen::Success);
    }
 
-   int solve ( const value_type* fp, value_type* up, const value_type* u0 = NULL )
+   int solve ( const std::vector<value_type>& fv, std::vector<value_type>& out )
    {
       using namespace Eigen;
       using HighOrderFEM::getTimeStamp;
       using HighOrderFEM::getElapsedTime;
 
-      std::cout << "Inside EigenSolver::solve" << std::endl;
+      //std::cout << "Inside EigenSolver::solve" << std::endl;
 
-      Map<const VectorXd> f_map(fp, this->num_rows);
+      Map<const VectorXd> f_map(fv.data(), this->num_rows);
       VectorXd f = f_map;
 
       auto normf = f.norm();
-      std::cout << "norm(f): " << normf << std::endl;
+      //std::cout << "norm(f): " << normf << std::endl;
 
       this->reltol = this->abstol / normf; // to get abs tolerance in Eigen which only looks at reltol.
 
-      std::cout << "reltol: " << this->reltol << ", abstol: " << this->abstol << std::endl;
-      std::cout << "maxiters: " << this->maxiters << std::endl;
+      //std::cout << "reltol: " << this->reltol << ", abstol: " << this->abstol << std::endl;
+      //std::cout << "maxiters: " << this->maxiters << std::endl;
 
       solver.setTolerance( this->reltol );
       solver.setMaxIterations( this->maxiters );
@@ -148,18 +145,21 @@ struct EigenSolver : BaseLinearSolver
       //VectorXd u_out = u_map;
       //for (int i = 0; i < num_rows; ++i)
       //   u_out[i] = u[i];
+      for (int i = 0; i < num_rows; ++i)
+         out[i] = u[i];
 
       if (failed)
          std::cout << "Solver failed to converge!" << std::endl;
 
-      std::cout << "eigen solver time: " << getElapsedTime( t_start, t_stop ) << std::endl;
-      std::cout << "             tolr: " << solver.tolerance() << std::endl;
-      std::cout << "             erro: " << solver.error() << std::endl;
-      std::cout << "             iter: " << solver.iterations() << std::endl;
-
-      if (true)
-      std::cout << " true enorm: " << ( this->A * u - f ).norm() << std::endl;
-      std::cout << "\n";
+      if (this->verbosity > 1)
+      {
+         std::cout << "eigen solver time: " << getElapsedTime( t_start, t_stop ) << std::endl;
+         std::cout << "              tol: " << solver.tolerance() << std::endl;
+         std::cout << "            error: " << solver.error() << std::endl;
+         std::cout << "           niters: " << solver.iterations() << std::endl;
+         std::cout << "         ||Ax-b||: " << ( this->A * u - f ).norm() << std::endl;
+         std::cout << "\n";
+      }
 
       return not(failed);
    }

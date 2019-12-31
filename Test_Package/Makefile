@@ -1,6 +1,7 @@
 APLLES_DIR ?= ../../ApllesSolver
 AMGCL_INC ?= ../../amgcl/
 EIGEN3_INC ?= $(EIGEN_DIR)/include
+HYPRE_DIR ?= ../../hypre/
 
 OPT	= -O3
 OMP	= -fopenmp
@@ -41,11 +42,14 @@ include $(APLLES_DIR)/lib/Makefile.aplles
 F90FLAGS += $(APLLES_F90_MODULE)
 CXXFLAGS += -I $(APLLES_DIR)/user
 CXXFLAGS += -I ../cxx
-CXXFLAGS += -I $(AMGCL_INC) -DENABLE_AMGCL
+#CXXFLAGS += -I $(AMGCL_INC) -DENABLE_AMGCL
 #CXXFLAGS += -I $(APLLES_DIR)/include
-CXXFLAGS += -I $(EIGEN3_INC) -DENABLE_EIGEN
+#CXXFLAGS += -I $(EIGEN3_INC) -DENABLE_EIGEN
 CXXFLAGS += -I $(APLLES_DIR)/include
 CXXFLAGS += -Wfatal-errors
+
+CXXFLAGS += -I $(HYPRE_DIR)/include -DENABLE_HYPRE
+LDFLAGS  += -lHYPRE -L $(HYPRE_DIR)/lib
 
 ifeq ($(F90),gfortran)
   F90FLAGS += -I. -J.
@@ -65,7 +69,7 @@ aplles_interface_fortran.o: $(APLLES_DIR)/user/aplles_interface_fortran.F90
 aplles_interface_fortran_mp.o: $(APLLES_DIR)/user/aplles_interface_fortran.F90
 	$(F90) $(F90FLAGS) $(MODFLAGS) $< -c -o $@
 
--include $(DEPS)
+-include $(DEPS) $(DEPS_MP)
 
 %.o : %.cpp
 	$(CXX) $(CXXFLAGS) $< -c -o $@

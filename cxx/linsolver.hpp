@@ -61,12 +61,33 @@ struct BaseLinearSolver
 
    LinearSolverTag tag;
 
-   double abstol, reltol;
+   //!< Maximum # of iterations allowed by the iterative solver.
    int maxiters;
+
+   /*! Target tolerance normalized by the RHS norm:
+    * @f[
+    * \frac{|| Ax - f ||}{||f||} < relTol
+    * @f]
+    */
+   double reltol;
+
+   /*! Target absolute tolerance.
+    * @f[
+    * || Ax - f || < absTol
+    * @f]
+    */
+   double abstol;
+
+   //!< Krylov subspace dimension for GMRES (etc.)
+   int restart_k;
+
+   //!< Control the level of reporting. 0=none, 1=minimal, 2=very.
+   int verbosity;
+
    index_type num_rows;
 
    BaseLinearSolver( LinearSolverTag::Tag tag )
-      : abstol(1e-10), reltol(0), maxiters(200),
+      : abstol(1e-10), reltol(0), maxiters(200), verbosity(0), restart_k(16),
         tag(tag),
         num_rows(0)
    {
@@ -78,8 +99,24 @@ struct BaseLinearSolver
       std::cout << "~BaseLinearSolver: " << this << std::endl;
    }
 
-   virtual int build( const index_type num_rows, index_type* rowptr, index_type* colidx, value_type* values ) = 0;
-   virtual int solve ( const value_type* fp, value_type* up, const value_type* u0 = NULL ) = 0;
+   void setMaxIterations(const int max_iters) { this->maxiters = max_iters; }
+   int  getMaxIterations(void) const { return this->maxiters; }
+
+   void setRelativeTolerance(const double reltol) { this->reltol = reltol; }
+   void setAbsoluteTolerance(const double abstol) { this->abstol = abstol; }
+
+   double getRelativeTolerance(void) const { return this->reltol; }
+   double getAbsoluteTolerance(void) const { return this->abstol; }
+
+   void setVerbosity(const int level) { this->verbosity = level; }
+   int  getVerbosity(void) const { return this->verbosity; }
+
+   virtual int build( const index_type num_rows, const std::vector<index_type>& rowptr,
+                                                 const std::vector<index_type>& colidx,
+                                                 const std::vector<value_type>& values ) = 0;
+
+   virtual int solve ( const std::vector<value_type>& f, std::vector<value_type>& u ) = 0;
+   //virtual int solve ( const std::vector<value_type>& f, std::vector<value_type>& u, std::vector<value_type>& u0 ) = 0;
 };
 
 } // LinearSolver
@@ -91,6 +128,10 @@ struct BaseLinearSolver
 
 #ifdef ENABLE_AMGCL
 # include "amgcl.hpp"
+#endif
+
+#ifdef ENABLE_HYPRE
+# include "hypre.hpp"
 #endif
 
 #endif

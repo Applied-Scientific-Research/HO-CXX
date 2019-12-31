@@ -373,10 +373,8 @@ void sort_crs_rows( const int nrows, const R *rowptr, C *colidx, V *values )
 
 /* Hold the preconditioner and iterative solver for the AMGCL library.
  */
-struct AMGCL_SolverType
+struct AMGCLSolver : BaseLinearSolver
 {
-   typedef double value_type;
-
    typedef amgcl::backend::builtin<value_type> BackendType;		///< Primary back-end
    typedef amgcl::backend::builtin<float > mixed_BackendType;	///< Secondary back-end for the lower precision operations.
 
@@ -394,59 +392,52 @@ struct AMGCL_SolverType
    build_matrix system_matrix; //!< A native copy of the system matrix since the internal
                                //!< storage will be lower precision.
 
-   //!< Maximum # of iterations allowed by the iterative solver.
-   int maxiters;
-
-   /*! Target tolerance normalized by the RHS norm:
-    * @f[
-    * \frac{|| Ax - f ||}{||f||} < relTol
-    * @f]
-    */
-   double reltol;
-
-   /*! Target absolute tolerance.
-    * @f[
-    * || Ax - f || < absTol
-    * @f]
-    */
-   double abstol;
-
-   bool verbose;
+   decltype( details::load_amgcl_params() ) prm;
 
    /// Constructor accepts any valid input matrix format.
-   template <typename Matrix>
-   AMGCL_SolverType ( const Matrix& A ) : system_matrix(A)
+   AMGCLSolver (void) : BaseLinearSolver( LinearSolver::LinearSolverTag::AMGCL )
    {
-      //std::cout << "typeid(build_matrix): " << typeid(build_matrix).name() << std::endl;
+      std::cout << "AMGCLSolver: " << this << std::endl;
 
-      auto prm = details::load_amgcl_params();
+      this->prm = details::load_amgcl_params();
+   }
 
-      this->maxiters = prm.get("solver.maxiter", 0 );
-      this->reltol   = prm.get("solver.tol", 0.0 );
-      this->abstol   = prm.get("solver.abstol", 0.0 );
-      this->verbose  = prm.get("verbosity", 0 );
+   /// Constructor accepts any valid input matrix format.
+   int build( const index_type num_rows, const std::vector<index_type>& rowptr,
+                                         const std::vector<index_type>& colidx,
+                                         const std::vector<value_type>& values )
+   {
+      std::cout << "AMGCLSolver::build: " << typeid(build_matrix).name() << std::endl;
+
+      this->num_rows = num_rows;
+
+      auto A = std::tie( num_rows, rowptr,
+                                   colidx,
+                                   values );
+
+      this->system_matrix = A;
 
       auto t_build_start = getTimeStamp();
 
-      shared_solver = std::make_shared< MakeSolverType >( system_matrix, prm );
+      this->shared_solver = std::make_shared< MakeSolverType >( this->system_matrix, this->prm );
 
-      auto &P = shared_solver->precond();
-      shared_mixed_precon = std::make_shared< MixedPreconditionerType > ( P );
+      auto &P = this->shared_solver->precond();
+      this->shared_mixed_precon = std::make_shared< MixedPreconditionerType > ( P );
 
-      if ( this->verbose )
+      if ( this->verbosity )
       {
          auto t_build_stop = getTimeStamp();
 
-         std::cout << "Build time: " << getElapsedTime( t_build_start, t_build_stop ) << std::endl;
+         std::cout << "AMGCL Build time: " << getElapsedTime( t_build_start, t_build_stop ) << std::endl;
 
-         std::cout << "Solver: " << std::endl << shared_solver->solver() << std::endl;
-         std::cout << "Precon: " << std::endl << *shared_mixed_precon << std::endl;
+         std::cout << "AMGCL Solver: " << std::endl << shared_solver->solver() << std::endl;
+         std::cout << "AMGCL Precon: " << std::endl << *shared_mixed_precon << std::endl;
       }
    }
 
-   ~AMGCL_SolverType()
+   ~AMGCLSolver()
    {
-      std::cout << "~AMGCL_SolverType" << std::endl;
+      std::cout << "~AMGCLSolver: " << this << std::endl;
    }
 
    template <typename VectorX, typename VectorF>
@@ -474,17 +465,17 @@ struct AMGCL_SolverType
       auto niters = std::get<0>(ret);
       auto resid  = std::get<1>(ret);
 
-      if (verbose)
+      if (this->verbosity > 1)
       {
          size_t nrows = amgcl::backend::rows(A);
          std::vector<value_type> r(nrows);
          amgcl::backend::residual( f, A, x, r );
          auto norm_r = details::norm2( r, r );
 
-         std::cout << "Iterations: " << niters << std::endl
-                   << "Error:      " << resid << std::endl
-                   << "Norm(r):    " << norm_r << std::endl
-                   << "Solve time: " << getElapsedTime( t_start, t_stop ) << std::endl
+         std::cout << "AMGCL Iterations: " << niters << std::endl
+                   << "      Error:      " << resid << std::endl
+                   << "      Norm(r):    " << norm_r << std::endl
+                   << "      Solve time: " << getElapsedTime( t_start, t_stop ) << std::endl
                    << std::endl;
       }
 
@@ -492,10 +483,15 @@ struct AMGCL_SolverType
       return iret;
    }
 
-   template <typename X, typename F>
-   int operator()( X& x, const F& f )
+   //template <typename X, typename F>
+   //int operator()( X& x, const F& f )
+   //{
+   //   return this->apply( x, f );
+   //}
+
+   int solve( const std::vector<value_type>& f, std::vector<value_type>& u )
    {
-      return this->apply( x, f );
+      return this->apply( u, f );
    }
 };
 

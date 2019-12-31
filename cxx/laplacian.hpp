@@ -43,16 +43,24 @@ struct LaplacianType
    DynamicArrayType< StaticArrayType< value_type[K] > > bndryVal;
 
 #ifdef ENABLE_AMGCL
-   typedef LinearSolver::AMGCL_SolverType amgcl_solver_type;
-   std::shared_ptr< amgcl_solver_type > amgcl_solver;
+   typedef LinearSolver::AMGCLSolver amgcl_solver_type;
+   //std::shared_ptr< amgcl_solver_type > amgcl_solver;
+   amgcl_solver_type amgcl_solver;
 #endif
 
 #ifdef ENABLE_EIGEN
    typedef LinearSolver::EigenSolver eigen_solver_type;
-   std::shared_ptr< eigen_solver_type > eigen_solver;
+   //std::shared_ptr< eigen_solver_type > eigen_solver;
+   eigen_solver_type eigen_solver;
 #endif
 
-   std::shared_ptr< LinearSolver::BaseLinearSolver > linear_solver;
+#ifdef ENABLE_HYPRE
+   typedef LinearSolver::HypreSolver hypre_solver_type;
+   hypre_solver_type hypre_solver;
+#endif
+
+   //std::shared_ptr< LinearSolver::BaseLinearSolver > linear_solver;
+   LinearSolver::BaseLinearSolver *linear_solver;
 
    LaplacianType( const GeometryType<K,L,value_type>& geo )
       : geometry(geo)
@@ -353,11 +361,14 @@ struct LaplacianType
 #ifdef ENABLE_AMGCL
 
       // Construct the AMGCL solver/preconditioner.
-      auto A = std::tie( nrows, rowptr,
-                                colidx,
-                                values );
+      //auto A = std::tie( nrows, rowptr,
+      //                          colidx,
+      //                          values );
 
-      this->amgcl_solver = std::make_shared< amgcl_solver_type >( A );
+      //this->amgcl_solver = std::make_shared< amgcl_solver_type >( A );
+      //this->amgcl_solver = std::make_shared< amgcl_solver_type >( );
+      //this->amgcl_solver->build( nrows, rowptr, colidx, values );
+      this->amgcl_solver.build( nrows, rowptr, colidx, values );
 #endif
 
       static bool write_matrix = true;
@@ -375,9 +386,14 @@ struct LaplacianType
 
 #ifdef ENABLE_EIGEN
       {
-         this->eigen_solver = std::make_shared< eigen_solver_type > ();
-         this->eigen_solver->build( nrows, rowptr.data(), colidx.data(), values.data() );
-         this->linear_solver = this->eigen_solver;
+         this->eigen_solver.build( nrows, rowptr, colidx, values );
+      }
+#endif
+#ifdef ENABLE_HYPRE
+      {
+         //this->hypre_solver.setVerbosity(1);
+         this->hypre_solver.build( nrows, rowptr, colidx, values );
+         this->linear_solver = &this->hypre_solver;
       }
 #endif
 
@@ -461,7 +477,10 @@ struct LaplacianType
 
       auto t_middle = getTimeStamp();
 
-      int ierr = (*this->amgcl_solver)( xflat, bflat );
+      //int ierr = (*this->amgcl_solver)( xflat, bflat );
+      //int ierr = this->amgcl_solver->solve( bflat, xflat );
+      //int ierr = this->amgcl_solver.solve( bflat, xflat );
+      int ierr = this->linear_solver->solve( bflat, xflat );
 
       VectorType psi(Nel);
 
@@ -469,7 +488,7 @@ struct LaplacianType
 
       auto t_end = getTimeStamp();
 
-      printf("amgcl solver time: %d %f %f\n", ierr, getElapsedTime( t_start, t_middle ), getElapsedTime( t_middle, t_end ));
+      printf("linear solver time: %d %f %f (sec)\n", ierr, getElapsedTime( t_start, t_middle ), getElapsedTime( t_middle, t_end ));
 
       {
          static bool write_rhs = true;
@@ -483,9 +502,70 @@ struct LaplacianType
          }
       }
 
+#ifdef ENABLE_AMGCL
+      if (linear_solver != &amgcl_solver)
+      {
+         auto t_begin = getTimeStamp();
+
+         std::vector<value_type> _x(nrows);
+         int ierr = this->amgcl_solver.solve( bflat, _x );
+
+         auto t_end = getTimeStamp();
+         printf("amgcl solver time: %d %f (sec)\n", ierr, getElapsedTime( t_begin, t_end ));
+
+         double err2 = 0., ref2 = 0.;
+         for (int i = 0; i < nrows; ++i)
+         {
+            double diff = xflat[i] - _x[i];
+            err2 += diff*diff;
+            ref2 += xflat[i]*xflat[i];
+         }
+         printf("amgcl regtest: %e %e %e\n", sqrt(err2), sqrt(ref2), sqrt(err2/ref2));
+      }
+#endif
+
 #ifdef ENABLE_EIGEN
-      //this->eigen_solver->solve( bflat.data(), NULL, xflat.data() );
-      this->linear_solver->solve( bflat.data(), NULL, xflat.data() );
+      if (linear_solver != &eigen_solver)
+      {
+         auto t_begin = getTimeStamp();
+
+         std::vector<value_type> _x(nrows);
+         int ierr = this->eigen_solver.solve( bflat, _x );
+
+         auto t_end = getTimeStamp();
+         printf("eigen solver time: %d %f (sec)\n", ierr, getElapsedTime( t_begin, t_end ));
+
+         double err2 = 0., ref2 = 0.;
+         for (int i = 0; i < nrows; ++i)
+         {
+            double diff = xflat[i] - _x[i];
+            err2 += diff*diff;
+            ref2 += xflat[i]*xflat[i];
+         }
+         printf("eigen regtest: %e %e %e\n", sqrt(err2), sqrt(ref2), sqrt(err2/ref2));
+      }
+#endif
+
+#ifdef ENABLE_HYPRE
+      if (linear_solver != &hypre_solver)
+      {
+         auto t_begin = getTimeStamp();
+
+         std::vector<value_type> _x(nrows);
+         int ierr = this->hypre_solver.solve( bflat, _x );
+
+         auto t_end = getTimeStamp();
+         printf("hypre solver time: %d %f (sec)\n", ierr, getElapsedTime( t_begin, t_end ));
+
+         double err2 = 0., ref2 = 0.;
+         for (int i = 0; i < nrows; ++i)
+         {
+            double diff = xflat[i] - _x[i];
+            err2 += diff*diff;
+            ref2 += xflat[i]*xflat[i];
+         }
+         printf("hypre regtest: %e %e %e\n", sqrt(err2), sqrt(ref2), sqrt(err2/ref2));
+      }
 #endif
 
       return psi;
