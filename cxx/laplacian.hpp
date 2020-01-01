@@ -59,6 +59,11 @@ struct LaplacianType
    hypre_solver_type hypre_solver;
 #endif
 
+#ifdef ENABLE_APLLES
+   typedef LinearSolver::ApllesSolver aplles_solver_type;
+   aplles_solver_type aplles_solver;
+#endif
+
    //std::shared_ptr< LinearSolver::BaseLinearSolver > linear_solver;
    LinearSolver::BaseLinearSolver *linear_solver;
 
@@ -396,6 +401,11 @@ struct LaplacianType
          this->linear_solver = &this->hypre_solver;
       }
 #endif
+#ifdef ENABLE_APLLES
+      {
+         this->aplles_solver.build( nrows, rowptr, colidx, values );
+      }
+#endif
 
       return;
    }
@@ -565,6 +575,28 @@ struct LaplacianType
             ref2 += xflat[i]*xflat[i];
          }
          printf("hypre regtest: %e %e %e\n", sqrt(err2), sqrt(ref2), sqrt(err2/ref2));
+      }
+#endif
+
+#ifdef ENABLE_APLLES
+      if (linear_solver != &aplles_solver)
+      {
+         auto t_begin = getTimeStamp();
+
+         std::vector<value_type> _x(nrows);
+         int ierr = this->aplles_solver.solve( bflat, _x );
+
+         auto t_end = getTimeStamp();
+         printf("aplles solver time: %d %f (sec)\n", ierr, getElapsedTime( t_begin, t_end ));
+
+         double err2 = 0., ref2 = 0.;
+         for (int i = 0; i < nrows; ++i)
+         {
+            double diff = xflat[i] - _x[i];
+            err2 += diff*diff;
+            ref2 += xflat[i]*xflat[i];
+         }
+         printf("aplles regtest: %e %e %e\n", sqrt(err2), sqrt(ref2), sqrt(err2/ref2));
       }
 #endif
 

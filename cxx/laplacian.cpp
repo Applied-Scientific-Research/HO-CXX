@@ -15,11 +15,11 @@
 #include "geometry.hpp"
 #include "laplacian.hpp"
 
-#include "aplles_interface.h"
-#include "splib/csr_matrix.h"
-#include "splib/multiply.h"
-#include "splib/vector.h"
-#include "splib/spblas.h"
+//#include "aplles_interface.h"
+//#include "splib/csr_matrix.h"
+//#include "splib/multiply.h"
+//#include "splib/vector.h"
+//#include "splib/spblas.h"
 
 using namespace HighOrderFEM;
 

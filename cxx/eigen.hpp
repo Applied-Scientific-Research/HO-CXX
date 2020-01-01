@@ -124,15 +124,25 @@ struct EigenSolver : BaseLinearSolver
       Map<const VectorXd> f_map(fv.data(), this->num_rows);
       VectorXd f = f_map;
 
-      auto normf = f.norm();
-      //std::cout << "norm(f): " << normf << std::endl;
+      // Eigen only has a relative tolerance test.
+      auto tol = this->reltol;
+      if ( this->abstol > 0.0 )
+      {
+         auto normf = f.norm();
 
-      this->reltol = this->abstol / normf; // to get abs tolerance in Eigen which only looks at reltol.
+         if ( this->reltol > 0.0 )
+         {
+            tol = std::min( this->reltol, this->abstol / normf );
+            fprintf(stderr,"Eigen3 only supports relative tolerances. Both reltol and abstol were specified. Selecting more strigent: %e %e %e\n", this->reltol, this->abstol, tol);
+         }
+         else
+            tol = this->abstol / normf;
+      }
 
-      //std::cout << "reltol: " << this->reltol << ", abstol: " << this->abstol << std::endl;
-      //std::cout << "maxiters: " << this->maxiters << std::endl;
+      std::cout << "reltol: " << this->reltol << ", abstol: " << this->abstol << ", tol: " << tol << std::endl;
+      std::cout << "maxiters: " << this->maxiters << std::endl;
 
-      solver.setTolerance( this->reltol );
+      solver.setTolerance( tol );
       solver.setMaxIterations( this->maxiters );
 
       auto t_start = getTimeStamp();

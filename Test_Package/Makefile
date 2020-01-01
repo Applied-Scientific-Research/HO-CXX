@@ -1,6 +1,6 @@
 APLLES_DIR ?= ../../ApllesSolver
 AMGCL_INC ?= ../../amgcl/
-EIGEN3_INC ?= $(EIGEN_DIR)/include
+EIGEN3_INC ?= /usr/include/eigen3/
 HYPRE_DIR ?= ../../hypre/
 
 OPT	= -O3
@@ -45,7 +45,7 @@ CXXFLAGS += -I ../cxx
 #CXXFLAGS += -I $(AMGCL_INC) -DENABLE_AMGCL
 #CXXFLAGS += -I $(APLLES_DIR)/include
 #CXXFLAGS += -I $(EIGEN3_INC) -DENABLE_EIGEN
-CXXFLAGS += -I $(APLLES_DIR)/include
+CXXFLAGS += -I $(APLLES_DIR)/include -DENABLE_APLLES
 CXXFLAGS += -Wfatal-errors
 
 CXXFLAGS += -I $(HYPRE_DIR)/include -DENABLE_HYPRE

@@ -134,4 +134,8 @@ struct BaseLinearSolver
 # include "hypre.hpp"
 #endif
 
+#ifdef ENABLE_APLLES
+# include "aplles.hpp"
+#endif
+
 #endif
