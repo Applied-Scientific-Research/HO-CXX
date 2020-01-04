@@ -139,8 +139,8 @@ struct EigenSolver : BaseLinearSolver
             tol = this->abstol / normf;
       }
 
-      std::cout << "reltol: " << this->reltol << ", abstol: " << this->abstol << ", tol: " << tol << std::endl;
-      std::cout << "maxiters: " << this->maxiters << std::endl;
+      //std::cout << "reltol: " << this->reltol << ", abstol: " << this->abstol << ", tol: " << tol << std::endl;
+      //std::cout << "maxiters: " << this->maxiters << std::endl;
 
       solver.setTolerance( tol );
       solver.setMaxIterations( this->maxiters );
@@ -171,8 +171,14 @@ struct EigenSolver : BaseLinearSolver
          std::cout << "\n";
       }
 
-      return not(failed);
+      //return not(failed);
+      return (getNumIterations() <= this->maxiters and getResidual() <= tol) ?
+                  LinearSolver::SolverStatusFlags::Success :
+                  LinearSolver::SolverStatusFlags::Failure;
    }
+
+   int getNumIterations(void) { return this->solver.iterations(); }
+   double getResidual(void) { return this->solver.error(); }
 };
 
 } // LinearSolver

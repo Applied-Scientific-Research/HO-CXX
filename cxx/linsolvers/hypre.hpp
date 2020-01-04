@@ -531,14 +531,14 @@ struct HypreSolver : BaseLinearSolver
       HYPRE_IJVectorSetValues( ij_b, num_rows, NULL, const_cast<value_type*>( b.data() ) );
 
       double normb = vector_2norm( parvec_b );
-      if (mpi_id == 0)
+      if (verbosity > 1)
          printf("normb = %e\n", normb);
 
       if (not(normb > 0.0)) normb = 1.0;
 
       HYPRE_ParVectorSetConstantValues( parvec_x, 0.0 );
       double init_normr = residual_2norm();
-      if (mpi_id == 0)
+      if (verbosity > 1)
          printf("Initial residual = %e %e\n", init_normr, init_normr / normb);
 
       this->solver->solve_func_ptr( this->solver->solver_ptr,
@@ -548,7 +548,7 @@ struct HypreSolver : BaseLinearSolver
 
       double normr = getResidual();
       //if (mpi_id == 0)
-      if (verbosity)
+      if (verbosity > 1)
          printf("Final actual residual = %e %e\n", normr, normr / normb );
 
       HYPRE_ParVectorGetValues( parvec_x, num_rows, NULL, x_out.data() );

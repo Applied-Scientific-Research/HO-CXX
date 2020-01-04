@@ -394,8 +394,12 @@ struct AMGCLSolver : BaseLinearSolver
 
    decltype( details::load_amgcl_params() ) prm;
 
+   value_type resid;
+   int num_iters;
+
    /// Constructor accepts any valid input matrix format.
-   AMGCLSolver (void) : BaseLinearSolver( LinearSolver::LinearSolverTag::AMGCL )
+   AMGCLSolver (void) : BaseLinearSolver( LinearSolver::LinearSolverTag::AMGCL ),
+                        resid(0), num_iters(0)
    {
       std::cout << "AMGCLSolver: " << this << std::endl;
 
@@ -416,6 +420,10 @@ struct AMGCLSolver : BaseLinearSolver
                                    values );
 
       this->system_matrix = A;
+
+      this->prm.put("solver.tol", this->reltol);
+      this->prm.put("solver.abstol", this->abstol);
+      this->prm.put("solver.maxiter", this->maxiters);
 
       auto t_build_start = getTimeStamp();
 
@@ -465,7 +473,10 @@ struct AMGCLSolver : BaseLinearSolver
       auto niters = std::get<0>(ret);
       auto resid  = std::get<1>(ret);
 
-      if (this->verbosity > 1)
+      this->num_iters = niters;
+      this->resid = resid;
+
+      if (this->verbosity)
       {
          size_t nrows = amgcl::backend::rows(A);
          std::vector<value_type> r(nrows);
@@ -479,9 +490,16 @@ struct AMGCLSolver : BaseLinearSolver
                    << std::endl;
       }
 
-      int iret = ( this->maxiters > 0 ) ? ( niters < this->maxiters ) : 1;
-      return iret;
+      //int iret = ( this->maxiters > 0 ) ? ( niters < this->maxiters ) : 1;
+      //return iret;
+      //return ( this->resid < this->reltol ) ?
+      return ( this->num_iters < this->maxiters ) ?
+                   LinearSolver::SolverStatusFlags::Success :
+                   LinearSolver::SolverStatusFlags::Failure;
    }
+
+   double getResidual(void) { return this->resid; }
+   int getNumIterations(void) { return this->num_iters; }
 
    //template <typename X, typename F>
    //int operator()( X& x, const F& f )
