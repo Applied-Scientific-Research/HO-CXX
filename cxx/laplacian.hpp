@@ -18,7 +18,7 @@
 #include "basis.hpp"
 #include "geometry.hpp"
 
-#include "linsolver.hpp"
+#include "linsolvers/linsolver.hpp"
 
 namespace HighOrderFEM
 {
@@ -42,30 +42,12 @@ struct LaplacianType
    DynamicArrayType< StaticArrayType< value_type[K*K][K] > > bndrySrc;
    DynamicArrayType< StaticArrayType< value_type[K] > > bndryVal;
 
-#ifdef ENABLE_AMGCL
-   typedef LinearSolver::AMGCLSolver amgcl_solver_type;
-   //std::shared_ptr< amgcl_solver_type > amgcl_solver;
-   amgcl_solver_type amgcl_solver;
-#endif
+   std::shared_ptr< LinearSolver::BaseLinearSolver > linear_solver;
 
-#ifdef ENABLE_EIGEN
-   typedef LinearSolver::EigenSolver eigen_solver_type;
-   //std::shared_ptr< eigen_solver_type > eigen_solver;
-   eigen_solver_type eigen_solver;
+#ifdef ENABLE_LINEAR_SOLVER_BENCHMARK
+   // For an internal benchmark ...
+   std::vector< std::shared_ptr< LinearSolver::BaseLinearSolver > > all_linear_solvers;
 #endif
-
-#ifdef ENABLE_HYPRE
-   typedef LinearSolver::HypreSolver hypre_solver_type;
-   hypre_solver_type hypre_solver;
-#endif
-
-#ifdef ENABLE_APLLES
-   typedef LinearSolver::ApllesSolver aplles_solver_type;
-   aplles_solver_type aplles_solver;
-#endif
-
-   //std::shared_ptr< LinearSolver::BaseLinearSolver > linear_solver;
-   LinearSolver::BaseLinearSolver *linear_solver;
 
    LaplacianType( const GeometryType<K,L,value_type>& geo )
       : geometry(geo)
@@ -363,7 +345,7 @@ struct LaplacianType
       std::cout << "nrows: " << nrows << std::endl;
       std::cout << "nnz:   " << nnz << std::endl;
 
-#ifdef ENABLE_AMGCL
+/*#ifdef ENABLE_AMGCL
 
       // Construct the AMGCL solver/preconditioner.
       //auto A = std::tie( nrows, rowptr,
@@ -374,7 +356,7 @@ struct LaplacianType
       //this->amgcl_solver = std::make_shared< amgcl_solver_type >( );
       //this->amgcl_solver->build( nrows, rowptr, colidx, values );
       this->amgcl_solver.build( nrows, rowptr, colidx, values );
-#endif
+#endif*/
 
       static bool write_matrix = true;
       if (write_matrix) {
@@ -389,7 +371,7 @@ struct LaplacianType
          std::cout << "Wrote CSR matrix to binary file\n";
       }
 
-#ifdef ENABLE_EIGEN
+/*#ifdef ENABLE_EIGEN
       {
          this->eigen_solver.build( nrows, rowptr, colidx, values );
       }
@@ -404,6 +386,24 @@ struct LaplacianType
 #ifdef ENABLE_APLLES
       {
          this->aplles_solver.build( nrows, rowptr, colidx, values );
+      }
+#endif*/
+
+      this->linear_solver = LinearSolver::CreateLinearSolver();
+      printf("Instantiated linear solver %s\n", linear_solver->name().c_str());
+
+      this->linear_solver->build( nrows, rowptr, colidx, values );
+      printf("Built linear solver %s\n", linear_solver->name().c_str());
+
+#ifdef ENABLE_LINEAR_SOLVER_BENCHMARK
+      this->all_linear_solvers = LinearSolver::CreateAllLinearSolvers();
+
+      for (auto solver : this->all_linear_solvers)
+      {
+         printf("Instantiated linear solver %s for benchmark\n", solver->name().c_str());
+
+         solver->build( nrows, rowptr, colidx, values );
+         printf("Built linear solver %s for benchmark\n", solver->name().c_str());
       }
 #endif
 
@@ -498,7 +498,44 @@ struct LaplacianType
 
       auto t_end = getTimeStamp();
 
-      printf("linear solver time: %d %f %f (sec)\n", ierr, getElapsedTime( t_start, t_middle ), getElapsedTime( t_middle, t_end ));
+      printf("linear solver %s time: %d %f %f (sec)\n", linear_solver->name().c_str(), ierr, getElapsedTime( t_start, t_middle ), getElapsedTime( t_middle, t_end ));
+
+#ifdef ENABLE_LINEAR_SOLVER_BENCHMARK
+      {
+         static bool finished = false;
+         if (not(finished))
+         {
+            for (auto solver : this->all_linear_solvers)
+            {
+               auto t_begin = getTimeStamp();
+
+               std::vector<value_type> _x(nrows);
+
+               const int nsolves = 10;
+
+               int ret = LinearSolver::SolverStatusFlags::Success;
+               for (int iter = 0; iter < nsolves; iter++)
+               {
+                  std::fill(_x.begin(), _x.end(), 0.0);
+                  ret = solver->solve( bflat, _x );
+                  if ( ret != LinearSolver::SolverStatusFlags::Success )
+                     break;
+               }
+
+               auto t_end = getTimeStamp();
+
+               if ( ret != LinearSolver::SolverStatusFlags::Success )
+                  printf("solver %s failed to solve the problem %d\n", solver->name().c_str(), ret);
+               else
+                  printf("solver %s finished in %f (sec)\n", solver->name().c_str(),
+                                                                   getElapsedTime( t_begin, t_end ) / nsolves);
+            }
+            finished = true;
+
+            this->all_linear_solvers.clear();
+         }
+      }
+#endif
 
       {
          static bool write_rhs = true;
@@ -512,7 +549,7 @@ struct LaplacianType
          }
       }
 
-#ifdef ENABLE_AMGCL
+/*#ifdef ENABLE_AMGCL
       if (linear_solver != &amgcl_solver)
       {
          auto t_begin = getTimeStamp();
@@ -598,7 +635,7 @@ struct LaplacianType
          }
          printf("aplles regtest: %e %e %e\n", sqrt(err2), sqrt(ref2), sqrt(err2/ref2));
       }
-#endif
+#endif */
 
       return psi;
    }

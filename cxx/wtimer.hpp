@@ -14,26 +14,26 @@ namespace HighOrderFEM
 {
 
 #ifdef _OPENMP
-#warning 'Using OpenMP wall-clock timer'
+//#warning 'Using OpenMP wall-clock timer'
 typedef double TimerType;
 
-TimerType getTimeStamp(void)
+inline TimerType getTimeStamp(void)
 {
    return omp_get_wtime();
 }
-double getElapsedTime( const TimerType& a, const TimerType& b )
+inline double getElapsedTime( const TimerType& a, const TimerType& b )
 {
    return (b - a);
 }
 #else
 typedef std::chrono::high_resolution_clock::time_point TimerType;
 
-TimerType getTimeStamp(void)
+inline TimerType getTimeStamp(void)
 {
    return std::chrono::high_resolution_clock::now();
 }
 
-double getElapsedTime( const TimerType& a, const TimerType& b )
+inline double getElapsedTime( const TimerType& a, const TimerType& b )
 {
    using namespace std::chrono;
 

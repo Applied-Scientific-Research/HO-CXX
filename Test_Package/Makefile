@@ -28,7 +28,8 @@ ifeq ($(CXX),icpc)
   CXXFLAGS += -xHost -Wno-unknown-pragmas
 endif
 
-CXXSRC	= ../cxx/laplacian.cpp
+CXXSRC	= ../cxx/laplacian.cpp ../cxx/linsolvers/linsolver.cpp
+
 OBJS	= $(CXXSRC:.cpp=.o)
 DEPS	= $(CXXSRC:.cpp=.d)
 
@@ -47,6 +48,8 @@ CXXFLAGS += -I ../cxx
 #CXXFLAGS += -I $(EIGEN3_INC) -DENABLE_EIGEN
 CXXFLAGS += -I $(APLLES_DIR)/include -DENABLE_APLLES
 CXXFLAGS += -Wfatal-errors
+
+CXXFLAGS += -DENABLE_LINEAR_SOLVER_BENCHMARK
 
 CXXFLAGS += -I $(HYPRE_DIR)/include -DENABLE_HYPRE
 LDFLAGS  += -lHYPRE -L $(HYPRE_DIR)/lib
@@ -97,5 +100,11 @@ seq: $(MODS) VTM.o $(OBJS) $(APLLES_OBJS)
 omp: $(MODS_MP) VTM_mp.o $(OBJS_MP) $(APLLES_OBJS)
 	$(F90) $(OMP) $(F90FLAGS) -o VTM_mp $^ $(LDFLAGS) $(LIBS) $(APLLES_MT_LIBS) $(APLLES_LINK_FLAGS)
 
+echo:
+	@echo "DEPS: "$(DEPS)
+	@echo "OBJS: "$(OBJS)
+	@echo "DEPS_MP: "$(DEPS_MP)
+	@echo "OBJS_MP: "$(OBJS_MP)
+
 clean:
-	/bin/rm -fv *.o $(OBJS) $(OBJS_MP) *.mod $(DEPS)
+	/bin/rm -fv *.o $(OBJS) $(OBJS_MP) *.mod $(DEPS) $(DEPS_MP)

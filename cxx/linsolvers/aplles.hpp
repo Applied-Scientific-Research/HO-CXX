@@ -118,6 +118,8 @@ struct ApllesSolver : BaseLinearSolver
       auto t_end = getTimeStamp();
 
       printf("Aplles setup time (sec): %f\n", getElapsedTime( t_start, t_end ));
+
+      return SolverStatusFlags::Success;
    }
 
    int solve ( const std::vector<value_type>& b_in, std::vector<value_type>& x_out )
@@ -135,15 +137,20 @@ struct ApllesSolver : BaseLinearSolver
       auto t_end = getTimeStamp();
 
       //if (this->verbosity)
-         printf("Aplles solve time: %f %d\n", getElapsedTime( t_start, t_end ), aplles_details::getNumIterations(this->S) );
+         printf("Aplles solve time: %f %d\n", getElapsedTime( t_start, t_end ), this->getNumIterations() );
 
       //if (this->verbosity)
       {
          //aplles_details::getResidual( this->A, x_ptr, b_ptr );
       }
 
-      return 1;
+      return this->getNumIterations() < maxiters ?
+             SolverStatusFlags::Success :
+             SolverStatusFlags::Failure;
    }
+
+   int getNumIterations(void) { return aplles_details::getNumIterations(this->S); }
+   double getResidual(void) { return -1; }
 };
 
 } // LinearSolver

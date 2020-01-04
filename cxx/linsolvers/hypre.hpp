@@ -22,6 +22,7 @@
 #include "_hypre_parcsr_ls.h"
 
 #include "linsolver.hpp"
+#include "wtimer.hpp"
 
 namespace HighOrderFEM
 {
@@ -427,6 +428,10 @@ struct HypreSolver : BaseLinearSolver
       return sqrt( norm );
    }
 
+   int getNumIterations(void) { return this->solver->getNumIterations(); }
+
+   double getResidual(void) { return this->residual_2norm(); }
+
    int build( const index_type nrows, const std::vector<index_type>& rowptr,
                                       const std::vector<index_type>& colidx,
                                       const std::vector<value_type>& values )
@@ -511,6 +516,8 @@ struct HypreSolver : BaseLinearSolver
       auto t_end = getTimeStamp();
 
       printf("Hypre setup time (sec): %f\n", getElapsedTime( t_start, t_end ));
+
+      return SolverStatusFlags::Success;
    }
 
    int solve ( const std::vector<value_type>& b, std::vector<value_type>& x_out )
@@ -539,17 +546,23 @@ struct HypreSolver : BaseLinearSolver
                                    (HYPRE_Vector) parvec_b,
                                    (HYPRE_Vector) parvec_x );
 
-      double normr = residual_2norm();
-      if (mpi_id == 0)
+      double normr = getResidual();
+      //if (mpi_id == 0)
+      if (verbosity)
          printf("Final actual residual = %e %e\n", normr, normr / normb );
 
       HYPRE_ParVectorGetValues( parvec_x, num_rows, NULL, x_out.data() );
 
       auto t_end = getTimeStamp();
 
-      printf("Hypre solve time: %f %d\n", getElapsedTime( t_start, t_end ), solver->getNumIterations() );
+      auto niters = getNumIterations();
 
-      return 1;
+      if (verbosity)
+         printf("Hypre solve time: %f %d\n", getElapsedTime( t_start, t_end ), niters );
+
+      return niters < maxiters ?
+                      SolverStatusFlags::Success :
+                      SolverStatusFlags::Failure;
    }
 };
 
