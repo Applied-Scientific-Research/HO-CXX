@@ -35,7 +35,7 @@ struct LaplacianType
    enum : int { K = _K,
                 L = _L };
 
-   const GeometryType<K,L,value_type>& geometry;
+   const GeometryType<K,L>& geometry;
 
    BasisFunctions<K,L,value_type> Basis;
 
@@ -49,10 +49,17 @@ struct LaplacianType
    std::vector< std::shared_ptr< LinearSolver::BaseLinearSolver > > all_linear_solvers;
 #endif
 
-   LaplacianType( const GeometryType<K,L,value_type>& geo )
+   LaplacianType( const GeometryType<K,L>& geo )
       : geometry(geo)
    {
-      printf("Inside Laplacian::Laplacian\n");
+      printf("Inside Laplacian::Laplacian(const GeometryType&)\n");
+      this->assemble();
+   }
+
+   LaplacianType( const BaseGeometryType *base_geo )
+      : geometry( *dynamic_cast< const GeometryType<K,L>* >(base_geo) )
+   {
+      printf("Inside Laplacian::Laplacian(const BaseGeometryType*)\n");
       this->assemble();
    }
 

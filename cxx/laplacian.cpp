@@ -1654,6 +1654,7 @@ void getLaplacian( double VorticityIn[], double psiIn[], double* BoundarySourceI
 #include <boost/preprocessor/seq/for_each_product.hpp>
 #include "macros.h"
 
+#if 0
 struct GeometryTypeHelper
 {
    void* v_ptr[5][5]; /// K,L := [1,5)
@@ -1718,9 +1719,81 @@ struct GeometryTypeHelper
    }
 
 };
+#endif
+
+struct GeometryFactoryType
+{
+   std::map< int, std::shared_ptr< BaseGeometryType > > ptrs;
+
+   GeometryFactoryType() : ptrs()
+   {
+      printf("Inside GeometryFactoryType%x\n", this);
+   }
+
+   ~GeometryFactoryType()
+   {
+      printf("Inside ~GeometryFactoryType: %x\n", this);
+      for ( auto obj : ptrs )
+      {
+         auto sptr = obj.second;
+         printf("obj: %d %x\n", obj.first, sptr.get(), sptr->getK(), sptr->getL());
+      }
+   }
+
+   inline int make_hash( const int K, const int L ) const
+   {
+      return __make_unique_from_K_and_L(K,L);
+   }
+
+   std::shared_ptr< BaseGeometryType > allocate( const int K, const int L )
+   {
+      printf("Inside GeometryFactoryType::allocate( %d %d )\n", K, L);
+
+#define _op(_K,_L) { \
+       auto sptr = std::make_shared< GeometryType<_K,_L> >(); \
+       this->ptrs[hash] = std::dynamic_pointer_cast< BaseGeometryType >(sptr); \
+       break; \
+   }
+
+      const auto hash = this->make_hash(K,L);
+      auto out = this->ptrs.find( hash );
+      if ( out == this->ptrs.end() )
+      {
+         __case_for_each_K_and_L(K,L)
+
+         printf("Created new BaseGeometryType %d %d %x\n", K,L,this->ptrs[hash].get());
+
+         return this->ptrs[hash];
+      }
+      else
+      {
+         printf("Found existing BaseGeometryType %d %d %x\n", K,L,out->second.get());
+         return out->second;
+      }
+
+#undef _op
+   }
+
+   std::shared_ptr< BaseGeometryType > get( const int K, const int L )
+   {
+      printf("Inside GeometryFactoryType::get( %d %d )\n", K, L);
+
+      const auto hash = this->make_hash(K,L);
+      auto out = this->ptrs.find( hash );
+      if ( out == this->ptrs.end() )
+      {
+         fprintf(stderr,"Requested BaseGeometryType object (%d,%d) does not exist\n", K,L);
+         exit(1);
+      }
+
+      return out->second;
+   }
+};
 
 std::shared_ptr< LaplacianType<3,4> > laplacian34;
 std::shared_ptr< GeometryType<3,4> > geometry34;
+
+static GeometryFactoryType GeometryFactory;
 
 void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
                         double Vol_Jac_in[], double Vol_Dx_iDxsi_j_in[],
@@ -1743,16 +1816,44 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
    const int K = 3, L = 4;
 
    /// Create an access point for the metric data.
-   geometry34 = std::make_shared< GeometryType<K,L> >
-                             ( Nel, NelB,
+   //geometry34 = std::make_shared< GeometryType<K,L> >
+   //                          ( Nel, NelB,
+   //                            Vol_Jac_in, Vol_Dx_iDxsi_j_in,
+   //                            Face_Jac_in, Face_Acoef_in, Face_Bcoef_in, Face_Norm_in,
+   //                            elemID_in, bndryElementID_in,
+   //                            BC_Switch_in );
+
+   auto geo = GeometryFactory.allocate( _Knod, L );
+   geo->import( Nel, NelB,
                                Vol_Jac_in, Vol_Dx_iDxsi_j_in,
                                Face_Jac_in, Face_Acoef_in, Face_Bcoef_in, Face_Norm_in,
                                elemID_in, bndryElementID_in,
                                BC_Switch_in );
+
    laplacian34 = std::make_shared< LaplacianType<K,L> >
-                             ( *geometry34 );
+                             //( *geometry34 );
+                             ( geo.get() );
 
    laplacian34->setBoundaryValues( NelB, BC_Values_in );
+
+   //{
+   //   GeometryFactoryType geo_factory;
+
+   //   std::array< std::array<int,2>, 2 > config{{ {1,1}, {3,4} }};
+
+   //   for (auto conf : config)
+   //   {
+   //      const int k = conf[0], l = conf[1];
+   //      auto geo = geo_factory.allocate( k, l );
+   //      printf("allocated: %d %d %x\n", k, l, geo.get());
+   //   }
+
+   //   {
+   //      const int k = config[0][0], l = config[0][1];
+   //      auto geo = geo_factory.get( k, l );
+   //      printf("found %x with %d %d %d %d\n", geo.get(), k, l, geo->getK(), geo->getL());
+   //   }
+   //}
 }
 
 void getLaplacian( double VorticityInPtr[], double psiInPtr[], double BndrySrcIn[], double BndryValuesIn[] )
