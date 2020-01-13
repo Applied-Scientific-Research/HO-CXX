@@ -11,6 +11,7 @@
 #include <map>
 #include <tuple>
 #include <array>
+#include <memory>
 
 #include "wtimer.hpp"
 #include "memory.hpp"
@@ -80,62 +81,14 @@ struct GeometryType : BaseGeometryType
    DynamicArrayType< Kx4_ArrayType > Face_Bcoef;
    DynamicArrayType< Kx4_ArrayType > Face_Norm;
 
-   /*explicit GeometryType ( const size_t Nel, const size_t NelB,
-                       double* Vol_Jac_in,
-                       double* Vol_Dx_iDxsi_j_in,
-                       double* Face_Jac_in,
-                       double* Face_Acoef_in,
-                       double* Face_Bcoef_in,
-                       double* Face_Norm_in,
-                       int*    elemID_in,
-                       int*    bndryElementID_in,
-                       int*    BC_Switch_in)
-      : 
-         Nel(Nel), NelB(NelB),
-         Vol_Jac( (KxK_ArrayType*)Vol_Jac_in, Nel ),
-         Vol_Dx_iDxsi_j( (KxKx2x2_ArrayType*)Vol_Dx_iDxsi_j_in, Nel ),
-         Face_Jac( (Kx4_ArrayType*)Face_Jac_in, Nel ),
-         Face_Acoef( (Kx4_ArrayType*)Face_Acoef_in, Nel ),
-         Face_Bcoef( (Kx4_ArrayType*)Face_Bcoef_in, Nel ),
-         Face_Norm( (Kx4_ArrayType*)Face_Norm_in, Nel ),
-         elemNghborID(Nel),
-         bndryElementID(NelB),
-         bndryType(NelB)
-   {
-      std::cout << "explicit GeometryType::GeometryType(...)" << std::endl;
-
-      for (int el(0); el < Nel; ++el)
-         for (int f(0); f < 4; ++f)
-         {
-            const int nghbor = elemID_in[ f + 4*el ];
-            if ( nghbor < 0 )
-            {
-               // Boundary element id.
-               const int bel = (-nghbor) - 1;
-               elemNghborID(el)[f] = bel + Nel; // append the boundary id's *after* the elements so both lists can be 0-based (more easily).
-               bndryType(bel) = ( BC_Switch_in[bel] == 1 ) ? BndryType::Dirichlet :
-                                ( BC_Switch_in[bel] == 2 ) ? BndryType::Neumann   :
-                                                             BndryType::Default;
-            }
-            else
-            {
-               // Normal element-to-element connectivity in FEM format.
-               elemNghborID(el)[f] = nghbor - 1;
-            }
-         }
-
-      for (int bel(0); bel < NelB; ++bel)
-         bndryElementID(bel) = bndryElementID_in[bel] - 1;
-   }*/
-
    GeometryType (void)
    {
-      std::cout << "GeometryType::GeometryType(void)" << std::endl;
+      printf("GeometryType<%d,%d>::GeometryType(void)\n", K, L);
    }
 
    ~GeometryType ()
    {
-      std::cout << "GeometryType::~GeometryType()" << std::endl;
+      printf("GeometryType<%d,%d>::~GeometryType()\n", K, L);
    }
 
    template <int K, int L>
@@ -205,7 +158,7 @@ struct GeometryType : BaseGeometryType
                        int*    bndryElementID_in,
                        int*    BC_Switch_in)
    {
-      std::cout << "Inside GeometryType::import(...)" << std::endl;
+      printf("Inside GeometryType<%d,%d>::import(...)\n", K, L);
 
       this->Nel  = Nel;
       this->NelB = NelB;
@@ -245,6 +198,26 @@ struct GeometryType : BaseGeometryType
          bndryElementID(bel) = bndryElementID_in[bel] - 1;
    }
 };
+
+struct GeometryFactoryType
+{
+   std::shared_ptr< BaseGeometryType > allocate( const int K, const int L );
+
+   std::shared_ptr< BaseGeometryType > get( const int K, const int L );
+
+   static GeometryFactoryType* Instance(void);
+
+private:
+   std::map< int, std::shared_ptr< BaseGeometryType > > ptrs;
+
+   GeometryFactoryType();
+   ~GeometryFactoryType();
+   GeometryFactoryType& operator=(const GeometryFactoryType& f);
+
+   static GeometryFactoryType* m_instance;
+};
+
+extern GeometryFactoryType GeometryFactory;
 
 } // end namespace HighOrderFEM
 

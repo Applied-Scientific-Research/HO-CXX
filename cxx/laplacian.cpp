@@ -1721,6 +1721,7 @@ struct GeometryTypeHelper
 };
 #endif
 
+/*
 struct GeometryFactoryType
 {
    std::map< int, std::shared_ptr< BaseGeometryType > > ptrs;
@@ -1789,11 +1790,12 @@ struct GeometryFactoryType
       return out->second;
    }
 };
+*/
 
 std::shared_ptr< LaplacianType<3,4> > laplacian34;
 std::shared_ptr< GeometryType<3,4> > geometry34;
 
-static GeometryFactoryType GeometryFactory;
+//static GeometryFactoryType GeometryFactory;
 
 void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
                         double Vol_Jac_in[], double Vol_Dx_iDxsi_j_in[],
@@ -1823,7 +1825,7 @@ void assembleLaplacian( const int _Knod, const int Nel, const int NelB,
    //                            elemID_in, bndryElementID_in,
    //                            BC_Switch_in );
 
-   auto geo = GeometryFactory.allocate( _Knod, L );
+   auto geo = GeometryFactoryType::Instance()->allocate( _Knod, L );
    geo->import( Nel, NelB,
                                Vol_Jac_in, Vol_Dx_iDxsi_j_in,
                                Face_Jac_in, Face_Acoef_in, Face_Bcoef_in, Face_Norm_in,

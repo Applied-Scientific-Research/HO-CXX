@@ -28,7 +28,7 @@ ifeq ($(CXX),icpc)
   CXXFLAGS += -xHost -Wno-unknown-pragmas
 endif
 
-CXXSRC	= ../cxx/laplacian.cpp ../cxx/linsolvers/linsolver.cpp
+CXXSRC	= ../cxx/laplacian.cpp ../cxx/linsolvers/linsolver.cpp ../cxx/geometry_impl.cpp
 
 OBJS	= $(CXXSRC:.cpp=.o)
 DEPS	= $(CXXSRC:.cpp=.d)
