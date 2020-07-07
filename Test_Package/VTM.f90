@@ -199,45 +199,59 @@ PROGRAM TwoD_Vorticity_Transport
        USE variables
        USE APLLES_Solvers_Module
        USE omp_lib
+       use, intrinsic :: iso_fortran_env , only: error_unit, output_unit, wp => real64
 
        USE iso_c_binding
 
        implicit NONE
        integer Nelx, Nely, Lnod_in, prob_type, HuynhSolver_type, tIntegrator_type, numStep, dumpFreq, fast
        real*8 Reyn, fac, dxrat, dt
-       integer i, el, idum, ic
-       character(132) dum, mesh_filename
+       integer i, el, ibuf, ic
+       character(len=255) :: mesh_filename
+       character(len=255) :: input_filename
+       character(len=255) :: buf
 
        type(APLLES_MatrixHandleType) :: A_handle
        type(APLLES_PreconHandleType) :: P_handle
        type(APLLES_SolverHandleType) :: S_handle
+
+       if (iargc() < 1) then
+         write(error_unit,'(A)') 'No input file name on command-line, reading input.dat'
+         write(error_unit,'(A)') ''
+         input_filename = 'input.dat'
+       else
+         call getarg(1,buf)
+         read (buf,*) input_filename
+         write(error_unit,'(3A)') 'Using ', trim(input_filename), ' as input'
+         write(error_unit,'(A)') ''
+       endif
  
        !!!! User Input Data
-       open(unit=2, file='input.dat', status='old')
-         read(2,'(a)') dum
+       open(unit=2, file=input_filename, status='old')
+         read(2,'(a)') buf
          read(2,*) Nelx, Nely           ! num. of meshes/elements in x, y dirs (structured grids; must generalize to unstructured)
-         read(2,'(a)') dum
+         read(2,'(a)') buf
          read(2,*) Knod                 ! solution nodes per elem (must generalize to include x, y dirs)
-         read(2,'(a)') dum
+         read(2,'(a)') buf
          read(2,*) Lnod_in              ! geometry parametric order per elem (must generalize to include x, y dirs)
-         read(2,'(a)') dum
+         read(2,'(a)') buf
          read(2,'(a)') mesh_filename    ! SU-based mesh file; it's a hack; using prob_type >= 10 for now
-         read(2,'(a)') dum
+         read(2,'(a)') buf
          read(2,'(L)') exact            ! Exact geometry for concentric cylinders
-         read(2,'(a)') dum
+         read(2,'(a)') buf
          read(2,*) Reyn                 ! Reynolds number
-         read(2,'(a)') dum
+         read(2,'(a)') buf
          read(2,*) dxrat                ! multiplier to expand the grid geometrically by factor dxrat   
-         read(2,'(a)') dum
+         read(2,'(a)') buf
          read(2,*) fac                  ! multiplier to make grids randomly non-uniform; uniform: fac=0.
-         read(2,'(a)') dum
+         read(2,'(a)') buf
          read(2,*) HuynhSolver_type     ! based on Huynh's scheme type in Table 6.1 of his diffusion paper
                                         ! types: 2=std DG; 11=higher order
 !         HuynhSolver_type = 2
 
-         read(2,'(a)') dum
+         read(2,'(a)') buf
          read(2,*) tIntegrator_type     ! time integration method; 1=Euler; 2=Mod. Euler; 4=RK4
-         read(2,'(a)') dum
+         read(2,'(a)') buf
          read(2,*) prob_type            ! Solve different problems (types 1 and 2)
          IF (prob_type /= 1 .and. prob_type /= 3 .and. prob_type /= 10) THEN
            print *,'problem type unavailable ', prob_type
@@ -247,19 +261,19 @@ PROGRAM TwoD_Vorticity_Transport
           exact = .false.
          ENDIF
 
-         read(2,'(a)') dum
+         read(2,'(a)') buf
          read(2,*) numStep              ! num. of timesteps
-         read(2,'(a)') dum
+         read(2,'(a)') buf
          read(2,*) dt                   ! timestep size
-         read(2,'(a)') dum
+         read(2,'(a)') buf
          read(2,*) dumpFreq             ! dump solution and stats at every dumpFreq steps; = 0 dumps at numStep
          IF (dumpFreq .eq. 0) dumpFreq = numStep
 
-         read(2,'(a)') dum
+         read(2,'(a)') buf
          read(2,*) fast                 ! enter 0 to solve using original; anything else to solve using compact
          fast = 0
 
-         read(2,'(a)') dum
+         read(2,'(a)') buf
          read(2,'(a)') aplles_solver_name
          read(2,'(a)') aplles_precon_name ! Select the solver/preconditioner at run-time       
          if (trim(Aplles_solver_name) .eq. "default") Aplles_solver_name = "fgmres"
@@ -280,23 +294,23 @@ PROGRAM TwoD_Vorticity_Transport
          OPEN (10, File = trim(mesh_filename), Status = 'unknown')
 
          NelB = 0
-         read(10,'(a6,i10)') dum, idum
-         read(10,'(a6,i10)') dum, Nel
+         read(10,'(a6,i10)') buf, ibuf
+         read(10,'(a6,i10)') buf, Nel
          DO el = 1, Nel
-           read(10,'(a)') dum
+           read(10,'(a)') buf
          ENDDO
-         read(10,'(a6,i10)') dum, Nodes
+         read(10,'(a6,i10)') buf, Nodes
          DO i = 1, Nodes
-           read(10,'(a)') dum
+           read(10,'(a)') buf
          ENDDO
          Nodes = Nodes - 1
-         read(10,'(a6,i10)') dum, NBndry
+         read(10,'(a6,i10)') buf, NBndry
          DO i = 1, NBndry
-           read(10,'(a)') dum
-           read(10,'(a14,i10)') dum, idum
-           NelB = NelB + idum
-           DO el = 1, idum
-             read(10,'(a)') dum
+           read(10,'(a)') buf
+           read(10,'(a14,i10)') buf, ibuf
+           NelB = NelB + ibuf
+           DO el = 1, ibuf
+             read(10,'(a)') buf
            ENDDO
          ENDDO
 
