@@ -322,7 +322,7 @@ def create_connectivity(elements, all_faces):
             
             
 if __name__ == "__main__":
-    f = 'C:/Users/chrst/Downloads/Step_Expansion.su2'
+    f = 'Step_Expansion.su2'
     if len(sys.argv) > 1:
         f = sys.argv[1]
 
