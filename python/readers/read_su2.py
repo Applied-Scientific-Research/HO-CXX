@@ -239,6 +239,8 @@ def create_face_list(elems):
                 faces = all_faces[ftype]
             else:
                 all_faces[ftype] = faces = []
+        else:
+            raise NameError('Only Hexs supported so far.')
                 
         efaces = el.verts[FaceElementMaps[el.etype]]
         nverts = nVerts(ftype)
@@ -315,29 +317,11 @@ def create_connectivity(elements, all_faces):
             e.neighbors[i] = eleft
             e.isRight[i] = True
 
-
-
     return pairs
 
-            
-            
-if __name__ == "__main__":
-    f = 'Step_Expansion.su2'
-    if len(sys.argv) > 1:
-        f = sys.argv[1]
 
-    ndims, elems, coords, bndrys = load_mesh_su2(f)
-    for i, e in enumerate(elems[:10]):
-        print(i, e.verts, sum(coords[e.verts])/8)
-    all_faces = create_face_list(elems)
+def set_boundary_faces(elems, faces, bndry_sections):
     
-    pairs = create_connectivity(elems, all_faces)
-
-    
-    for e in elems[:30]:
-        print(e)
-
-
     """
     Given an ndarray (n,4) of quads, find the index of the quad.
     """
@@ -352,24 +336,24 @@ if __name__ == "__main__":
 
         return False, -1
 
-    quads = all_faces[GeometricTypes.QUAD4]
+    quads = faces[GeometricTypes.QUAD4]
     print(quads.shape)
-    for bnd in bndrys:
+    for bnd in bndry_sections:
         print(bnd)
-        bfs = bndrys[bnd]
-        faces = []
+        bfs = bndry_sections[bnd]
+        bfaces = []
         for bf in bfs:
             found, fidx = find_face_index(quads, bf.verts)
             assert found
             #print(bf.verts, fidx, quads[fidx])
-            faces.append(fidx)
-        bndrys[bnd] = np.array(faces, dtype='i')
-        print(bndrys[bnd][:10])
+            bfaces.append(fidx)
+        bndry_sections[bnd] = np.array(bfaces, dtype='i')
+        print(bndry_sections[bnd][:10])
 
 
     bndryIdMap = {None: 0}
     bndryIds = [None]
-    for bnd in bndrys:
+    for bnd in bndry_sections:
         i = len(bndryIds)
         bndryIdMap[bnd] = i
         bndryIds.append(bnd)
@@ -384,8 +368,9 @@ if __name__ == "__main__":
             if n < 0:
                 # Find which boundary this matches with. Or error out.
                 bnd = None
-                for b in bndrys:
-                    if f in bndrys[b]:
+                for b in bndry_sections:
+                    if f in bndry_sections[b]:
+                        # Are any bfaces repeated?
                         assert bnd is None
                         bnd = b
                 if bnd is None:
@@ -396,7 +381,136 @@ if __name__ == "__main__":
         if ei < 10:
             print(e.eindex, e.neighbors, i, f, n, [bndryIds[k] for k in e.bndrys])
 
+    return
+
+
+def create_neighbor_mappings(elements):
+    
+    """For each face-neighbor, find the nodal mapping from left to right"""
+    def ivec(i,j,k):
+        return np.array([i,j,k], dtype='i')
+    
+    orient = {0: "S", 1: "E", 2: "N", 3: "W", 4: "I", 5: "O"}
+    normal_fmaps = {}
+    normal_fmaps[1,3] = 1
+    normal_fmaps[0,2] = 2
+    normal_fmaps[4,5] = 3
+    
+    for i in range(6):
+        for j in range(6):
+            if j < i and (j,i) in normal_fmaps:
+                normal_fmaps[i,j] = normal_fmaps[j,i]
+                
+    print(normal_fmaps)
+    
+    ijk2v = {}
+    ijk2v[0,0,0] = 0
+    ijk2v[1,0,0] = 1
+    ijk2v[1,1,0] = 2
+    ijk2v[0,1,0] = 3
+    ijk2v[0,0,1] = 0+4
+    ijk2v[1,0,1] = 1+4
+    ijk2v[1,1,1] = 2+4
+    ijk2v[0,1,1] = 3+4
+
+    print(ijk2v)
+    
+    v2ijk = {}
+    for (i,j,k), v in ijk2v.items():
+        v2ijk[v] = (i,j,k)
+        
+    print(v2ijk)
+    
+    def np_find(mask):
+        assert np.count_nonzero(mask) == 1
+        return np.where(mask)[0][0]
+
+    
+    
+    for ei, e in enumerate(elements[:10]):
+        print('el: {}'.format(ei))
+        for fi, (n, r) in enumerate(zip(e.neighbors, e.isRight)):
+            if n != -1:
+                # if a shared face. Find the left/right local face indices.
+                fidx = e.faces[fi]
+                fj = np_find(elements[n].faces == fidx)
+                if not (fi,fj) in normal_fmaps:
+                    raise 'faces {} {} not in normal_fmaps'.format(fi,fj)
+                print(ei, fi, n, r, fidx, fj, normal_fmaps[fi,fj], orient[fi], orient[fj])
+                dijk = np.zeros((3), dtype='i')
+                if fi in (1,3):
+                    i = 0 if fi == 3 else 1
+                    dijk[0] = normal_fmaps[fi,fj]
+                    
+                    lv1 = ijk2v[i,0,0]
+                    rv1 = np_find(elements[n].verts == e.verts[lv1]) # local id
+                    # +j
+                    lv2 = ijk2v[i,1,0]
+                    rv2 = np_find(elements[n].verts == e.verts[lv2])
+                    dj = ivec(*v2ijk[lv2]) - ivec(*v2ijk[lv1])
+                    idj = np_find(dj != 0)
+                    dijk[1] = (idj+1) if dj[idj] > 0 else -(idj+1)
+                    # +k
+                    lv3 = ijk2v[i,0,1]
+                    rv3 = np_find(elements[n].verts == e.verts[lv3])
+                    dk = ivec(*v2ijk[lv3]) - ivec(*v2ijk[lv1])
+                    idk = np_find(dk != 0)
+                    dijk[2] = (idk+1) if dk[idk] > 0 else -(idk+1)
+
+                    print("E/W")
+                    print(lv1, rv1, lv2, rv2, dj, idj, dj[idj])
+                    print(lv1, rv1, lv3, rv3, dk, idk, dk[idk])
+
+                elif fi in (0,2):
+                    j = 0 if fi == 0 else 1
+                    dijk[1] = normal_fmaps[fi,fj]
+                    
+                    lv1 = ijk2v[0,j,0]
+                    rv1 = np_find(elements[n].verts == e.verts[lv1]) # local id
+                    # +i
+                    lv2 = ijk2v[1,j,0]
+                    rv2 = np_find(elements[n].verts == e.verts[lv2])
+                    di = ivec(*v2ijk[lv2]) - ivec(*v2ijk[lv1])
+                    idi = np_find(di != 0)
+                    dijk[0] = (idi+1) if di[idi] > 0 else -(idi+1)
+                    # +k
+                    lv3 = ijk2v[0,j,1]
+                    rv3 = np_find(elements[n].verts == e.verts[lv3])
+                    dk = ivec(*v2ijk[lv3]) - ivec(*v2ijk[lv1])
+                    idk = np_find(dk != 0)
+                    dijk[2] = (idk+1) if dk[idk] > 0 else -(idk+1)
+
+                    print("N/S")
+                    print(lv1, rv1, lv2, rv2, dj, idj, dj[idj])
+                    print(lv1, rv1, lv3, rv3, dk, idk, dk[idk])
+                    
+                else:
+                    raise 'Not implemented yet'
+                    
+                print(dijk)     
+            
+if __name__ == "__main__":
+    f = 'Step_Expansion.su2'
+    if len(sys.argv) > 1:
+        f = sys.argv[1]
+
+    ndims, elems, coords, bndry_sections = load_mesh_su2(f)
+    for i, e in enumerate(elems[:10]):
+        print(i, e.verts, sum(coords[e.verts])/8)
+    all_faces = create_face_list(elems)
+    
+    pairs = create_connectivity(elems, all_faces)
+
+    
+    for e in elems[:30]:
+        print(e)
+
+    set_boundary_faces(elems, all_faces, bndry_sections)
+    
+    create_neighbor_mappings(elems)
+
     # Test if the 3d mesh can be cast into 2d easily.
+    quads = all_faces[GeometricTypes.QUAD4]
     for j, e in enumerate(elems):
         f = quads[e.faces[4]]
         zs = coords[f,2]
@@ -404,3 +518,4 @@ if __name__ == "__main__":
         #print(j, coords[f,2], allzero)
         if not allzero:
             print("Face 4 of element {} is not on the z=0 plane".format(j))
+            sys.exit(1)
