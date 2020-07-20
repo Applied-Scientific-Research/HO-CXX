@@ -389,12 +389,14 @@ def create_neighbor_mappings(elements):
     """For each face-neighbor, find the nodal mapping from left to right"""
     def ivec(i,j,k):
         return np.array([i,j,k], dtype='i')
-    
-    orient = {0: "S", 1: "E", 2: "N", 3: "W", 4: "I", 5: "O"}
+
+    S, E, N, W, I, O = 0, 1, 2, 3, 4, 5
+    Orient = {0: "S", 1: "E", 2: "N", 3: "W", 4: "I", 5: "O"}
+
     normal_fmaps = {}
-    normal_fmaps[1,3] = 1
-    normal_fmaps[0,2] = 2
-    normal_fmaps[4,5] = 3
+    normal_fmaps[E,W] = 1
+    normal_fmaps[S,N] = 2
+    normal_fmaps[I,O] = 3
     
     for i in range(6):
         for j in range(6):
@@ -425,8 +427,6 @@ def create_neighbor_mappings(elements):
         assert np.count_nonzero(mask) == 1
         return np.where(mask)[0][0]
 
-    
-    
     for ei, e in enumerate(elements[:10]):
         print('el: {}'.format(ei))
         for fi, (n, r) in enumerate(zip(e.neighbors, e.isRight)):
@@ -435,11 +435,12 @@ def create_neighbor_mappings(elements):
                 fidx = e.faces[fi]
                 fj = np_find(elements[n].faces == fidx)
                 if not (fi,fj) in normal_fmaps:
-                    raise 'faces {} {} not in normal_fmaps'.format(fi,fj)
-                print(ei, fi, n, r, fidx, fj, normal_fmaps[fi,fj], orient[fi], orient[fj])
+                    print('faces {} {} not in normal_fmaps'.format(fi,fj))
+                    sys.exit(2)
+                print(" face: {}, {} neigh: {}, {}, {} dir: {} => {}".format(fi, fidx, n, r, fj, Orient[fi], Orient[fj]))
                 dijk = np.zeros((3), dtype='i')
-                if fi in (1,3):
-                    i = 0 if fi == 3 else 1
+                if fi in (E,W):
+                    i = 0 if fi == W else 1
                     dijk[0] = normal_fmaps[fi,fj]
                     
                     lv1 = ijk2v[i,0,0]
@@ -457,12 +458,12 @@ def create_neighbor_mappings(elements):
                     idk = np_find(dk != 0)
                     dijk[2] = (idk+1) if dk[idk] > 0 else -(idk+1)
 
-                    print("E/W")
-                    print(lv1, rv1, lv2, rv2, dj, idj, dj[idj])
-                    print(lv1, rv1, lv3, rv3, dk, idk, dk[idk])
+                    #print("{} => {}".format(Orient[fi], Orient[fj]))
+                    #print(lv1, rv1, lv2, rv2, dj, idj, dj[idj])
+                    #print(lv1, rv1, lv3, rv3, dk, idk, dk[idk])
 
-                elif fi in (0,2):
-                    j = 0 if fi == 0 else 1
+                elif fi in (S,N):
+                    j = 0 if fi == S else 1
                     dijk[1] = normal_fmaps[fi,fj]
                     
                     lv1 = ijk2v[0,j,0]
@@ -480,21 +481,103 @@ def create_neighbor_mappings(elements):
                     idk = np_find(dk != 0)
                     dijk[2] = (idk+1) if dk[idk] > 0 else -(idk+1)
 
-                    print("N/S")
-                    print(lv1, rv1, lv2, rv2, dj, idj, dj[idj])
-                    print(lv1, rv1, lv3, rv3, dk, idk, dk[idk])
+                    #print("N/S")
+                    #print(lv1, rv1, lv2, rv2, dj, idj, dj[idj])
+                    #print(lv1, rv1, lv3, rv3, dk, idk, dk[idk])
                     
                 else:
                     raise 'Not implemented yet'
                     
-                print(dijk)     
+                print(dijk)
+
+
+def test_mesh_hex8(id):
+
+    ndims = 3
+    elems = []
+    coords = None
+    bndry_sections = {}
+
+    if id in (1,2):
+        ndims = 3
+        nx, ny, nz = 3, 2, 2
+
+        def ijk2n(i,j,k):
+            return i + nx*j + nx*ny*k
+
+        coords = []
+        for z in range(0,nz):
+            for y in range(0,ny):
+                for x in range(0,nx):
+                    coords.append([x,y,z])
+        coords = np.array(coords, dtype='f')
+
+        elems = []
+        for k in range(0,nz-1):
+            for j in range(0,ny-1):
+                for i in range(0,nx-1):
+                    nodes = [ijk2n(i,j,k),
+                             ijk2n(i+1,j,k),
+                             ijk2n(i+1,j+1,k),
+                             ijk2n(i,j+1,k),
+                             ijk2n(i,j,k+1),
+                             ijk2n(i+1,j,k+1),
+                             ijk2n(i+1,j+1,k+1),
+                             ijk2n(i,j+1,k+1)]
+
+                    nodes = np.array(nodes, dtype='i')
+                    eidx = i + j * (nx-1) + k * (nx-1)*(ny-1)
+                    elems.append(Element(GeometricTypes.HEX8, nodes, eidx))
+
+        if id == 2:
+            e = elems[1]
+            v = e.verts
+            p = [1,2,3,0,5,6,7,4]
+            print(e)
+            print(p)
+            print(v[p])
+            e.verts = v[p]
+            print(e)
+
+    else:
+        raise "mesh id {} not known".format(id)
+
+    return ndims, elems, coords, bndry_sections
+
             
 if __name__ == "__main__":
-    f = 'Step_Expansion.su2'
-    if len(sys.argv) > 1:
-        f = sys.argv[1]
 
-    ndims, elems, coords, bndry_sections = load_mesh_su2(f)
+    import getopt
+
+    infile = 'Step_Expansion.su2'
+    testid = None
+
+    if len(sys.argv) > 1:
+        import getopt
+
+        try:
+            opts, args = getopt.getopt(sys.argv[1:], 'f:t:', ['file=', 'test='])
+        except getopt.GetoptError as err:
+            print('getopt error {}'.format(str(err)))
+            sys.exit(2)
+
+        print(opts)
+
+        for opt, arg in opts:
+            if opt in ('-f', '--file'):
+                infile = arg
+            elif opt in ('-t', '--test'):
+                testid = int(arg)
+            else:
+                print('Unknown option {}'.format(opt))
+                sys.exit(1)
+
+    if testid is None:
+        ndims, elems, coords, bndry_sections = load_mesh_su2(f)
+    else:
+        ndims, elems, coords, bndry_sections = test_mesh_hex8(testid)
+
+
     for i, e in enumerate(elems[:10]):
         print(i, e.verts, sum(coords[e.verts])/8)
     all_faces = create_face_list(elems)
