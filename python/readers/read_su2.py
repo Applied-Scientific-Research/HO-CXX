@@ -384,6 +384,15 @@ def set_boundary_faces(elems, faces, bndry_sections):
     return
 
 
+def create_conn_matrix_from_vec(vec):
+    m = np.zeros((3,3), dtype='i')
+    for j, v in enumerate(vec):
+        i = abs(v)-1
+        m[i,j] = 1 if v >= 0 else -1
+
+    return m
+    
+
 def create_neighbor_mappings(elements):
     
     """For each face-neighbor, find the nodal mapping from left to right"""
@@ -394,16 +403,52 @@ def create_neighbor_mappings(elements):
     Orient = {0: "S", 1: "E", 2: "N", 3: "W", 4: "I", 5: "O"}
 
     normal_fmaps = {}
-    normal_fmaps[E,W] = 1
-    normal_fmaps[S,N] = 2
-    normal_fmaps[I,O] = 3
+    normal_fmaps[E,S] = [ 2, 0, 0]
+    normal_fmaps[E,N] = [-2, 0, 0]
+    normal_fmaps[E,E] = [-1, 0, 0]
+    normal_fmaps[E,W] = [ 1, 0, 0]
+    normal_fmaps[S,N] = [ 0, 2, 0]
+    normal_fmaps[I,O] = [ 0, 0, 3]
     
-    for i in range(6):
-        for j in range(6):
-            if j < i and (j,i) in normal_fmaps:
-                normal_fmaps[i,j] = normal_fmaps[j,i]
-                
-    print(normal_fmaps)
+    def create_fmap_matrix(vec):
+        m = np.zeros((3,3), dtype='i')
+        for j, v in enumerate(vec):
+            i = abs(v)
+            m[i,j] = 1 if v >= 0 else -1
+
+        return m
+    
+    def create_fmap_vector(m):
+        vec = np.zeros((3), dtype='i')
+        for j in range(3):
+            row = -1
+            for i in range(3):
+                if m[i,j] != 0:
+                    row = i
+                    break
+            if row != -1:
+                i = row
+                vec[j] = i if m[i,j] > 0 else -i
+        return vec
+    
+    if True:
+        def transpose(v):
+            i = [idx for idx, val in enumerate(v) if val != 0][0]
+            j = abs(v[i]) - 1
+            k = (i+1) if v[i] > 0 else -(i+1)
+            vt = [0,0,0]
+            vt[j] = k
+            return vt
+            
+        for i in range(6):
+            for j in range(6):
+                # if j < i and (j,i) in normal_fmaps:
+                if not (i,j) in normal_fmaps and (j,i) in normal_fmaps: 
+                    normal_fmaps[i,j] = transpose(normal_fmaps[j,i])
+
+    for (i,j) in normal_fmaps:
+        print(i, j, normal_fmaps[i,j], Orient[i], Orient[j])
+        
     
     ijk2v = {}
     ijk2v[0,0,0] = 0
@@ -426,6 +471,8 @@ def create_neighbor_mappings(elements):
     def np_find(mask):
         assert np.count_nonzero(mask) == 1
         return np.where(mask)[0][0]
+    
+    face_map_vec = {}
 
     for ei, e in enumerate(elements[:10]):
         print('el: {}'.format(ei))
@@ -435,112 +482,251 @@ def create_neighbor_mappings(elements):
                 fidx = e.faces[fi]
                 fj = np_find(elements[n].faces == fidx)
                 if not (fi,fj) in normal_fmaps:
-                    print('faces {} {} not in normal_fmaps'.format(fi,fj))
+                    print('faces {} {} not in normal_fmaps {} {}'.format(fi, fj, Orient[fi], Orient[fj]))
                     sys.exit(2)
                 print(" face: {}, {} neigh: {}, {}, {} dir: {} => {}".format(fi, fidx, n, r, fj, Orient[fi], Orient[fj]))
-                dijk = np.zeros((3), dtype='i')
+                # dijk = np.zeros((3), dtype='i')
+                dijk = np.array(normal_fmaps[fi,fj], dtype='i')
                 if fi in (E,W):
                     i = 0 if fi == W else 1
-                    dijk[0] = normal_fmaps[fi,fj]
+                    # dijk[0] = normal_fmaps[fi,fj]
                     
                     lv1 = ijk2v[i,0,0]
                     rv1 = np_find(elements[n].verts == e.verts[lv1]) # local id
                     # +j
                     lv2 = ijk2v[i,1,0]
                     rv2 = np_find(elements[n].verts == e.verts[lv2])
-                    dj = ivec(*v2ijk[lv2]) - ivec(*v2ijk[lv1])
+                    dj = ivec(*v2ijk[rv2]) - ivec(*v2ijk[rv1])
                     idj = np_find(dj != 0)
                     dijk[1] = (idj+1) if dj[idj] > 0 else -(idj+1)
                     # +k
                     lv3 = ijk2v[i,0,1]
                     rv3 = np_find(elements[n].verts == e.verts[lv3])
-                    dk = ivec(*v2ijk[lv3]) - ivec(*v2ijk[lv1])
+                    dk = ivec(*v2ijk[rv3]) - ivec(*v2ijk[rv1])
                     idk = np_find(dk != 0)
                     dijk[2] = (idk+1) if dk[idk] > 0 else -(idk+1)
 
-                    #print("{} => {}".format(Orient[fi], Orient[fj]))
-                    #print(lv1, rv1, lv2, rv2, dj, idj, dj[idj])
-                    #print(lv1, rv1, lv3, rv3, dk, idk, dk[idk])
+                    # print("{} => {}".format(Orient[fi], Orient[fj]))
+                    print(lv1, lv2, lv3, rv1, rv2, rv3, e.verts[lv1], e.verts[lv2], e.verts[lv3])
+                    print('j+ ', dj, idj, dj[idj])
+                    print('k+ ', dk, idk, dk[idk])
 
                 elif fi in (S,N):
                     j = 0 if fi == S else 1
-                    dijk[1] = normal_fmaps[fi,fj]
+                    # dijk[1] = normal_fmaps[fi,fj]
                     
                     lv1 = ijk2v[0,j,0]
                     rv1 = np_find(elements[n].verts == e.verts[lv1]) # local id
                     # +i
                     lv2 = ijk2v[1,j,0]
                     rv2 = np_find(elements[n].verts == e.verts[lv2])
-                    di = ivec(*v2ijk[lv2]) - ivec(*v2ijk[lv1])
+                    di = ivec(*v2ijk[rv2]) - ivec(*v2ijk[rv1])
                     idi = np_find(di != 0)
                     dijk[0] = (idi+1) if di[idi] > 0 else -(idi+1)
                     # +k
                     lv3 = ijk2v[0,j,1]
                     rv3 = np_find(elements[n].verts == e.verts[lv3])
-                    dk = ivec(*v2ijk[lv3]) - ivec(*v2ijk[lv1])
+                    dk = ivec(*v2ijk[rv3]) - ivec(*v2ijk[rv1])
                     idk = np_find(dk != 0)
                     dijk[2] = (idk+1) if dk[idk] > 0 else -(idk+1)
 
-                    #print("N/S")
-                    #print(lv1, rv1, lv2, rv2, dj, idj, dj[idj])
-                    #print(lv1, rv1, lv3, rv3, dk, idk, dk[idk])
+                    # print("N/S")
+                    # print(lv1, rv1, lv2, rv2, dj, idj, dj[idj])
+                    # print(lv1, rv1, lv3, rv3, dk, idk, dk[idk])
+                    print(lv1, lv2, lv3, rv1, rv2, rv3, e.verts[lv1], e.verts[lv2], e.verts[lv3])
+                    print('i+ ', di, idi, di[idi])
+                    print('k+ ', dk, idk, dk[idk])
                     
                 else:
                     raise 'Not implemented yet'
                     
                 print(dijk)
+                print(create_conn_matrix_from_vec(dijk))
+                if fidx not in face_map_vec:
+                    el, er = ((ei, fi), (n, fj)) if r == 0 else ((n, fj), (ei, fi))
+                    face_map_vec[fidx] = dijk, el, er
+                
+                # Create a little internal mesh on face and verify that it's
+                # the same on both sides.
+
+    # print(face_map_vec)
+    return face_map_vec
 
 
-def test_mesh_hex8(id):
+
+def test_mesh_hex8(testid):
 
     ndims = 3
     elems = []
     coords = None
     bndry_sections = {}
+    
+    print(testid)
+    dleft, dright = testid.upper().split(',')
+    print(dleft, dright)
 
-    if id in (1,2):
-        ndims = 3
-        nx, ny, nz = 3, 2, 2
+    # The input defines the downward face for the left/right elements. 'South'
+    # is natural.
+    rot2d = {'S': [1,2,3],
+             'W': [2,-1,3],
+             'N': [-1,-2,3],
+             'E': [-2,1,3]}
 
-        def ijk2n(i,j,k):
-            return i + nx*j + nx*ny*k
+    left = rot2d[dleft]
+    right = rot2d[dright]
+    # left = [1,2,3]
+    # right = [2,-1,3]
+    print(left, right)
 
-        coords = []
-        for z in range(0,nz):
-            for y in range(0,ny):
-                for x in range(0,nx):
-                    coords.append([x,y,z])
-        coords = np.array(coords, dtype='f')
+    # Create a simple 2-cell mesh.
+    nx, ny, nz = 3, 2, 2
 
-        elems = []
-        for k in range(0,nz-1):
-            for j in range(0,ny-1):
-                for i in range(0,nx-1):
-                    nodes = [ijk2n(i,j,k),
-                             ijk2n(i+1,j,k),
-                             ijk2n(i+1,j+1,k),
+    def ijk2n(i,j,k):
+        return i + nx*j + nx*ny*k
+
+    coords = []
+    for z in range(0,nz):
+        for y in range(0,ny):
+            for x in range(0,nx):
+                coords.append([x,y,z])
+    coords = np.array(coords, dtype='f')
+
+    elems = []
+    for k in range(0,nz-1):
+        for j in range(0,ny-1):
+            for i in range(0,nx-1):
+                nodes = [ijk2n(i,j,k),
+                         ijk2n(i+1,j,k),
+                         ijk2n(i+1,j+1,k),
+                         ijk2n(i,j+1,k),
+                         ijk2n(i,j,k+1),
+                         ijk2n(i+1,j,k+1),
+                         ijk2n(i+1,j+1,k+1),
+                         ijk2n(i,j+1,k+1)]
+
+                verts = np.array(nodes, dtype='i')
+                eidx = i + j * (nx-1) + k * (nx-1)*(ny-1)
+                elems.append(Element(GeometricTypes.HEX8, verts, eidx))
+                
+    # create fake bnd's
+    if True:
+        bndry_sections['empty'] = bndry = []
+        for i in [0, nx-1]:
+            for k in range(0,nz-1):
+                for j in range(0,ny-1):
+                    verts = [ijk2n(i,j,k),
                              ijk2n(i,j+1,k),
                              ijk2n(i,j,k+1),
-                             ijk2n(i+1,j,k+1),
-                             ijk2n(i+1,j+1,k+1),
                              ijk2n(i,j+1,k+1)]
+                    verts = np.array(verts, dtype='i')
+                    bndry.append(Element(GeometricTypes.QUAD4, verts))
+                    
+        for j in [0, ny-1]:
+            for k in range(0,nz-1):
+                for i in range(0,nx-1):
+                    verts = [ijk2n(i,j,k),
+                             ijk2n(i+1,j,k),
+                             ijk2n(i,j,k+1),
+                             ijk2n(i+1,j,k+1)]
+                    verts = np.array(verts, dtype='i')
+                    bndry.append(Element(GeometricTypes.QUAD4, verts))
+                    
+        for k in [0, nz-1]:
+            for j in range(0,ny-1):
+                for i in range(0,nx-1):
+                    verts = [ijk2n(i,j,k),
+                             ijk2n(i+1,j,k),
+                             ijk2n(i+1,j+1,k),
+                             ijk2n(i,j+1,k)]
+                    verts = np.array(verts, dtype='i')
+                    bndry.append(Element(GeometricTypes.QUAD4, verts))
 
-                    nodes = np.array(nodes, dtype='i')
-                    eidx = i + j * (nx-1) + k * (nx-1)*(ny-1)
-                    elems.append(Element(GeometricTypes.HEX8, nodes, eidx))
 
-        if id == 2:
-            e = elems[1]
-            v = e.verts
-            p = [1,2,3,0,5,6,7,4]
-            print(e)
-            print(p)
-            print(v[p])
-            e.verts = v[p]
-            print(e)
-
+    if left == [1,2,3]:
+        pass
     else:
-        raise "mesh id {} not known".format(id)
+        print("left {} not supported yet".format(left))
+        
+    if right == [1,2,3]:
+        pass
+    else:
+        rotmat = create_conn_matrix_from_vec(right)
+ 
+        ijk2v = {}
+        ijk2v[0,0,0] = 0
+        ijk2v[1,0,0] = 1
+        ijk2v[1,1,0] = 2
+        ijk2v[0,1,0] = 3
+        ijk2v[0,0,1] = 0+4
+        ijk2v[1,0,1] = 1+4
+        ijk2v[1,1,1] = 2+4
+        ijk2v[0,1,1] = 3+4
+
+        print(ijk2v)
+        
+        v2ijk = {}
+        for (i,j,k), v in ijk2v.items():
+            v2ijk[v] = (i,j,k)
+            
+        print(v2ijk)
+        
+        v = [[0,0,0],
+             [1,0,0],
+             [1,1,0],
+             [0,1,0],
+             [0,0,1],
+             [1,0,1],
+             [1,1,1],
+             [0,1,1]]
+        v0 = np.array(v, dtype='i')
+        v1 = np.zeros_like(v0)
+        
+        for i, row in enumerate(v):
+            v1[i] = rotmat.dot(row)
+            
+        offset = np.zeros((3), dtype='i')
+        for d in range(3):
+            offset[d] = np.min(v1[:,d])
+
+        print(rotmat)
+        print(v0)
+        print(v1)
+        print(offset)
+        v1 -= offset
+        print(v1)
+        r = [ijk2v[tuple(v)] for v in v1]
+        print(r)
+        v = elems[1].verts[:]
+        print(v)
+        elems[1].verts = v[r] 
+        print(elems[1].verts)
+
+    # if right == 0:
+    #     e = elems[1]
+    #     v = [4,1,2,5]
+    #     v.extend([i+6 for i in v])
+    #     e.verts = np.array(v, dtype='i')
+    #     print(e)
+    # elif right == 1:
+    #     e = elems[1]
+    #     v = [5,4,1,2]
+    #     v.extend([i+6 for i in v])
+    #     e.verts = np.array(v, dtype='i')
+    #     print(e)
+    # elif right == 2:
+    #     e = elems[1]
+    #     v = e.verts
+    #     p = [1,2,3,0,5,6,7,4]
+    #     print(e)
+    #     print(p)
+    #     print(v[p])
+    #     e.verts = v[p]
+    #     print(e)
+    # elif right == 3:
+    #     pass
+    # else:
+    #     raise "test right id {} not known".format(right)
+
 
     return ndims, elems, coords, bndry_sections
 
@@ -553,7 +739,6 @@ if __name__ == "__main__":
     testid = None
 
     if len(sys.argv) > 1:
-        import getopt
 
         try:
             opts, args = getopt.getopt(sys.argv[1:], 'f:t:', ['file=', 'test='])
@@ -567,30 +752,111 @@ if __name__ == "__main__":
             if opt in ('-f', '--file'):
                 infile = arg
             elif opt in ('-t', '--test'):
-                testid = int(arg)
+                testid = arg
             else:
                 print('Unknown option {}'.format(opt))
                 sys.exit(1)
 
     if testid is None:
-        ndims, elems, coords, bndry_sections = load_mesh_su2(f)
+        ndims, elems, coords, bndry_sections = load_mesh_su2(infile)
     else:
         ndims, elems, coords, bndry_sections = test_mesh_hex8(testid)
 
 
+    print('midpoints')
     for i, e in enumerate(elems[:10]):
         print(i, e.verts, sum(coords[e.verts])/8)
     all_faces = create_face_list(elems)
-    
+
     pairs = create_connectivity(elems, all_faces)
 
     
-    for e in elems[:30]:
-        print(e)
+    # for e in elems[:30]:
+    #     print(e)
 
+    print('boundary faces')
     set_boundary_faces(elems, all_faces, bndry_sections)
-    
-    create_neighbor_mappings(elems)
+
+    print('neighbor cell maps')
+    face_map_vecs = create_neighbor_mappings(elems)
+
+    if testid is not None:
+        
+        def trilin(ix, px):
+            assert all([x >= 0 and x <= 1.0 for x in ix])
+            xi, et, zt = ix
+            c00 = px[0] * (1.0 - xi) + px[1] * xi
+            c10 = px[3] * (1.0 - xi) + px[2] * xi
+            c01 = px[4] * (1.0 - xi) + px[5] * xi
+            c11 = px[7] * (1.0 - xi) + px[6] * xi
+            c0 = c00 * (1.0 - et) + c10 * et
+            c1 = c01 * (1.0 - et) + c11 * et
+            return c0 * (1.0 - zt) + c1 * zt
+            
+        print("reference cell")
+        print(face_map_vecs)
+        nk = 3
+        xref = np.zeros((3,nk,nk), dtype='f')
+        for i in range(nk):
+            for j in range(nk):
+                xi = float(i) / (nk-1)
+                et = float(j) / (nk-1)
+                # zt = float(k) / (nk-1)
+                zt = 0.0
+                xref[:,i,j] = xi, et, 0.0
+                print(xref[:,i,j])
+                
+        for _, (dijk, (ei, fi), (ej, fj)) in face_map_vecs.items():
+            
+            lxyz = coords[elems[ei].verts]
+            rxyz = coords[elems[ej].verts]
+            print(ei, elems[ei].verts)
+            print(ej, elems[ej].verts)
+            lijk = np.zeros((3,nk,nk), dtype='f')
+            rijk = np.zeros((3,nk,nk), dtype='f')
+            for i in range(nk):
+                for j in range(nk):
+                    xi, et, zt = xref[:,i,j]
+                    lijk[:,i,j] = [trilin(xref[:,i,j], lxyz[:,d]) for d in range(3)]
+                    rijk[:,i,j] = [trilin(xref[:,i,j], rxyz[:,d]) for d in range(3)]
+                    print('l: ', xi, et, lijk[:,i,j])
+                    print('r: ', xi, et, rijk[:,i,j])
+                    
+            # print(lijk[:,-1,:])
+            # print(rijk[:,-1,:])
+            
+            if fi == 1: # 'E'
+                for j in range(nk):
+                    print(j, lijk[:,-1,j])
+            else:
+                print('Not ready here')
+                sys.exit(2)
+                
+            if fj in (1,3): # E/W
+                i = -1 if fj == 1 else 0
+                dj = dijk[np.where(abs(dijk) == 2)[0][0]]
+                if dj == 2:
+                    for j in range(nk):
+                        print(j, rijk[:,i,j])
+                elif dijk[1] == -2:
+                    for j in range(nk):
+                        jj = (nk-1) - j
+                        print(jj, rijk[:,i,jj])
+                else:
+                    raise
+            elif fj in (0,2): # S/N
+                j = -1 if fj == 2 else 0
+                di = dijk[np.where(abs(dijk) == 1)[0][0]]
+                if di == 1:
+                    for i in range(nk):
+                        print(i, rijk[:,i,j])
+                elif di == -1:
+                    for i in range(nk):
+                        ii = (nk-1) - i
+                        print(ii, rijk[:,ii,j])
+            else:
+                raise
+                sys.exit(2)
 
     # Test if the 3d mesh can be cast into 2d easily.
     quads = all_faces[GeometricTypes.QUAD4]
