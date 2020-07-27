@@ -795,16 +795,19 @@ if __name__ == "__main__":
             
         print("reference cell")
         print(face_map_vecs)
-        nk = 3
-        xref = np.zeros((3,nk,nk), dtype='f')
-        for i in range(nk):
-            for j in range(nk):
-                xi = float(i) / (nk-1)
-                et = float(j) / (nk-1)
-                # zt = float(k) / (nk-1)
-                zt = 0.0
-                xref[:,i,j] = xi, et, 0.0
-                print(xref[:,i,j])
+        nxi, net, nzt = 3, 3, 1
+        xref = np.zeros((3,nxi,net,nzt), dtype='f')
+        for i in range(nxi):
+            for j in range(net):
+                for k in range(nzt):
+                    dxi = 1.0 / (nxi-1)
+                    det = 1.0 / (net-1)
+                    dzt = 1.0 / (nzt-1 if nzt > 1 else 1.0)
+                    xi = float(i) * dxi
+                    et = float(j) * det
+                    zt = float(k) * dzt
+                    xref[:,i,j,k] = xi, et, zt
+                    print(xref[:,i,j,k])
                 
         for _, (dijk, (ei, fi), (ej, fj)) in face_map_vecs.items():
             
@@ -812,22 +815,28 @@ if __name__ == "__main__":
             rxyz = coords[elems[ej].verts]
             print(ei, elems[ei].verts)
             print(ej, elems[ej].verts)
-            lijk = np.zeros((3,nk,nk), dtype='f')
-            rijk = np.zeros((3,nk,nk), dtype='f')
-            for i in range(nk):
-                for j in range(nk):
-                    xi, et, zt = xref[:,i,j]
-                    lijk[:,i,j] = [trilin(xref[:,i,j], lxyz[:,d]) for d in range(3)]
-                    rijk[:,i,j] = [trilin(xref[:,i,j], rxyz[:,d]) for d in range(3)]
-                    print('l: ', xi, et, lijk[:,i,j])
-                    print('r: ', xi, et, rijk[:,i,j])
+            lijk = np.zeros((3,nxi,net,nzt), dtype='f')
+            rijk = np.zeros((3,nxi,net,nzt), dtype='f')
+            for i in range(nxi):
+                for j in range(net):
+                    for k in range(nzt):
+                        xi, et, zt = xref[:,i,j,k]
+                        lijk[:,i,j,k] = [trilin(xref[:,i,j,k], lxyz[:,d]) for d in range(3)]
+                        rijk[:,i,j,k] = [trilin(xref[:,i,j,k], rxyz[:,d]) for d in range(3)]
+                        print('l: ', xi, et, zt, lijk[:,i,j,k])
+                        print('r: ', xi, et, zt, rijk[:,i,j,k])
                     
             # print(lijk[:,-1,:])
             # print(rijk[:,-1,:])
+
+            ldat = []
+            rdat = []
             
             if fi == 1: # 'E'
-                for j in range(nk):
-                    print(j, lijk[:,-1,j])
+                for j in range(net):
+                    for k in range(nzt):
+                        ldat.append(lijk[:,-1,j,k])
+                        print(j, k, lijk[:,-1,j,k])
             else:
                 print('Not ready here')
                 sys.exit(2)
@@ -835,28 +844,43 @@ if __name__ == "__main__":
             if fj in (1,3): # E/W
                 i = -1 if fj == 1 else 0
                 dj = dijk[np.where(abs(dijk) == 2)[0][0]]
-                if dj == 2:
-                    for j in range(nk):
-                        print(j, rijk[:,i,j])
-                elif dijk[1] == -2:
-                    for j in range(nk):
-                        jj = (nk-1) - j
-                        print(jj, rijk[:,i,jj])
-                else:
-                    raise
+                dk = dijk[np.where(abs(dijk) == 3)[0][0]]
+                assert dk == 3
+                for k in range(nzt):
+                    if dj == 2:
+                        for j in range(net):
+                            rdat.append(rijk[:,i,j,k])
+                            print(j, k, rijk[:,i,j,k])
+                    elif dijk[1] == -2:
+                        for j in range(net):
+                            jj = (net-1) - j
+                            rdat.append(rijk[:,i,jj,k])
+                            print(jj, k, rijk[:,i,jj,k])
+                    else:
+                        raise
             elif fj in (0,2): # S/N
                 j = -1 if fj == 2 else 0
                 di = dijk[np.where(abs(dijk) == 1)[0][0]]
-                if di == 1:
-                    for i in range(nk):
-                        print(i, rijk[:,i,j])
-                elif di == -1:
-                    for i in range(nk):
-                        ii = (nk-1) - i
-                        print(ii, rijk[:,ii,j])
+                dk = dijk[np.where(abs(dijk) == 3)[0][0]]
+                assert dk == 3
+                for k in range(nzt):
+                    if di == 1:
+                        for i in range(nxi):
+                            rdat.append(rijk[:,i,j,k])
+                            print(i, k, rijk[:,i,j,k])
+                    elif di == -1:
+                         for i in range(nxi):
+                            ii = (nxi-1) - i
+                            rdat.append(rijk[:,ii,j,k])
+                            print(ii, k, rijk[:,ii,j,k])
+                    else:
+                        raise
             else:
                 raise
-                sys.exit(2)
+                
+            if not all([np.all(li == ri) for li, ri in zip(ldat, rdat)]):
+                print('Match failed')
+                raise
 
     # Test if the 3d mesh can be cast into 2d easily.
     quads = all_faces[GeometricTypes.QUAD4]
