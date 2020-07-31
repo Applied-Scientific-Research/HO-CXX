@@ -642,15 +642,9 @@ def test_mesh_hex8(testid):
                     bndry.append(Element(GeometricTypes.QUAD4, verts))
 
 
-    if left == [1,2,3]:
-        pass
-    else:
-        print("left {} not supported yet".format(left))
-        
-    if right == [1,2,3]:
-        pass
-    else:
-        rotmat = create_conn_matrix_from_vec(right)
+    def rotate_element(rotvec):
+
+        rotmat = create_conn_matrix_from_vec(rotvec)
  
         ijk2v = {}
         ijk2v[0,0,0] = 0
@@ -662,13 +656,13 @@ def test_mesh_hex8(testid):
         ijk2v[1,1,1] = 2+4
         ijk2v[0,1,1] = 3+4
 
-        print(ijk2v)
+        # print(ijk2v)
         
         v2ijk = {}
         for (i,j,k), v in ijk2v.items():
             v2ijk[v] = (i,j,k)
             
-        print(v2ijk)
+        # print(v2ijk)
         
         v = [[0,0,0],
              [1,0,0],
@@ -688,19 +682,30 @@ def test_mesh_hex8(testid):
         for d in range(3):
             offset[d] = np.min(v1[:,d])
 
-        print(rotmat)
-        print(v0)
-        print(v1)
-        print(offset)
+        # print(rotvec)
+        # print(rotmat)
+        # print(v0)
+        # print(v1)
+        # print(offset)
         v1 -= offset
-        print(v1)
+        # print(v1)
         r = [ijk2v[tuple(v)] for v in v1]
-        print(r)
-        v = elems[1].verts[:]
-        print(v)
-        elems[1].verts = v[r] 
-        print(elems[1].verts)
 
+        return r
+
+
+    for i, rotvec in enumerate([left, right]):
+        if rotvec == [1,2,3]:
+            pass
+        else:
+            print("Rotating element {}: {}".format(i, rotvec))
+            r = rotate_element(right)
+            print(r)
+            v = elems[i].verts[:]
+            print(v)
+            elems[i].verts = v[r] 
+            print(elems[i].verts)
+    
     # if right == 0:
     #     e = elems[1]
     #     v = [4,1,2,5]
@@ -832,11 +837,18 @@ if __name__ == "__main__":
             ldat = []
             rdat = []
             
-            if fi == 1: # 'E'
+            if fi in (1,3): # E/W
+                i = -1 if fi == 1 else 0
                 for j in range(net):
                     for k in range(nzt):
-                        ldat.append(lijk[:,-1,j,k])
-                        print(j, k, lijk[:,-1,j,k])
+                        ldat.append(lijk[:,i,j,k])
+                        print(i, j, k, lijk[:,i,j,k])
+            elif fi in (2,0): # N/S
+                j = -1 if fi == 2 else 0
+                for i in range(nxi):
+                    for k in range(nzt):
+                        ldat.append(lijk[:,i,jk])
+                        print(i, j, k, lijk[:,i,j,k])
             else:
                 print('Not ready here')
                 sys.exit(2)
