@@ -480,6 +480,14 @@ def create_neighbor_mappings(elements):
             if n != -1:
                 # if a shared face. Find the left/right local face indices.
                 fidx = e.faces[fi]
+                if r == True:
+                    print("Skipping right side faces {}".format(fidx))
+                    continue
+
+                assert not fidx in face_map_vec
+                #if fidx in face_map_vec:
+                #    continue
+
                 fj = np_find(elements[n].faces == fidx)
                 if not (fi,fj) in normal_fmaps:
                     print('faces {} {} not in normal_fmaps {} {}'.format(fi, fj, Orient[fi], Orient[fj]))
@@ -788,8 +796,17 @@ if __name__ == "__main__":
 
     print('neighbor cell maps')
     face_map_vecs = create_neighbor_mappings(elems)
+    print(len(face_map_vecs))
 
-    if testid is not None:
+    if testid is None:
+        maxlines = 25
+        i = 0
+        for fidx, (dijk, (ei, fi), (ej, fj), rorigin) in face_map_vecs.items():
+            if i > maxlines:
+                break
+            i += 1
+            print(fidx, dijk, ei, ej)
+    else:
         
         def trilin(ix, px):
             assert all([x >= 0 and x <= 1.0 for x in ix])
