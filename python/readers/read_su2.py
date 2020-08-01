@@ -487,6 +487,7 @@ def create_neighbor_mappings(elements):
                 print(" face: {}, {} neigh: {}, {}, {} dir: {} => {}".format(fi, fidx, n, r, fj, Orient[fi], Orient[fj]))
                 # dijk = np.zeros((3), dtype='i')
                 dijk = np.array(normal_fmaps[fi,fj], dtype='i')
+                rorigin = None
                 if fi in (E,W):
                     i = 0 if fi == W else 1
                     # dijk[0] = normal_fmaps[fi,fj]
@@ -507,9 +508,10 @@ def create_neighbor_mappings(elements):
                     dijk[2] = (idk+1) if dk[idk] > 0 else -(idk+1)
 
                     # print("{} => {}".format(Orient[fi], Orient[fj]))
-                    print(lv1, lv2, lv3, rv1, rv2, rv3, e.verts[lv1], e.verts[lv2], e.verts[lv3])
+                    print(lv1, lv2, lv3, rv1, rv2, rv3, e.verts[lv1], e.verts[lv2], e.verts[lv3], v2ijk[lv1], v2ijk[rv1])
                     print('j+ ', dj, idj, dj[idj])
                     print('k+ ', dk, idk, dk[idk])
+                    rorigin = v2ijk[rv1]
 
                 elif fi in (S,N):
                     j = 0 if fi == S else 1
@@ -533,9 +535,11 @@ def create_neighbor_mappings(elements):
                     # print("N/S")
                     # print(lv1, rv1, lv2, rv2, dj, idj, dj[idj])
                     # print(lv1, rv1, lv3, rv3, dk, idk, dk[idk])
-                    print(lv1, lv2, lv3, rv1, rv2, rv3, e.verts[lv1], e.verts[lv2], e.verts[lv3])
+                    # print(lv1, lv2, lv3, rv1, rv2, rv3, e.verts[lv1], e.verts[lv2], e.verts[lv3])
+                    print(lv1, lv2, lv3, rv1, rv2, rv3, e.verts[lv1], e.verts[lv2], e.verts[lv3], v2ijk[lv1], v2ijk[rv1])
                     print('i+ ', di, idi, di[idi])
                     print('k+ ', dk, idk, dk[idk])
+                    rorigin = v2ijk[rv1]
                     
                 else:
                     raise 'Not implemented yet'
@@ -544,7 +548,7 @@ def create_neighbor_mappings(elements):
                 print(create_conn_matrix_from_vec(dijk))
                 if fidx not in face_map_vec:
                     el, er = ((ei, fi), (n, fj)) if r == 0 else ((n, fj), (ei, fi))
-                    face_map_vec[fidx] = dijk, el, er
+                    face_map_vec[fidx] = dijk, el, er, rorigin
                 
                 # Create a little internal mesh on face and verify that it's
                 # the same on both sides.
@@ -812,9 +816,9 @@ if __name__ == "__main__":
                     et = float(j) * det
                     zt = float(k) * dzt
                     xref[:,i,j,k] = xi, et, zt
-                    print(xref[:,i,j,k])
+                    # print(xref[:,i,j,k])
                 
-        for _, (dijk, (ei, fi), (ej, fj)) in face_map_vecs.items():
+        for _, (dijk, (ei, fi), (ej, fj), rorigin) in face_map_vecs.items():
             
             lxyz = coords[elems[ei].verts]
             rxyz = coords[elems[ej].verts]
@@ -828,30 +832,62 @@ if __name__ == "__main__":
                         xi, et, zt = xref[:,i,j,k]
                         lijk[:,i,j,k] = [trilin(xref[:,i,j,k], lxyz[:,d]) for d in range(3)]
                         rijk[:,i,j,k] = [trilin(xref[:,i,j,k], rxyz[:,d]) for d in range(3)]
-                        print('l: ', xi, et, zt, lijk[:,i,j,k])
-                        print('r: ', xi, et, zt, rijk[:,i,j,k])
+                        # print('l: ', xi, et, zt, lijk[:,i,j,k])
+                        # print('r: ', xi, et, zt, rijk[:,i,j,k])
                     
             # print(lijk[:,-1,:])
             # print(rijk[:,-1,:])
 
             ldat = []
             rdat = []
-            
+
+            assert net == nxi
+            ldat = np.full((3,net,nzt), dtype='f', fill_value=-1)
+            rdat = np.full((3,net,nzt), dtype='f', fill_value=-1)
+
             if fi in (1,3): # E/W
-                i = -1 if fi == 1 else 0
-                for j in range(net):
-                    for k in range(nzt):
-                        ldat.append(lijk[:,i,j,k])
+                i = nxi-1 if fi == 1 else 0
+                for k in range(nzt):
+                    for j in range(net):
+                        # ldat.append(lijk[:,i,j,k])
+                        ldat[:,j,k] = lijk[:,i,j,k]
                         print(i, j, k, lijk[:,i,j,k])
-            elif fi in (2,0): # N/S
-                j = -1 if fi == 2 else 0
-                for i in range(nxi):
-                    for k in range(nzt):
-                        ldat.append(lijk[:,i,jk])
+            elif fi in (2,0): # N/Shh
+                j = net-1 if fi == 2 else 0
+                for k in range(nzt):
+                    for i in range(nxi):
+                        # ldat.append(lijk[:,i,j,k])
+                        ldat[:,i,k] = lijk[:,i,j,k]
                         print(i, j, k, lijk[:,i,j,k])
             else:
                 print('Not ready here')
                 sys.exit(2)
+
+            cmat = create_conn_matrix_from_vec(dijk)
+            print(cmat)
+            print(ldat.shape[1:])
+            print(cmat.dot(np.array([1,net,nzt])))
+            ls = np.array([nxi-1,0    ,0    ], dtype='i')
+            le = np.array([nxi-1,net-1,nzt-1], dtype='i')
+            rs = np.zeros((3), dtype='i')
+            rs[0] = 0 if rorigin[0] == 0 else nxi-1
+            rs[1] = 0 if rorigin[1] == 0 else net-1
+            rs[2] = 0 if rorigin[2] == 0 else nzt-1
+            re = rs + cmat.dot(le-ls)
+            print('lorig: ', ls, le)
+            print('rorig: ', rs, re)
+
+            if True:
+                for k in range(ls[2], le[2]+1):
+                    for j in range(ls[1], le[1]+1):
+                        for i in range(ls[0], le[0]+1):
+                            di = i - ls[0]
+                            dj = j - ls[1]
+                            dk = k - ls[2]
+                            dl = np.array([di,dj,dk])
+                            dr = cmat.dot(dl)
+                            print(i, j, k, rs + dr)
+
                 
             if fj in (1,3): # E/W
                 i = -1 if fj == 1 else 0
@@ -861,13 +897,15 @@ if __name__ == "__main__":
                 for k in range(nzt):
                     if dj == 2:
                         for j in range(net):
-                            rdat.append(rijk[:,i,j,k])
-                            print(j, k, rijk[:,i,j,k])
+                            # rdat.append(rijk[:,i,j,k])
+                            rdat[:,j,k] = rijk[:,i,j,k]
+                            print(i, j, k, rijk[:,i,j,k])
                     elif dijk[1] == -2:
                         for j in range(net):
                             jj = (net-1) - j
-                            rdat.append(rijk[:,i,jj,k])
-                            print(jj, k, rijk[:,i,jj,k])
+                            # rdat.append(rijk[:,i,jj,k])
+                            rdat[:,j,k] = rijk[:,i,jj,k]
+                            print(i, jj, k, rijk[:,i,jj,k])
                     else:
                         raise
             elif fj in (0,2): # S/N
@@ -878,20 +916,29 @@ if __name__ == "__main__":
                 for k in range(nzt):
                     if di == 1:
                         for i in range(nxi):
-                            rdat.append(rijk[:,i,j,k])
-                            print(i, k, rijk[:,i,j,k])
+                            # rdat.append(rijk[:,i,j,k])
+                            rdat[:,i,k] = rijk[:,i,j,k]
+                            print(i, j, k, rijk[:,i,j,k])
                     elif di == -1:
                          for i in range(nxi):
                             ii = (nxi-1) - i
-                            rdat.append(rijk[:,ii,j,k])
-                            print(ii, k, rijk[:,ii,j,k])
+                            # rdat.append(rijk[:,ii,j,k])
+                            rdat[:,i,k] = rijk[:,ii,j,k]
+                            print(ii, j, k, rijk[:,ii,j,k])
                     else:
                         raise
             else:
                 raise
-                
-            if not all([np.all(li == ri) for li, ri in zip(ldat, rdat)]):
+
+            # print(ldat[0,:,:])
+            # print(rdat[0,:,:])
+            # if not all([np.all(li == ri) for li, ri in zip(ldat, rdat)]):
+            if not np.array_equal(ldat, rdat):
                 print('Match failed')
+                print('--left--')
+                print(ldat)
+                print('--right--')
+                print(rdat)
                 raise
 
     # Test if the 3d mesh can be cast into 2d easily.
