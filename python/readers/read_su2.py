@@ -97,12 +97,19 @@ def load_mesh_su2(filename):
         for i in range(nelems):
             items = f.readline().split()
             etype = int(items[0])
+            n  = len(items[1:-1])
+            v  = np.array([int(c) for c in items[1:-1]], dtype='i')
             if etype == 12: # HEX8
-                assert len(items) == 10
-                v = np.array([int(c) for c in items[1:-1]], dtype='i')
+                assert len(v) == 8
+                assert ndims == 3
                 elems.append(Element(GeometricTypes.HEX8, v, eidx=i))
+            elif etype == 9: # QUAD's
+                # print(items, npts)
+                assert ndims == 2
+                elems.append(Element(GeometricTypes.QUAD4, v, eidx=i))
             else:
-                print("SU2: unknown element type {}".format(etype))
+                print("SU2: unknown element type {} {}".format(etype, npts))
+                sys.exit(1)
     except:
         print("SU2 Error: failed to read the elements")
         sys.exit(1)
@@ -127,7 +134,10 @@ def load_mesh_su2(filename):
     except:
         print("SU2 Error: failed to read the vertices")
         sys.exit(1)
-            
+
+    for v in elems[0].verts:
+        print(v, coords[v])
+
     try:
         nmarkers = split_keyword(f.readline(), 'NMARK', int)
         print('nmarkers: {}'.format(nmarkers))
@@ -145,10 +155,15 @@ def load_mesh_su2(filename):
         for j in range(_nelems):
             items = f.readline().split()
             etype = int(items[0])
+            n = len(items[1:])
+            v = np.array([int(c) for c in items[1:]], dtype='i')
             if etype == 9: # QUAD4
+                assert ndims == 3
                 assert len(items) == 5
-                v = np.array([int(c) for c in items[1:]], dtype='i')
                 bnd.append(Element(GeometricTypes.QUAD4, v))
+            elif etype == 3: # LINE
+                assert ndims == 2
+                bnd.append(Element(GeometricTypes.LINE2, v))
             else:
                 print("SU2 Error: invalid element in bndry section {} {}".format(tag, items))
                 sys.exit(1)
