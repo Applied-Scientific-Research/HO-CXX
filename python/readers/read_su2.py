@@ -28,6 +28,16 @@ def nVerts(gtype: GeometricTypes) -> int:
             GeometricTypes.TET4:  4,
             GeometricTypes.HEX8:  8}.get(gtype)
 
+
+def nDims(gtype: GeometricTypes) -> int:
+    return {GeometricTypes.POINT: 0,
+            GeometricTypes.LINE2: 1,
+            GeometricTypes.TRI3:  2,
+            GeometricTypes.QUAD4: 2,
+            GeometricTypes.TET4:  3,
+            GeometricTypes.HEX8:  3}.get(gtype)
+
+
 BndryIds = None
 BndryIdMap = None
     
@@ -196,7 +206,13 @@ FaceElementMaps = {
                   [3,7,6,2],
                   [0,4,7,3],
                   [0,3,2,1],
-                  [4,5,6,7]], dtype='i')
+                  [4,5,6,7]], dtype='i'),
+        
+    GeometricTypes.QUAD4:
+        np.array([[0,1],
+                  [1,2],
+                  [2,3],
+                  [3,0]], dtype='i')
         }
     
 def face_normal(coords, fverts, ftype):
@@ -222,7 +238,7 @@ def create_face_list(elems):
                 return i
             except ValueError:
                 return -1
-                
+            
         n = len(faces)
         # print("looking for: ", f, n//nverts)
         assert n % nverts == 0
@@ -246,17 +262,20 @@ def create_face_list(elems):
     
     all_faces = {}
     for el in elems:
-        faces = None
+
         ftype = None
         if el.etype == GeometricTypes.HEX8:
             ftype = GeometricTypes.QUAD4
-            if ftype in all_faces:
-                faces = all_faces[ftype]
-            else:
-                all_faces[ftype] = faces = []
+        elif el.etype == GeometricTypes.QUAD4:
+            ftype = GeometricTypes.LINE2
         else:
-            raise NameError('Only Hexs supported so far.')
-                
+            raise NameError('Element type {} supported so far.'.format(el.etype._name_))
+
+        if not ftype in all_faces:
+            all_faces[ftype] = []
+
+        faces = all_faces[ftype]
+
         efaces = el.verts[FaceElementMaps[el.etype]]
         nverts = nVerts(ftype)
         for i, f in enumerate(efaces.tolist()):
@@ -762,6 +781,11 @@ def test_mesh_hex8(testid):
 
     return ndims, elems, coords, bndry_sections
 
+
+import time
+getTimeStamp = time.time
+
+
             
 if __name__ == "__main__":
 
@@ -793,12 +817,58 @@ if __name__ == "__main__":
         ndims, elems, coords, bndry_sections = load_mesh_su2(infile)
     else:
         ndims, elems, coords, bndry_sections = test_mesh_hex8(testid)
+    
+    original_data = {'ndims': ndims,
+                     'elems': elems,
+                     'coords': coords,
+                     'bndrys': bndry_sections}
+    
+    
+    
+    report = True
+    for i, e in enumerate(elems):
+        if not nDims(e.etype) == ndims:
+            print("element {} {} is not {}d".format(i, e.etype._name_, ndims))
+            sys.exit(1)
+            
+        # Drop to P1 elements if high-order
+        n = len(e.verts)
+        nv = nVerts(e.etype)
+        if n > nv:
+            e.verts = e.verts[:nv]
+            if report:
+                print("Found high-order element {} ... reducing to P1 {}".format(n, nv))
+                report = False
+                
+    
+    report = True
+    for bnd_name in bndry_sections:
+        print(bnd_name)
+        bnd_faces = bndry_sections[bnd_name]
+        for i, f in enumerate(bnd_faces):
+            if not nDims(f.etype) == (ndims-1):
+                print("bnd element {} {} is not {}d-1".format(i, f.etype._name_, ndims))
+                sys.exit(1)
+                
+            # Drop to linear elements if high-oder
+            n = len(f.verts)
+            nv = nVerts(f.etype)
+            if n > nv:
+                f.verts = f.verts[:nv]
+                if report:
+                    print("Found high-order bnd element {} ... reducing to P1 {}".format(n, nv))
+                    report = False
 
 
     print('midpoints')
     for i, e in enumerate(elems[:10]):
-        print(i, e.verts, sum(coords[e.verts])/8)
+        n = nVerts(e.etype)
+        print(i, e.verts, sum(coords[e.verts])/n)
+
+
+    t_start = getTimeStamp()
     all_faces = create_face_list(elems)
+    print("create_face_list took: {} secs".format(getTimeStamp()-t_start))
 
     pairs = create_connectivity(elems, all_faces)
 
