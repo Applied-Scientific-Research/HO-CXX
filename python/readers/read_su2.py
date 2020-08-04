@@ -228,7 +228,7 @@ def face_normal(coords, fverts, ftype):
 def create_face_list(elems):
     
     """
-    Given a list of elements (3d), form the unique list of faces.
+    Given a list of elements, form the unique list of faces.
     """
     def find_face_in_list(faces, f, nverts):
         
@@ -260,6 +260,22 @@ def create_face_list(elems):
         faces.extend(f)
         return n // nverts, False
     
+    from sortedcontainers import SortedKeyList
+    
+    class face_list:
+        def __init__(self, fidx, verts):
+            self.fidx = fidx
+            self.verts = verts
+            
+        def __repr__(self):
+            return '({},{})'.format(self.fidx, self.verts)
+            
+    def comp_verts(it):
+        return min(it.verts)
+    
+    def comp_fidx(it):
+        return it.fidx
+
     all_faces = {}
     for el in elems:
 
@@ -272,22 +288,51 @@ def create_face_list(elems):
             raise NameError('Element type {} supported so far.'.format(el.etype._name_))
 
         if not ftype in all_faces:
-            all_faces[ftype] = []
+            all_faces[ftype] = SortedKeyList(key=comp_verts)
 
         faces = all_faces[ftype]
+        n = len(faces)
 
         efaces = el.verts[FaceElementMaps[el.etype]]
         nverts = nVerts(ftype)
+        # for i, f in enumerate(efaces.tolist()):
+        #     fidx, match = find_face_in_list(faces, f, nverts)
+        #     el.faces.append(fidx)
+        #     # print('face: ', i, f, fidx, len(elems)*6, match)
+        
         for i, f in enumerate(efaces.tolist()):
-            fidx, match = find_face_in_list(faces, f, nverts)
+            #print(i, f, len(faces))
+            fit = face_list(-1,f)
+            lo = faces.bisect_left(fit)
+            hi = faces.bisect_right(fit)
+            #print('lo ', lo, 'nil' if lo >= n else faces[lo])
+            #print('hi ', hi, 'hil' if hi >= n else faces[hi])
+            fs = sorted(f)
+            #print(fs)
+            fidx = -1
+            for j in range(lo, hi):
+                if fs == sorted(faces[j].verts):
+                    # Match found
+                    fidx = faces[j].fidx
+                    break
+
+            if fidx == -1:
+                # Face doesn't exist yet. Append new face.
+                fidx = n
+                faces.add(face_list(n, f))
+                n += 1
+                #print('added')
+                
             el.faces.append(fidx)
-            # print('face: ', i, f, fidx, len(elems)*6, match)
+                
             
     for ftype in all_faces:
         faces = all_faces[ftype]
         n = len(faces)
         nverts = nVerts(ftype)
-        new_faces = np.array(faces, dtype='i').reshape(n//nverts,nverts)
+        # new_faces = np.array(faces, dtype='i').reshape(n//nverts,nverts)
+        new_faces0 = SortedKeyList(faces, key=comp_fidx)
+        new_faces = np.array([it.verts for it in new_faces0], dtype='i')
         all_faces[ftype] = new_faces
         print(ftype, len(faces), n, nverts, new_faces.shape)
         
