@@ -10,6 +10,10 @@ import numpy as np
 import enum
 # import json
 
+import time
+getTimeStamp = time.time
+
+
 @enum.unique
 class GeometricTypes(enum.IntEnum):
     POINT = 0 # 0d
@@ -36,6 +40,14 @@ def nDims(gtype: GeometricTypes) -> int:
             GeometricTypes.QUAD4: 2,
             GeometricTypes.TET4:  3,
             GeometricTypes.HEX8:  3}.get(gtype)
+
+def nFaces(gtype: GeometricTypes) -> int:
+    return {GeometricTypes.POINT: 0,
+            GeometricTypes.LINE2: 0,
+            GeometricTypes.TRI3:  3,
+            GeometricTypes.QUAD4: 4,
+            GeometricTypes.TET4:  4,
+            GeometricTypes.HEX8:  6}.get(gtype)
 
 
 BndryIds = None
@@ -118,7 +130,7 @@ def load_mesh_su2(filename):
                 assert ndims == 2
                 elems.append(Element(GeometricTypes.QUAD4, v, eidx=i))
             else:
-                print("SU2: unknown element type {} {}".format(etype, npts))
+                print("SU2: unknown element type {} {}".format(etype, items))
                 sys.exit(1)
     except:
         print("SU2 Error: failed to read the elements")
@@ -341,40 +353,70 @@ def create_face_list(elems):
 
 def create_connectivity(elements, all_faces):
     
-    # Assuming everything is a HEX elem and QUAD face.
+    # Assuming all faces are the same.
     assert len(all_faces) == 1
+    faces = None
+    ftype = None
     for k in all_faces.keys():
-        assert k == GeometricTypes.QUAD4
+        assert k == GeometricTypes.QUAD4 or k == GeometricTypes.LINE2
 
-    faces = all_faces[GeometricTypes.QUAD4]
+        faces = all_faces[k]
+        ftype = k
+
+    # And all elements are the same.
+    for e in elements:
+        assert e.etype == elements[0].etype
+        assert e.etype == GeometricTypes.QUAD4 or e.etype == GeometricTypes.HEX8
 
     # Build a full list of all face indices across the elements
     # and turn into a 2d np array for quick searching.
 
     nelems = len(elements)
     nfaces = len(faces)
+    etype  = elements[0].etype
+    nfaces_per_element = nFaces(etype)
     
-    efaces = np.empty((nelems,6), dtype='i')
+    # efaces = np.empty((nelems,nfaces_per_element), dtype='i')
+    efaces = []
     for i, e in enumerate(elements):
-        assert e.etype == GeometricTypes.HEX8
         e.faces = np.array(e.faces, dtype='i')
-        efaces[i,:] = e.faces[:]
-        e.neighbors = np.full((6), -1)
-        e.isRight = np.full((6), 0, dtype='i')
+        # efaces[i,:] = e.faces[:]
+        efaces.extend([(fidx, i) for fidx in e.faces])
+        e.neighbors = np.full((nfaces_per_element), -1)
+        e.isRight = np.full((nfaces_per_element), 0, dtype='i')
 
     
     # This will fail if nfaces isn't uniform.
-    print('efaces: ', efaces.shape, nfaces)
+    #print('efaces: ', efaces.shape, nfaces)
+    # print('efaces: ', len(efaces), nfaces)
+    # print(efaces[:10])
+    efaces = sorted(efaces) #sorted(efaces, key=lambda it: it[0])
+    # print(efaces[:10])
+
+    import bisect
     
     # Populate an array with left/right element neighbor for each face.
+    t_start = getTimeStamp()
     pairs = np.zeros((nfaces,2), dtype='i')
     for i in range(nfaces):
-        els = np.where(efaces == i)[0]
-        assert els.shape[0] == 1 or els.shape[0] == 2
-        pairs[i,0] = els[0]
-        pairs[i,1] = -1 if els.shape[0] == 1 else els[1]
+        #els = np.where(efaces == i)[0]
+        #assert els.shape[0] == 1 or els.shape[0] == 2
+        #pairs[i,0] = els[0]
+        #pairs[i,1] = -1 if els.shape[0] == 1 else els[1]
+        
+        j = bisect.bisect_left(efaces, (i, -1))
+        assert j < len(efaces)
+        left = efaces[j][1]
+        right = -1
+        if j != len(efaces)-1:
+            if efaces[j+1][0] == i:
+                right = efaces[j+1][1]
+        pairs[i,0] = left
+        pairs[i,1] = right
+        
+    # print('face pairing took: {} secs'.format(getTimeStamp()-t_start))
     
-    print(pairs[:10,:])    
+    # print(pairs[:10,:])    
     # Add neighbor data into element list.
     for fidx in range(nfaces):
         eleft, eright = pairs[fidx,0], pairs[fidx,1]
@@ -399,10 +441,10 @@ def create_connectivity(elements, all_faces):
     return pairs
 
 
-def set_boundary_faces(elems, faces, bndry_sections):
+def set_boundary_faces(elems, all_faces, bndry_sections):
     
     """
-    Given an ndarray (n,4) of quads, find the index of the quad.
+    Given an ndarray (nfs,nes) of faces, find the index of the face.
     """
     def find_face_index(faces, f):
         assert faces.shape[1] == f.shape[0]
@@ -415,14 +457,19 @@ def set_boundary_faces(elems, faces, bndry_sections):
 
         return False, -1
 
-    quads = faces[GeometricTypes.QUAD4]
-    print(quads.shape)
+    assert len(all_faces) == 1
+    faces = None
+    for key in all_faces:
+        assert key == GeometricTypes.QUAD4 or GeometricTypes.LINE2
+        faces = all_faces[key]
+        
+    print(faces.shape)
     for bnd in bndry_sections:
         print(bnd)
         bfs = bndry_sections[bnd]
         bfaces = []
         for bf in bfs:
-            found, fidx = find_face_index(quads, bf.verts)
+            found, fidx = find_face_index(faces, bf.verts)
             assert found
             #print(bf.verts, fidx, quads[fidx])
             bfaces.append(fidx)
@@ -441,7 +488,8 @@ def set_boundary_faces(elems, faces, bndry_sections):
     print(bndryIdMap)
 
     for ei, e in enumerate(elems):
-        ebnds = np.full((6), bndryIdMap[None], dtype='i')
+        nfs = nFaces(e.etype)
+        ebnds = np.full((nfs), bndryIdMap[None], dtype='i')
         for i, (f, n) in enumerate(zip(e.faces, e.neighbors)):
             #print(e.eindex, i, f, n)
             if n < 0:
@@ -554,7 +602,10 @@ def create_neighbor_mappings(elements):
     face_map_vec = {}
 
     for ei, e in enumerate(elements[:10]):
-        print('el: {}'.format(ei))
+        etype = e.etype
+        print('el: {} {}'.format(ei, etype._name_))
+        assert etype == GeometricTypes.QUAD4 or etype == GeometricTypes.HEX8
+        
         for fi, (n, r) in enumerate(zip(e.neighbors, e.isRight)):
             if n != -1:
                 # if a shared face. Find the left/right local face indices.
@@ -574,6 +625,9 @@ def create_neighbor_mappings(elements):
                 print(" face: {}, {} neigh: {}, {}, {} dir: {} => {}".format(fi, fidx, n, r, fj, Orient[fi], Orient[fj]))
                 # dijk = np.zeros((3), dtype='i')
                 dijk = np.array(normal_fmaps[fi,fj], dtype='i')
+                if etype == GeometricTypes.QUAD4:
+                    dijk[2] = 3
+                    
                 rorigin = None
                 if fi in (E,W):
                     i = 0 if fi == W else 1
@@ -581,24 +635,33 @@ def create_neighbor_mappings(elements):
                     
                     lv1 = ijk2v[i,0,0]
                     rv1 = np_find(elements[n].verts == e.verts[lv1]) # local id
+                    print(lv1, rv1, e.verts[lv1])
+                    rorigin = v2ijk[rv1]
+                    
                     # +j
                     lv2 = ijk2v[i,1,0]
                     rv2 = np_find(elements[n].verts == e.verts[lv2])
                     dj = ivec(*v2ijk[rv2]) - ivec(*v2ijk[rv1])
                     idj = np_find(dj != 0)
                     dijk[1] = (idj+1) if dj[idj] > 0 else -(idj+1)
+                    print(lv2, rv2, e.verts[lv2])
+                    print('j+ ', dj, idj, dj[idj])
+                    
                     # +k
-                    lv3 = ijk2v[i,0,1]
-                    rv3 = np_find(elements[n].verts == e.verts[lv3])
-                    dk = ivec(*v2ijk[rv3]) - ivec(*v2ijk[rv1])
-                    idk = np_find(dk != 0)
-                    dijk[2] = (idk+1) if dk[idk] > 0 else -(idk+1)
+                    if etype == GeometricTypes.HEX8:
+                        lv3 = ijk2v[i,0,1]
+                        rv3 = np_find(elements[n].verts == e.verts[lv3])
+                        dk = ivec(*v2ijk[rv3]) - ivec(*v2ijk[rv1])
+                        idk = np_find(dk != 0)
+                        dijk[2] = (idk+1) if dk[idk] > 0 else -(idk+1)
+                        print(lv3, rv3, e.verts[lv3])
+                        print('k+ ', dk, idk, dk[idk])
 
                     # print("{} => {}".format(Orient[fi], Orient[fj]))
-                    print(lv1, lv2, lv3, rv1, rv2, rv3, e.verts[lv1], e.verts[lv2], e.verts[lv3], v2ijk[lv1], v2ijk[rv1])
-                    print('j+ ', dj, idj, dj[idj])
-                    print('k+ ', dk, idk, dk[idk])
-                    rorigin = v2ijk[rv1]
+                    # print(lv1, lv2, lv3, rv1, rv2, rv3, e.verts[lv1], e.verts[lv2], e.verts[lv3], v2ijk[lv1], v2ijk[rv1])
+                    
+                    
+                    
 
                 elif fi in (S,N):
                     j = 0 if fi == S else 1
@@ -606,27 +669,36 @@ def create_neighbor_mappings(elements):
                     
                     lv1 = ijk2v[0,j,0]
                     rv1 = np_find(elements[n].verts == e.verts[lv1]) # local id
+                    rorigin = v2ijk[rv1]
+                    print(lv1, rv1, e.verts[lv1])
+                    
                     # +i
                     lv2 = ijk2v[1,j,0]
                     rv2 = np_find(elements[n].verts == e.verts[lv2])
                     di = ivec(*v2ijk[rv2]) - ivec(*v2ijk[rv1])
                     idi = np_find(di != 0)
                     dijk[0] = (idi+1) if di[idi] > 0 else -(idi+1)
-                    # +k
-                    lv3 = ijk2v[0,j,1]
-                    rv3 = np_find(elements[n].verts == e.verts[lv3])
-                    dk = ivec(*v2ijk[rv3]) - ivec(*v2ijk[rv1])
-                    idk = np_find(dk != 0)
-                    dijk[2] = (idk+1) if dk[idk] > 0 else -(idk+1)
+                    print(lv2, rv2, e.verts[lv2])
+                    print('i+ ', di, idi, di[idi])
+                    
+                    if etype == GeometricTypes.HEX8:
+                        # +k
+                        lv3 = ijk2v[0,j,1]
+                        rv3 = np_find(elements[n].verts == e.verts[lv3])
+                        dk = ivec(*v2ijk[rv3]) - ivec(*v2ijk[rv1])
+                        idk = np_find(dk != 0)
+                        dijk[2] = (idk+1) if dk[idk] > 0 else -(idk+1)
+                        
+                        print(lv3, rv3, e.verts[lv3])
+                        print('k+ ', dk, idk, dk[idk])
 
                     # print("N/S")
                     # print(lv1, rv1, lv2, rv2, dj, idj, dj[idj])
                     # print(lv1, rv1, lv3, rv3, dk, idk, dk[idk])
                     # print(lv1, lv2, lv3, rv1, rv2, rv3, e.verts[lv1], e.verts[lv2], e.verts[lv3])
-                    print(lv1, lv2, lv3, rv1, rv2, rv3, e.verts[lv1], e.verts[lv2], e.verts[lv3], v2ijk[lv1], v2ijk[rv1])
-                    print('i+ ', di, idi, di[idi])
-                    print('k+ ', dk, idk, dk[idk])
-                    rorigin = v2ijk[rv1]
+                    # print(lv1, lv2, lv3, rv1, rv2, rv3, e.verts[lv1], e.verts[lv2], e.verts[lv3], v2ijk[lv1], v2ijk[rv1])
+                    
+
                     
                 else:
                     raise 'Not implemented yet'
@@ -827,8 +899,6 @@ def test_mesh_hex8(testid):
     return ndims, elems, coords, bndry_sections
 
 
-import time
-getTimeStamp = time.time
 
 
             
@@ -912,17 +982,26 @@ if __name__ == "__main__":
 
 
     t_start = getTimeStamp()
+    
     all_faces = create_face_list(elems)
+    
     print("create_face_list took: {} secs".format(getTimeStamp()-t_start))
 
+    t_start = getTimeStamp()
+    
     pairs = create_connectivity(elems, all_faces)
+    
+    print("create_connectivity took: {} secs".format(getTimeStamp()-t_start))
 
     
     # for e in elems[:30]:
     #     print(e)
 
-    print('boundary faces')
+    t_start = getTimeStamp()
+    
     set_boundary_faces(elems, all_faces, bndry_sections)
+    
+    print("set_boundary_faces took: {} secs".format(getTimeStamp()-t_start))
 
     print('neighbor cell maps')
     face_map_vecs = create_neighbor_mappings(elems)
@@ -1088,13 +1167,14 @@ if __name__ == "__main__":
                 print(rdat)
                 raise
 
-    # Test if the 3d mesh can be cast into 2d easily.
-    quads = all_faces[GeometricTypes.QUAD4]
-    for j, e in enumerate(elems):
-        f = quads[e.faces[4]]
-        zs = coords[f,2]
-        allzero = np.all(abs(zs) < 1e-12)
-        #print(j, coords[f,2], allzero)
-        if not allzero:
-            print("Face 4 of element {} is not on the z=0 plane".format(j))
-            sys.exit(1)
+    if ndims == 3:
+        # Test if the 3d mesh can be cast into 2d easily.
+        quads = all_faces[GeometricTypes.QUAD4]
+        for j, e in enumerate(elems):
+            f = quads[e.faces[4]]
+            zs = coords[f,2]
+            allzero = np.all(abs(zs) < 1e-12)
+            #print(j, coords[f,2], allzero)
+            if not allzero:
+                print("Face 4 of element {} is not on the z=0 plane".format(j))
+                sys.exit(1)
