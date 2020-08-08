@@ -552,8 +552,10 @@ def create_neighbor_mappings(elements):
     normal_fmaps[E,W] = [ 1, 0, 0]
     normal_fmaps[W,W] = [-1, 0, 0]
     normal_fmaps[S,N] = [ 0, 2, 0]
+    normal_fmaps[S,S] = [ 0,-2, 0]
     normal_fmaps[S,W] = [ 0,-1, 0]
     normal_fmaps[N,W] = [ 0, 1, 0]
+    normal_fmaps[N,N] = [ 0,-2, 0]
     normal_fmaps[I,O] = [ 0, 0, 3]
     
     def create_fmap_matrix(vec):
@@ -1208,6 +1210,8 @@ if __name__ == "__main__":
                 print('--right--')
                 print(rdat)
                 raise
+            else:
+                print("Passed")
 
     if ndims == 3:
         # Test if the 3d mesh can be cast into 2d easily.
