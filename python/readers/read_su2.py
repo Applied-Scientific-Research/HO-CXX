@@ -10,6 +10,8 @@ import numpy as np
 import enum
 # import json
 
+from sortedcontainers import SortedKeyList
+  
 import time
 getTimeStamp = time.time
 
@@ -272,8 +274,7 @@ def create_face_list(elems):
         faces.extend(f)
         return n // nverts, False
     
-    from sortedcontainers import SortedKeyList
-    
+  
     class face_list:
         def __init__(self, fidx, verts):
             self.fidx = fidx
@@ -459,18 +460,33 @@ def set_boundary_faces(elems, all_faces, bndry_sections):
 
     assert len(all_faces) == 1
     faces = None
+    faces = []
     for key in all_faces:
         assert key == GeometricTypes.QUAD4 or GeometricTypes.LINE2
-        faces = all_faces[key]
-        
-    print(faces.shape)
+        # faces = all_faces[key]
+        for i, f in enumerate(all_faces[key]):
+            faces.append((sorted(f.tolist()), i))
+
+    # print(faces.shape)
+    print(faces[:10])
+    
+    sfaces = SortedKeyList(faces, key=lambda it: it[0])
+    print(sfaces[:10])
+    
     for bnd in bndry_sections:
         print(bnd)
         bfs = bndry_sections[bnd]
         bfaces = []
         for bf in bfs:
-            found, fidx = find_face_index(faces, bf.verts)
-            assert found
+            #found, fidx = find_face_index(faces, bf.verts)
+            sbf = sorted(bf.verts)
+            left = sfaces.bisect_left((sbf, -1))
+            right = sfaces.bisect_right((sbf,-1))
+            # print(left, right)
+            found, fidx = (right - left == 1), sfaces[left][1]
+            # assert found
+            if not found:
+                print("Error: bnd face not found {}".format(bf.verts))
             #print(bf.verts, fidx, quads[fidx])
             bfaces.append(fidx)
         bndry_sections[bnd] = np.array(bfaces, dtype='i')
@@ -534,7 +550,10 @@ def create_neighbor_mappings(elements):
     normal_fmaps[E,N] = [-2, 0, 0]
     normal_fmaps[E,E] = [-1, 0, 0]
     normal_fmaps[E,W] = [ 1, 0, 0]
+    normal_fmaps[W,W] = [-1, 0, 0]
     normal_fmaps[S,N] = [ 0, 2, 0]
+    normal_fmaps[S,W] = [ 0,-1, 0]
+    normal_fmaps[N,W] = [ 0, 1, 0]
     normal_fmaps[I,O] = [ 0, 0, 3]
     
     def create_fmap_matrix(vec):
@@ -862,7 +881,7 @@ def test_mesh_hex8(testid):
             pass
         else:
             print("Rotating element {}: {}".format(i, rotvec))
-            r = rotate_element(right)
+            r = rotate_element(rotvec)
             print(r)
             v = elems[i].verts[:]
             print(v)
@@ -1007,7 +1026,8 @@ if __name__ == "__main__":
     face_map_vecs = create_neighbor_mappings(elems)
     print(len(face_map_vecs))
 
-    if testid is None:
+    if testid is None and False:
+        
         maxlines = 25
         i = 0
         for fidx, (dijk, (ei, fi), (ej, fj), rorigin) in face_map_vecs.items():
@@ -1029,8 +1049,9 @@ if __name__ == "__main__":
             return c0 * (1.0 - zt) + c1 * zt
             
         print("reference cell")
-        print(face_map_vecs)
-        nxi, net, nzt = 3, 3, 1
+        # print(face_map_vecs)
+        nxi, net, nzt = 3, 3, 3 if ndims == 2 else 3
+        
         xref = np.zeros((3,nxi,net,nzt), dtype='f')
         for i in range(nxi):
             for j in range(net):
@@ -1043,13 +1064,34 @@ if __name__ == "__main__":
                     zt = float(k) * dzt
                     xref[:,i,j,k] = xi, et, zt
                     # print(xref[:,i,j,k])
-                
+
+        maxiters = 5
+        niters = 0
         for _, (dijk, (ei, fi), (ej, fj), rorigin) in face_map_vecs.items():
+            if niters > maxiters:
+                break
+            niters += 1
             
             lxyz = coords[elems[ei].verts]
             rxyz = coords[elems[ej].verts]
+            # print('before', lxyz)
+            if ndims == 2:
+                l = []
+                r = []
+                for i in range(4):
+                    l.append([lxyz[i,0], lxyz[i,1], 0])
+                    r.append([rxyz[i,0], rxyz[i,1], 0])
+                    
+                for i in range(4):
+                    l.append([lxyz[i,0], lxyz[i,1], 1])
+                    r.append([rxyz[i,0], rxyz[i,1], 1])
+
+                lxyz = np.array(l)
+                rxyz = np.array(r)
             print(ei, elems[ei].verts)
             print(ej, elems[ej].verts)
+            # print(lxyz)
+            # print(rxyz)
             lijk = np.zeros((3,nxi,net,nzt), dtype='f')
             rijk = np.zeros((3,nxi,net,nzt), dtype='f')
             for i in range(nxi):
@@ -1126,7 +1168,7 @@ if __name__ == "__main__":
                             # rdat.append(rijk[:,i,j,k])
                             rdat[:,j,k] = rijk[:,i,j,k]
                             print(i, j, k, rijk[:,i,j,k])
-                    elif dijk[1] == -2:
+                    elif dj == -2:
                         for j in range(net):
                             jj = (net-1) - j
                             # rdat.append(rijk[:,i,jj,k])
