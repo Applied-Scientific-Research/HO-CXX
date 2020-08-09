@@ -193,143 +193,12 @@ CONTAINS
 
 END MODULE CnvrtTensor2FemIndices
 
-MODULE CLI_OPTIONS
-
-CONTAINS
-
-  function get_cli_option_str( option_in, default_in ) result(res_str)
-
-    implicit none
-
-    character(len=*), intent(in) :: option_in, default_in
-
-    character(len=64) :: res_str, arg
-
-    integer :: nargs, i
-
-    res_str = trim(default_in)
-
-    nargs = command_argument_count()
-
-    do i = 1, nargs
-       CALL get_command_argument(i, arg)
-       IF (LEN_TRIM(arg) == 0) EXIT
-       !WRITE (*,*) i, TRIM(arg), trim(option_in)
-       if ( trim(arg) .eq. '-' // option_in .or. trim(arg) .eq. '--' // option_in ) then
-          CALL get_command_argument(i+1, arg)
-          IF (LEN_TRIM(arg) == 0) STOP '(i+1) argument not available'
-          res_str = arg
-       endif
-    ENDDO
-  end function
-
-  function get_cli_option_int( option_in, default_in ) result(res_int)
-
-    implicit none
-
-    character(len=*), intent(in) :: option_in
-    integer, intent(in) :: default_in
-
-    integer :: res_int
-
-    character(len=64) :: res_str
-
-    res_str = get_cli_option_str( option_in, 'nil' )
-
-    if ( trim(res_str) .eq. 'nil' ) then
-      res_int = default_in
-    else
-      read(res_str,*) res_int
-    endif
-  end function
-
-  function get_cli_option_real( option_in, default_in ) result(res_real)
-
-    implicit none
-
-    character(len=*), intent(in) :: option_in
-    real*8, intent(in) :: default_in
-
-    real*8 :: res_real
-
-    character(len=64) :: res_str
-
-    res_str = get_cli_option_str( option_in, 'nil' )
-
-    if ( trim(res_str) .eq. 'nil' ) then
-      res_real = default_in
-    else
-      read(res_str,*) res_real
-    endif
-  end function
-
-  function get_cli_option_present( option ) result(is_present)
-
-    implicit none
-
-    character(len=*), intent(in) :: option
-
-    logical :: is_present
-
-    character(len=64) :: arg
-
-    integer :: nargs, i
-
-    nargs = command_argument_count()
-
-    is_present = .false.
-
-    do i = 1, nargs
-       CALL get_command_argument(i, arg)
-       IF ( LEN_TRIM(arg) == 0 ) EXIT
-       WRITE (*,*) i, TRIM(arg)
-       if ( trim(arg) .eq. '-' // option .or. trim(arg) .eq. '--' // option ) then
-          is_present = .true.
-          exit
-       endif
-    ENDDO
-  end function
-
-
-END MODULE
-
-MODULE WTIMER
-
-   TYPE TIMER_TYPE
-     DOUBLE PRECISION :: NOW
-   END TYPE
-
-CONTAINS
-
-   FUNCTION GET_TIMESTAMP() RESULT(T)
-
-     USE OMP_LIB
-
-     TYPE(TIMER_TYPE) :: T
-
-     T%NOW = OMP_GET_WTIME()
-
-   END FUNCTION
-
-   FUNCTION GET_ELAPSED_TIME(T0,T1) RESULT(DT)
-
-     TYPE(TIMER_TYPE), INTENT(IN) :: T0, T1
-     DOUBLE PRECISION :: DT
-
-     DT = T1%NOW - T0%NOW
-
-   END FUNCTION
-
-END MODULE
-
 
 PROGRAM TwoD_Vorticity_Transport
        USE params
        USE variables
        USE APLLES_Solvers_Module
        USE omp_lib
-!      USE CLI_options
-       use, intrinsic :: iso_fortran_env , only: error_unit, output_unit, wp => real64
 
        USE iso_c_binding
 
@@ -337,76 +206,60 @@ PROGRAM TwoD_Vorticity_Transport
        integer Nelx, Nely, Lnod_in, prob_type, HuynhSolver_type, tIntegrator_type, numStep, dumpFreq, fast
        real*8 Reyn, fac, dxrat, dt
        integer i, el, idum, ic
-!      character(132) dum, input_file, mesh_filename
-       character(len=255) :: mesh_filename
-       character(len=255) :: input_filename
-       character(len=255) :: buf
+       character(132) dum, mesh_filename
 
        type(APLLES_MatrixHandleType) :: A_handle
        type(APLLES_PreconHandleType) :: P_handle
        type(APLLES_SolverHandleType) :: S_handle
-
-       if (iargc() < 1) then
-         write(error_unit,'(A)') 'No input file name on command-line, reading input.dat'
-         write(error_unit,'(A)') ''
-         input_filename = 'input.dat'
-       else
-         call getarg(1,buf)
-         read (buf,*) input_filename
-         write(error_unit,'(3A)') 'Using ', trim(input_filename), ' as input'
-         write(error_unit,'(A)') ''
-       endif
- 
-!      input_file = get_cli_option_str( 'infile', 'input.dat' )
  
        !!!! User Input Data
-       open(unit=2, file=input_filename, status='old')
-         read(2,'(a)') buf
+       open(unit=2, file='input.dat', status='old')
+         read(2,'(a)') dum
          read(2,*) Nelx, Nely           ! num. of meshes/elements in x, y dirs (structured grids; must generalize to unstructured)
-         read(2,'(a)') buf
+         read(2,'(a)') dum
          read(2,*) Knod                 ! solution nodes per elem (must generalize to include x, y dirs)
-         read(2,'(a)') buf
+         read(2,'(a)') dum
          read(2,*) Lnod_in              ! geometry parametric order per elem (must generalize to include x, y dirs)
-         read(2,'(a)') buf
+         read(2,'(a)') dum
          read(2,'(a)') mesh_filename    ! SU-based mesh file; it's a hack; using prob_type >= 10 for now
-         read(2,'(a)') buf
+         read(2,'(a)') dum
          read(2,'(L)') exact            ! Exact geometry for concentric cylinders
-         read(2,'(a)') buf
+         read(2,'(a)') dum
          read(2,*) Reyn                 ! Reynolds number
-         read(2,'(a)') buf
+         read(2,'(a)') dum
          read(2,*) dxrat                ! multiplier to expand the grid geometrically by factor dxrat   
-         read(2,'(a)') buf
+         read(2,'(a)') dum
          read(2,*) fac                  ! multiplier to make grids randomly non-uniform; uniform: fac=0.
-         read(2,'(a)') buf
+         read(2,'(a)') dum
          read(2,*) HuynhSolver_type     ! based on Huynh's scheme type in Table 6.1 of his diffusion paper
                                         ! types: 2=std DG; 11=higher order
 !         HuynhSolver_type = 2
 
-         read(2,'(a)') buf
+         read(2,'(a)') dum
          read(2,*) tIntegrator_type     ! time integration method; 1=Euler; 2=Mod. Euler; 4=RK4
-         read(2,'(a)') buf
+         read(2,'(a)') dum
          read(2,*) prob_type            ! Solve different problems (types 1 and 2)
          IF (prob_type /= 1 .and. prob_type /= 3 .and. prob_type /= 10) THEN
            print *,'problem type unavailable ', prob_type
-           stop
+!           stop
          ENDIF
          IF (prob_type .lt. 7) THEN
           exact = .false.
          ENDIF
 
-         read(2,'(a)') buf
+         read(2,'(a)') dum
          read(2,*) numStep              ! num. of timesteps
-         read(2,'(a)') buf
+         read(2,'(a)') dum
          read(2,*) dt                   ! timestep size
-         read(2,'(a)') buf
+         read(2,'(a)') dum
          read(2,*) dumpFreq             ! dump solution and stats at every dumpFreq steps; = 0 dumps at numStep
          IF (dumpFreq .eq. 0) dumpFreq = numStep
 
-         read(2,'(a)') buf
+         read(2,'(a)') dum
          read(2,*) fast                 ! enter 0 to solve using original; anything else to solve using compact
          fast = 0
 
-         read(2,'(a)') buf
+         read(2,'(a)') dum
          read(2,'(a)') aplles_solver_name
          read(2,'(a)') aplles_precon_name ! Select the solver/preconditioner at run-time       
          if (trim(Aplles_solver_name) .eq. "default") Aplles_solver_name = "fgmres"
@@ -424,26 +277,26 @@ PROGRAM TwoD_Vorticity_Transport
 
        ! Temp hack for generic mesh generation
        IF (prob_type .eq. 10) THEN
-         OPEN (10, File = trim(mesh_filename), Status = 'old')
+         OPEN (10, File = trim(mesh_filename), Status = 'unknown')
 
          NelB = 0
-         read(10,'(a6,i10)') buf, ibuf
-         read(10,'(a6,i10)') buf, Nel
+         read(10,'(a6,i10)') dum, idum
+         read(10,'(a6,i10)') dum, Nel
          DO el = 1, Nel
-           read(10,'(a)') buf
+           read(10,'(a)') dum
          ENDDO
-         read(10,'(a6,i10)') buf, Nodes
+         read(10,'(a6,i10)') dum, Nodes
          DO i = 1, Nodes
-           read(10,'(a)') buf
+           read(10,'(a)') dum
          ENDDO
          Nodes = Nodes - 1
-         read(10,'(a6,i10)') buf, NBndry
+         read(10,'(a6,i10)') dum, NBndry
          DO i = 1, NBndry
-           read(10,'(a)') buf
-           read(10,'(a14,i10)') buf, ibuf
-           NelB = NelB + ibuf
-           DO el = 1, ibuf
-             read(10,'(a)') buf
+           read(10,'(a)') dum
+           read(10,'(a14,i10)') dum, idum
+           NelB = NelB + idum
+           DO el = 1, idum
+             read(10,'(a)') dum
            ENDDO
          ENDDO
 
@@ -514,22 +367,13 @@ PROGRAM TwoD_Vorticity_Transport
        ! Nothing to do here: Set up bases for Lagrangian (and derivative) inter/extrapolation
        !                     at solution and boundary nodes using these nodes as collocation points
        CALL GetSolnLagrangianBases
-       !print *, 'SolnNodesGradLgrangeBasis: ', SolnNodesGradLgrangeBasis
-       !print *, 'SolnBndryGradLgrangeBasis: ', SolnBndryGradLgrangeBasis
-       !print *, 'SolnBndryLgrangeBasis: ', SolnBndryLgrangeBasis
 
        ! Nothing to do here: Set up bases for Lagrangian (and derivative) inter/extrapolation
        !                     at geometry nodes using these nodes as collocation points
        CALL GetGeomLagrangianBases
-       !print *, 'GeomBndryLgrangeBasis: ', GeomBndryLgrangeBasis
-       !print *, 'GeomBndryGradLgrangeBasis: ', GeomBndryGradLgrangeBasis
-       !print *, 'GeomNodesLgrangeBasis: ', GeomNodesLgrangeBasis
-       !print *, 'GeomNodesGradLgrangeBasis: ', GeomNodesGradLgrangeBasis
 
        ! Nothing to do here: Set up values and derivatives of Right Radau function at solution points
        CALL GetRadauBases
-       !print *, 'NodesRadau: ', NodesRadau
-       !print *, 'NodesGradRadau: ', NodesGradRadau
 
        ! Nothing to do here: Set up nodes and element meshes
        IF (prob_type .eq. 10) THEN
@@ -1507,7 +1351,7 @@ SUBROUTINE SetupICBCandSrc(N, NB, NP, K, L, prob_type)
 
          ! Periodic moving wall problem; bottom velocity is 1; top is 0
 
-          BC_Switch(1:NB) = DirichletBC
+!          BC_Switch(1:NB) = DirichletBC
           DO i = 1, NB
             IF (ABS(ycoord(BoundaryNodeID(1,i))) < 1.d-6 .and. ABS(ycoord(BoundaryNodeID(2,i))) < 1.d-6) THEN
              BC_VelParl(1:K,i) = 1.d0   ! Wall parallel velocity
@@ -1520,10 +1364,43 @@ SUBROUTINE SetupICBCandSrc(N, NB, NP, K, L, prob_type)
 
           ! Square Cavity Problem; top velocity is 1
 
-          BC_Switch(1:NB) = DirichletBC
+!          BC_Switch(1:NB) = DirichletBC
           DO i = 1, NB
             IF (ABS(ycoord(BoundaryNodeID(1,i)) - 1.d0) < 1.d-6 .and. ABS(ycoord(BoundaryNodeID(2,i)) - 1.d0) < 1.d-6) THEN
               BC_VelParl(1:K,i) = 1.d0   ! Wall parallel velocity
+if (.false.) then
+               DO ky = 1, Knod
+                 ! interpolate y-coord of sol pt at (ky) using nodal coordinates of element j
+                 y = 0.d0
+                 DO jy = 1, Lnod
+                           ! along y-dir                    x-coord of geom
+                   y = y + GeomNodesLgrangeBasis(jy,ky) * xcoord(BoundaryNodeID(t2f(jy),i))
+                 ENDDO
+                 BC_VelParl(Ky,i) = 4*y*(1-y)
+               ENDDO
+endif
+            ENDIF
+          ENDDO
+
+         Vort0 = 0.d0
+
+       ELSEIF (prob_type .eq. 4) THEN
+
+          ! Square Cavity Problem; top velocity is 1
+
+!          BC_Switch(1:NB) = DirichletBC
+          DO i = 1, NB
+            IF (ABS(ycoord(BoundaryNodeID(1,i)) - 1.d0) < 1.d-6 .and. ABS(ycoord(BoundaryNodeID(2,i)) - 1.d0) < 1.d-6) THEN
+              BC_VelNorm(1:K,i) = 0.25d0   ! Wall parallel velocity
+            ENDIF
+            IF (ABS(ycoord(BoundaryNodeID(1,i)) - 0.d0) < 1.d-6 .and. ABS(ycoord(BoundaryNodeID(2,i)) - 0.d0) < 1.d-6) THEN
+              BC_VelNorm(1:K,i) = -0.25d0   ! Wall parallel velocity
+            ENDIF
+            IF (ABS(xcoord(BoundaryNodeID(1,i)) - 0.d0) < 1.d-6 .and. ABS(xcoord(BoundaryNodeID(2,i)) - 0.d0) < 1.d-6) THEN
+              BC_VelNorm(1:K,i) = 1.d0   ! Wall parallel velocity
+            ENDIF
+            IF (ABS(xcoord(BoundaryNodeID(1,i)) - 1.d0) < 1.d-6 .and. ABS(xcoord(BoundaryNodeID(2,i)) - 1.d0) < 1.d-6) THEN
+              BC_VelNorm(1:K,i) = 0.5d0   ! Wall parallel velocity
             ENDIF
           ENDDO
 
@@ -1538,7 +1415,7 @@ SUBROUTINE SetupICBCandSrc(N, NB, NP, K, L, prob_type)
          ! coords
          BC_Psi = 0.d0
          Vort0 = 0.d0
-         BC_Switch(1:NB) = DirichletBC
+!         BC_Switch(1:NB) = DirichletBC
 
          ! This is hack
          DO i = 1, NBndry
@@ -1600,7 +1477,7 @@ SUBROUTINE SetupICBCandSrc(N, NB, NP, K, L, prob_type)
                    y = y + GeomNodesLgrangeBasis(jy,ky) * ycoord(BoundaryNodeID(t2f(jy),j))
                  ENDDO
                  BC_Psi(ky,j) = y
-                 BC_VelNorm(ky,j) = 1.d0
+                 BC_VelNorm(ky,j) = 0.5d0
                ENDDO
 !               BC_Psi(1:K,j) = (0.25d0/HalfHeight) * (ycoord(BoundaryNodeID(2,j)) + ycoord(BoundaryNodeID(1,j)) + &
 !                                          sps(1:K) * (ycoord(BoundaryNodeID(2,j)) - ycoord(BoundaryNodeID(1,j)) ) )
@@ -1627,7 +1504,6 @@ SUBROUTINE SolveConvectionDiffusion(HuynhSolver_type, tIntegrator_type, Reyn, dt
        USE omp_lib
 
        USE iso_c_binding
-       USE WTIMER
 
        implicit NONE
        integer HuynhSolver_type, tIntegrator_type, numStep, dumpFreq, prob_type
@@ -1636,15 +1512,12 @@ SUBROUTINE SolveConvectionDiffusion(HuynhSolver_type, tIntegrator_type, Reyn, dt
        integer nt, i, kx,ky,jx,jy, j,el
        real*8 x,y
        real*8 dto2, dto3, dto6
-       real*8, dimension(Knod, Knod, Nel) :: Vort_tmp, Vort_str, f_of_Vort, psi, k1, k2, k3, k4
+       real*8, dimension(Knod, Knod, Nel) :: Vort_tmp, Vort_str, f_of_Vort, psi, k1, k2, k3, k4, tempo
        real*8 t1, t2, t3, t4, t5, tlap, tcrl, tdif, tcon
 
        type(APLLES_MatrixHandleType) :: A_handle
        type(APLLES_PreconHandleType) :: P_handle
        type(APLLES_SolverHandleType) :: S_handle
-
-       type(timer_type) :: t_start, t_end
-       logical :: dump_results
 
 INTERFACE
 
@@ -1661,6 +1534,7 @@ END INTERFACE
        Uvel = 0.d0
        Vvel = 0.d0
        VelocJump = 0.d0
+       tempo = 0.d0
 
        dto2 = dt / 2.d0   ! of course this is lazy programming :)
        dto3 = dt / 3.d0
@@ -1673,31 +1547,26 @@ END INTERFACE
  tdif = 0.d0
  tcon = 0.d0
 
-       t_start = get_timestamp()
-       t_end = t_start
-
        DO nt = 1, numStep
-        print *,'starting timestep ',nt!, get_elapsed_time( t_start, t_end )
-         t_start = get_timestamp()
-
+        print *,'timestep ',nt
          Vort_tmp = Vort
 
          DO el = 1, Nel
          DO j = 1, Knod
          DO i = 1, Knod
-           IF (Abs(Vort(i,j,el)) < 1.d-10) Vort(i,j,el) = 0.d0
+!           IF (Abs(Vort(i,j,el)) < 1.d-10) Vort(i,j,el) = 0.d0
          ENDDO
          ENDDO
          ENDDO
          IF (tIntegrator_type .eq. 1) THEN
 
-           CALL  EulerTimeIntegrate(dt, Reyn, Vort, k1, HuynhSolver_type, A_handle, P_handle, S_handle)
+           CALL  EulerTimeIntegrate(nt, dt, Reyn, Vort, k1, HuynhSolver_type, A_handle, P_handle, S_handle)
            Vort = Vort + k1
 
          ELSEIF (tIntegrator_type .eq. 2) THEN
 
-           CALL  EulerTimeIntegrate(dt, Reyn, Vort, k1, HuynhSolver_type, A_handle, P_handle, S_handle)
-           CALL  EulerTimeIntegrate(dt, Reyn, Vort + k1, k2, HuynhSolver_type, A_handle, P_handle, S_handle)
+           CALL  EulerTimeIntegrate(nt, dt, Reyn, Vort, k1, HuynhSolver_type, A_handle, P_handle, S_handle)
+           CALL  EulerTimeIntegrate(nt, dt, Reyn, Vort + k1, k2, HuynhSolver_type, A_handle, P_handle, S_handle)
            Vort = Vort + 0.5d0 * (k1 + k2)
 
 if (.false.) then
@@ -1731,10 +1600,10 @@ endif
 !           Vort = Vort + (k1 + 4.d0*k2 + 4.d0*k3 + k4) / 6.d0
 
            ! We don't need to save all k's; we can definitely improve below or use a low-storage SSP method
-           CALL  EulerTimeIntegrate(dt, Reyn, Vort, k1, HuynhSolver_type, A_handle, P_handle, S_handle)
-           CALL  EulerTimeIntegrate(dt, Reyn, Vort + k1/2.d0, k2, HuynhSolver_type, A_handle, P_handle, S_handle)
-           CALL  EulerTimeIntegrate(dt, Reyn, Vort + k2/2.d0, k3, HuynhSolver_type, A_handle, P_handle, S_handle)
-           CALL  EulerTimeIntegrate(dt, Reyn, Vort + k3, k4, HuynhSolver_type, A_handle, P_handle, S_handle)
+           CALL  EulerTimeIntegrate(nt, dt, Reyn, Vort, k1, HuynhSolver_type, A_handle, P_handle, S_handle)
+           CALL  EulerTimeIntegrate(nt, dt, Reyn, Vort + k1/2.d0, k2, HuynhSolver_type, A_handle, P_handle, S_handle)
+           CALL  EulerTimeIntegrate(nt, dt, Reyn, Vort + k2/2.d0, k3, HuynhSolver_type, A_handle, P_handle, S_handle)
+           CALL  EulerTimeIntegrate(nt, dt, Reyn, Vort + k3, k4, HuynhSolver_type, A_handle, P_handle, S_handle)
            Vort = Vort + (k1 + 2.d0*k2 + 2.d0*k3 + k4) / 6.d0
 
 if (.false.) then
@@ -1774,11 +1643,7 @@ if (.false.) then
          ENDIF
 
 !         IF (MOD(nt,dumpFreq) .eq. 0) CALL dumpResult(nt, Reyn, dt, HuynhSolver_type, tIntegrator_type, prob_type)
-         dump_results = .false.
-         if (dumpFreq > 0) dump_results = (MOD(nt,dumpFreq).eq.0)
-
-         !IF (MOD(nt,dumpFreq) .eq. 0) THEN
-         IF ( dump_results ) THEN
+         IF (MOD(nt,dumpFreq) .eq. 0) THEN
 
        OPEN(unit = 8, file = 'Vorticity'//trim(itoa(nt))//'.vtk', status = 'unknown')
        write(8,'(a)') '# vtk DataFile Version 3.0'
@@ -1832,10 +1697,27 @@ Vort_tmp = vort
          ENDDO
        ENDDO
 if(.true.) then
-       BC_Switch = DirichletBC
-       BC_Values = BC_Psi
-       CALL GetLaplacian(HuynhSolver_type, Vort_tmp, psi, A_handle, P_handle, S_handle)                                ! Stage 1
-       CALL GetLaplacGrads(HuynhSolver_type, psi, 1)
+!       BC_Switch = DirichletBC
+!       BC_Values = BC_Psi
+!       CALL GetLaplacian(HuynhSolver_type, Vort_tmp, psi, A_handle, P_handle, S_handle)                                ! Stage 1
+!       CALL GetLaplacGrads(HuynhSolver_type, psi, 1)
+
+!print *,'vortical '
+         BC_Switch = NeumannBC
+         BC_Values =  BC_VelParl
+do i=1,nel
+do ky=1,knod
+!print *,i,ky,Vort_tmp(1:knod,ky,i)
+enddo
+enddo
+         CALL GetLaplacian(HuynhSolver_type, Vort_tmp, psi, A_handle, P_handle, S_handle)                                ! Stage 1
+         CALL GetLaplacGrads(HuynhSolver_type, psi, 1)
+
+!print *,'potential '
+         BC_Values = BC_VelNorm - VelocJump
+!print *,BC_Values
+         CALL GetLaplacian(HuynhSolver_type, tempo, psi, A_handle, P_handle, S_handle)                                ! Stage 1
+         CALL GetLaplacGrads(HuynhSolver_type, psi, 0)
 
 endif
 
@@ -1852,11 +1734,7 @@ endif
 
          ENDIF 
 
-         t_end = get_timestamp()
-        print *,'finished timestep ',nt, get_elapsed_time( t_start, t_end )
-
        ENDDO
-
 print *,'avg tlap ',0.5*tlap/numStep
 print *,'avg tcrl ',0.5*tcrl/numStep
 print *,'avg tdif ',0.5*tdif/numStep
@@ -1917,10 +1795,23 @@ Vort_tmp = vort
          ENDDO
        ENDDO
 if(.true.) then
-       BC_Switch = DirichletBC
-       BC_Values = BC_Psi
-       CALL GetLaplacian(HuynhSolver_type, Vort_tmp, psi, A_handle, P_handle, S_handle)                                ! Stage 1
-       CALL GetLaplacGrads(HuynhSolver_type, psi, 1)
+!       BC_Switch = DirichletBC
+!       BC_Values = BC_Psi
+!       CALL GetLaplacian(HuynhSolver_type, Vort_tmp, psi, A_handle, P_handle, S_handle)                                ! Stage 1
+!       CALL GetLaplacGrads(HuynhSolver_type, psi, 1)
+print *,'HEEEEEEEERRRRRRR'
+print *,'vortical '
+         BC_Switch = NeumannBC
+         BC_Values =  BC_VelParl
+print *,BC_Values
+         CALL GetLaplacian(HuynhSolver_type, Vort_tmp, psi, A_handle, P_handle, S_handle)                                ! Stage 1
+         CALL GetLaplacGrads(HuynhSolver_type, psi, 1)
+
+print *,'potential '
+         BC_Values = BC_VelNorm - VelocJump
+print *,BC_Values
+         CALL GetLaplacian(HuynhSolver_type, tempo, psi, A_handle, P_handle, S_handle)                                ! Stage 1
+         CALL GetLaplacGrads(HuynhSolver_type, psi, 0)
 
 endif
 
@@ -1938,51 +1829,51 @@ endif
 
 CONTAINS
 
-  SUBROUTINE EulerTimeIntegrate(dt, Reyn, VortIn, VortOut, HuynhSolver_type, A_handle, P_handle, S_handle)
+  SUBROUTINE EulerTimeIntegrate(nt, dt, Reyn, VortIn, VortOut, HuynhSolver_type, A_handle, P_handle, S_handle)
        USE params
        USE variables
        USE APLLES_Solvers_Module
        USE omp_lib
 
        USE iso_c_binding
-       USE WTIMER
 
        implicit NONE
-       integer HuynhSolver_type
+       integer HuynhSolver_type, nt
        real*8 Reyn, dt
-       real*8, dimension(Knod, Knod, Nel) :: VortIn, VortOut, f_of_Vort, psi
+       real*8, dimension(Knod, Knod, Nel) :: VortIn, VortOut, f_of_Vort, psi, tempo
 
        type(APLLES_MatrixHandleType) :: A_handle
        type(APLLES_PreconHandleType) :: P_handle
        type(APLLES_SolverHandleType) :: S_handle
 
-       integer i, j
-       type(timer_type) :: t_start, t_lap, t_lapgrads, t_convect
+       integer i, j, el, eln, ijP
 
 print *,'**** CONVECTION **** '
-         t_start = get_timestamp()
 
-         BC_Values = BC_Psi
-         BC_Switch = DirichletBC
+         tempo = 0.d0
+         VelocJump = 0.d0
+
+ if (nt .gt. 1) then
+         BC_Values = 0.d0
+         BC_Values =  BC_VelParl
+!         BC_Values = BC_Psi
+!         BC_Switch = DirichletBC
+print *,'Vortical'
          CALL GetLaplacian(HuynhSolver_type, VortIn, psi, A_handle, P_handle, S_handle)                                ! Stage 1
-
-         t_lap = get_timestamp()
-
          CALL GetLaplacGrads(HuynhSolver_type, psi, 1)
 
-         t_lapgrads = get_timestamp()
+print *,'Potential'
+         BC_Values = BC_VelNorm - VelocJump
+         CALL GetLaplacian(HuynhSolver_type, tempo, psi, A_handle, P_handle, S_handle)                                ! Stage 1
+         CALL GetLaplacGrads(HuynhSolver_type, psi, 0)
+ endif
 
          BC_Values = BC_VelNorm
          CALL GetConvectedFlux(HuynhSolver_type, VortIn, f_of_Vort)
 
          VortOut =  dt*f_of_Vort
 
-         t_convect = get_timestamp()
-
 print *,'Post Conv Max Vort ',minval(vortin+vortOut),maxval(vortin+vortOut)
-print *, 'conv_time: ', get_elapsed_time( t_start, t_lap ), &
-                        get_elapsed_time( t_lap, t_lapgrads), &
-                        get_elapsed_time( t_lapgrads, t_convect)
 
 print *,'**** DIFFUSION **** '
 
@@ -1997,6 +1888,8 @@ print *,'Velocity ',minval(sqrt(uvel**2 + vvel**2)),maxval(sqrt(uvel**2 + vvel**
 
 print *,'Jump ',minval(VelocJump),maxval(VelocJump)
 
+! For general case
+ if (.false.) then
          DO i = 1, NBndry
            IF (NoSlip(i)) THEN
              DO j = BndryNum(i-1)+1, BndryNum(i)
@@ -2009,8 +1902,26 @@ print *,'Jump ',minval(VelocJump),maxval(VelocJump)
              ENDDO
            ENDIF
          ENDDO
+! For in-code simple cases like cavity flow
+ else
+        if (nt .eq. 1) then
+        VelocJump = VelocJump - BC_VelParl
+        BC_Values = VelocJump * Reyn / dt
+        else
+        BC_Values = VelocJump * Reyn / dt
+        endif
+ endif
 
-         BC_Switch = NeumannBC
+         DO el = 1, Nel
+           DO ijP = 0, 3
+             eln = elemID(i2f(ijP),el)
+             IF (eln .lt. 0) THEN
+print *,el,eln,ijP,VelocJump(1:Knod,-eln)
+             ENDIF
+           ENDDO
+         ENDDO
+
+!         BC_Switch = NeumannBC
          CALL GetDiffusedFlux(HuynhSolver_type, VortIn, f_of_Vort)
 
          VortOut = VortOut + f_of_Vort * dt / Reyn
@@ -2254,9 +2165,9 @@ if(.true.) then
        CALL GetLaplacian(HuynhSolver_type, Vort_tmp, psi, A_handle, P_handle, S_handle)                                ! Stage 1
        CALL GetLaplacGrads(HuynhSolver_type, psi, 1)
 
-!!       BC_Values = BC_VelNorm - VelocJump
-!!       CALL GetLaplacian(HuynhSolver_type, Vort0, psi, A_handle, P_handle, S_handle)                                ! Stage 1
-!!       CALL GetLaplacGrads(HuynhSolver_type, psi, 0)
+!       BC_Values = BC_VelNorm - VelocJump
+!       CALL GetLaplacian(HuynhSolver_type, Vort0, psi, A_handle, P_handle, S_handle)                                ! Stage 1
+!       CALL GetLaplacGrads(HuynhSolver_type, psi, 0)
 endif
 
        write(8,'(a)') 'VECTORS velocity float'
@@ -2279,7 +2190,6 @@ SUBROUTINE SetLaplacian(HuynhSolver_type, A_handle, P_handle, S_handle)
        USE CnvrtTensor2FemIndices
        USE APLLES_Solvers_Module
        USE omp_lib
-       USE WTIMER
 
        USE iso_c_binding
 
@@ -2311,8 +2221,6 @@ SUBROUTINE SetLaplacian(HuynhSolver_type, A_handle, P_handle, S_handle)
        integer, dimension(:), allocatable :: rowptr_filtered, colidx_filtered
        real*8, dimension(:), allocatable :: values_filtered
 
-       type(timer_type) :: t_start, t_end
-
 interface
 function inv(A) result(Ainv)
   integer dp
@@ -2324,46 +2232,7 @@ function inv(A) result(Ainv)
   integer, dimension(size(A,1)) :: ipiv   ! pivot indices
   integer :: n, info
 end function inv
-
-  subroutine set_laplacian_c( Knod, Nel, Wgt, Vol_Jac, &
-                              NelB, BoundaryPointsElemID, &
-                              BndrySrc, BC_Values, &
-                              A_handle, S_handle, P_handle ) &
-    bind(C,name='setLaplacian')
-
-    use iso_c_binding
-    implicit none
-
-    integer(c_int), value :: Knod, Nel, NelB
-    integer(c_int) :: BoundaryPointsElemID(*)
-    real(c_double), dimension(*) :: Wgt, Vol_Jac, BndrySrc, BC_Values
-    type(c_ptr), value :: A_handle, S_handle, P_handle
-
-  end subroutine
-
-  subroutine assemble_laplacian_c( Knod, Nel, NelB, &
-                              Vol_Jac, Vol_Dx_iDxsi_j, &
-                              Face_Acoef, Face_Bcoef, Face_Jac, Face_Norm, &
-                              LaplacianCenter, LaplacianNeighbor, &
-                              BndrySrc, &
-                              elemID, bndryElemID, &
-                              BC_Switch, BC_Values ) &
-    bind(C,name='assembleLaplacian')
-
-    use iso_c_binding
-    implicit none
-
-    integer(c_int), value :: Knod, Nel, NelB
-    real(c_double), dimension(*) :: Vol_Jac, Vol_Dx_iDxsi_j, &
-                              Face_Acoef, Face_Bcoef, Face_Jac, Face_Norm, &
-                              LaplacianCenter, LaplacianNeighbor, BndrySrc, &
-                              BC_Values
-    integer(c_int), dimension(*) :: elemID, bndryElemID, BC_Switch
-
-  end subroutine
 end interface
-
-       t_start = get_timestamp()
 
        Knm = Knod - 1
        Ksq = Knod * Knod
@@ -2431,20 +2300,6 @@ end interface
            ENDDO
          ENDDO
 
-         !if (el < 10) then
-         !  print *, 'el metrics:'
-         !  print *, solnA(:,:,1)
-         !  print *, solnA(:,:,2)
-         !  print *, solnB(:,:,1)
-
-         !  print *, 'faceA'
-         !  print '(4(e15.7,1x))', (faceA(j,0:3), j=1,Knod)
-         !  print *, 'faceB'
-         !  print '(4(e15.7,1x))', (faceB(j,0:3), j=1,Knod)
-         !  print *, 'faceN'
-         !  print '(4(e15.7,1x))', (normA(j,0:3), j=1,Knod)
-         !endif
-
          DO j = 1, Knod
            jm1 = (j-1) * Knod
            DO i = 1, Knod
@@ -2483,8 +2338,6 @@ end interface
              IF (eln .lt. 0) THEN
 
                bel = -eln
-
-              !print *, '-eln: ', ijp, eln, el, bel, BC_Switch(bel)
                IF (BC_Switch(bel) .eq. DirichletBC) THEN
 
                  DO j = 1, Knod
@@ -2598,9 +2451,6 @@ end interface
                  Acoef(j) = Face_Acoef(j,ijPm,eln) / Face_Jac(j,ijPm,eln)
                  Bcoef(j) = 0.5d0 * ( FaceB(j,ijP) + Face_Bcoef(j,ijPm,eln) / Face_Jac(j,ijPm,eln) )
                ENDDO
-              !print *, ijp, ijpm, eln, el
-              !print *, 'Acoef ', Acoef
-              !print *, 'Bcoef ', Bcoef
 
                DO j = 1, Knod
                  jm1 = (j-1) * Knod
@@ -2637,42 +2487,6 @@ end interface
 
        ENDDO
 
-       t_end = get_timestamp()
-       print *,'laplacian assembly 1 time: ', get_elapsed_time( t_start, t_end )
-
-       if (.false.) then
-         write(6,*) 'any(Neumann) = ', any(BC_Switch(:) .eq. NeumannBC)
-         write(6,*) 'any(Dirichlet) = ', any(BC_Switch(:) .eq. DirichletBC)
-         write(6,*) 'any(none) = ', any( BC_Switch(:) .ne. DirichletBC .and. BC_Switch(:) .ne. NeumannBC )
-
-         open(10,file='ftn_assembly.out',form='formatted')
-
-         DO el = 1, Nel
-           write(10,*) 'el: ', el
-           write(10,*) 'center: ', el
-           do i = 1, Ksq
-              write(10,"(i3,9(',',e20.13))") i, laplaciancenter(i,1:Ksq,el)
-           enddo
-
-           DO ijP = 0, 3
-             IF (elemID(i2f(ijP),el) > 0) then
-               write(10,"(a,2(1x,i10))") 'nghbr: ', ijP, elemID(i2f(ijP),el)
-               do i = 1, Ksq
-                  write(10,"(i3,9(',',e20.13))") i, laplacianneigbr(i,1:Ksq,ijp,el)
-               enddo
-             endif
-           ENDDO
-         ENDDO
-
-         do bel = 1, nelb
-           write(10,*) 'bel: ', bel
-           do j = 1, Ksq
-             write(10,"(i3,3(',',e20.13))") j, BndrySrc(1:Knod,j,bel)
-           enddo
-         enddo
-         close(10)
-       endif
-
 !      Everything above can be used in conjunction with another Laplacian to get fast diffusion; for now, below is to solve
 !      the Poisson equation, but it needs to be modified to replace Laplacian (for diffusion) variables into matrix A
        nrows = Ksq * Nel
@@ -2693,7 +2507,6 @@ end interface
          colctr = (el - 1) * Ksq
          DO ijP = 0, 3
            colnbr(ijP) = (elemID(i2f(ijP),el) - 1) * Ksq
-!          if ( el <= 10 ) print *, 'el: ', el, elemId(i2f(ijP),el), ijP
          ENDDO
          DO j = 1, Knod
            jm1 = (j-1) * Knod
@@ -2726,7 +2539,7 @@ end interface
            ENDDO
          ENDDO
        ENDDO
-           
+        
        ! Filter out zero's
 !       print *, 'Zero Count: ', count( values(1:nnz) == 0.0d0 ), nnz, rowptr(nrows+1)
        print *, 'Zero Count: ', count( ABS(values(1:nnz)) < 1.0d-14 ), nnz, rowptr(nrows+1)
@@ -2752,13 +2565,6 @@ print *,'MATRIX MAX VALUE ',maxval(abs(values(1:nnz)))
        rowptr_filtered = rowptr_filtered - 1
        colidx_filtered = colidx_filtered - 1
 
-       !do i = 1, min(k4,nrows)
-       !   j = rowptr(i)
-       !   nnz = rowptr(i+1) - rowptr(i)
-       !   print *, i, nnz
-       !   print "(9(i7,',',1x))", colidx(j:j+nnz-1)
-       !enddo
-
 ! Convert Fortran 1-index to C/C++ 0-index
        rowptr = rowptr - 1
        colidx = colidx - 1
@@ -2766,13 +2572,11 @@ print *,'MATRIX MAX VALUE ',maxval(abs(values(1:nnz)))
        ierr = APLLES_Initialize()
 
        ! Use the filtered or raw matrix?
-       if (.true.) then
+       if (.false.) then
          ierr = APLLES_Setup_Matrix_CSR(nrows,rowptr,colidx,values,A_handle)
        else
          ierr = APLLES_Setup_Matrix_CSR(nrows,rowptr_filtered,colidx_filtered,values_filtered,A_handle)
        endif
-
-       ierr = APLLES_Matrix_To_File( A_handle, "a.csr", 0 )
 
        ierr = APLLES_Matrix_Copy_CSR_To_Other(A_handle, "CSR", A_handle)
 
@@ -2785,20 +2589,6 @@ print *,'MATRIX MAX VALUE ',maxval(abs(values(1:nnz)))
 
        deAllocate (rowptr_filtered, colidx_filtered, values_filtered)
 
-      !call set_laplacian_c( Knod, Nel, wgt, Vol_Jac, &
-      !                      NelB, BoundaryPointsElemID, &
-      !                     !BndrySrc, BC_Values, &
-      !                      BndrySrc, BC_Psi, &
-      !                      A_handle%ptr, S_handle%ptr, P_handle%ptr )
-
-       call assemble_laplacian_c( Knod, Nel, NelB, &
-                              Vol_Jac, Vol_Dx_iDxsi_j, &
-                              Face_Acoef, Face_Bcoef, Face_Jac, Face_Norm, &
-                              LaplacianCenter, LaplacianNeigbr, &
-                              BndrySrc, &
-                              elemID, boundaryPointsElemID, &
-                              BC_Switch, BC_Psi )
-
 END SUBROUTINE SetLaplacian
 
 
@@ -2807,7 +2597,6 @@ SUBROUTINE GetLaplacian(HuynhSolver_type, Vortin, psi, A_handle, P_handle, S_han
        USE variables
        USE APLLES_Solvers_Module
        USE omp_lib
-       USE WTIMER
 
        USE iso_c_binding
 
@@ -2826,26 +2615,12 @@ SUBROUTINE GetLaplacian(HuynhSolver_type, Vortin, psi, A_handle, P_handle, S_han
        type(APLLES_PreconHandleType) :: P_handle
        type(APLLES_SolverHandleType) :: S_handle
 
-       type(timer_type) :: t_start, t_end, t_middle
-
-interface
-  subroutine get_laplacian_c( Vort, Psi, BndrySrc, BndryVals ) &
-    bind(C,name='getLaplacian')
-
-    use iso_c_binding
-    implicit none
-
-    real(c_double), dimension(*) :: Vort, Psi, BndrySrc, BndryVals
-
-  end subroutine
-end interface
-
-       t_start = get_timestamp()
-
+  
        nrows = Knod * Knod * Nel
        Allocate (x(nrows), b(nrows))
 
        temp = 0.d0
+       residual = 0.d0
        DO bel = 1, NelB
          el = boundaryPointsElemID(bel)
          DO j = 1, Knod
@@ -2854,9 +2629,26 @@ end interface
              ij = jm1 + i
              temp(ij,el) = temp(ij,el) + DOT_PRODUCT( BndrySrc(1:Knod,ij,bel) , BC_Values(1:Knod,bel) )
            ENDDO
+
+            IF (ABS(xcoord(BoundaryNodeID(1,bel))) < 1.d-6 .and. ABS(xcoord(BoundaryNodeID(2,bel))) < 1.d-6) THEN
+              residual = residual - wgt(j) * BC_Values(j,bel) /sqrt(dble(Nel))
+            ENDIF
+
+            IF (ABS(ycoord(BoundaryNodeID(1,bel))) < 1.d-6 .and. ABS(ycoord(BoundaryNodeID(2,bel))) < 1.d-6) THEN
+              residual = residual - wgt(j) * BC_Values(j,bel) /sqrt(dble(Nel))
+            ENDIF
+
+            IF (ABS(xcoord(BoundaryNodeID(1,bel)) - 1.d0) < 1.d-6 .and. ABS(xcoord(BoundaryNodeID(2,bel)) - 1.d0) < 1.d-6) THEN
+              residual = residual + wgt(j) * BC_Values(j,bel) /sqrt(dble(Nel))
+            ENDIF
+
+            IF (ABS(ycoord(BoundaryNodeID(1,bel)) - 1.d0) < 1.d-6 .and. ABS(ycoord(BoundaryNodeID(2,bel)) - 1.d0) < 1.d-6) THEN
+              residual = residual + wgt(j) * BC_Values(j,bel) /sqrt(dble(Nel))
+            ENDIF
+
          ENDDO
        ENDDO
-!      print *, 'temp: ', sqrt( sum( temp**2 ) ), maxval( abs(temp) )
+print *,'RESIDUAL ***** ',residual
 
        residual = 0.d0
        volume = 0.d0
@@ -2870,7 +2662,7 @@ end interface
            ENDDO
          ENDDO
        ENDDO
-!      print *,'Res, Vol, eps ', residual, volume, (1+residual)/volume
+       print *,'Res, Vol, eps ', residual, volume, (1+residual)/volume
 
        x = 0.d0
        b = 0.d0
@@ -2884,22 +2676,19 @@ end interface
              nrows = nrows + 1
 !             b(nrows) = - Vortin(i,j,el) - BndrySrc(ij,el)
 !             b(nrows) = - Vol_Jac(i,j,el) * Vortin(i,j,el) - BndrySrc(ij,el)
-            if(abs((1-residual)/volume) > .1) then
+            if(abs((1+residual)/volume) > .1) then
               b(nrows) = - Vol_Jac(i,j,el) * Vortin(i,j,el) - temp(ij,el)
             else
-              b(nrows) = - Vol_Jac(i,j,el) * Vortin(i,j,el) - temp(ij,el)
-!              b(nrows) = - Vol_Jac(i,j,el) * (-(1+residual)/volume + Vortin(i,j,el)) - temp(ij,el)
+!              b(nrows) = - Vol_Jac(i,j,el) * Vortin(i,j,el) - temp(ij,el)
+              b(nrows) = - Vol_Jac(i,j,el) * (-(1+residual)/volume + Vortin(i,j,el)) - temp(ij,el)
+!              Vortin(i,j,el) = -(1+residual)/volume + Vortin(i,j,el)
+!              b(nrows) = - Vol_Jac(i,j,el) * (Vortin(i,j,el)) - temp(ij,el)
             endif
            ENDDO
          ENDDO
        ENDDO
-!      print *, 'temp2: ', sqrt( sum( b**2 ) ), maxval( abs(b) )
-
-       t_middle = get_timestamp()
 
        ierr = APLLES_Solve(A_handle, x, b, S_handle, P_handle)
-
-!      print *, 'solved: ', ierr, sqrt( sum( x**2 ) ), maxval( abs(x) )
 
        nrows = 0
        DO el = 1, Nel
@@ -2913,12 +2702,6 @@ end interface
 
        deAllocate (x, b)
 
-       t_end = get_timestamp()
-       print *, 'aplles solver: ', get_elapsed_time( t_start, t_middle ), &
-                                   get_elapsed_time( t_middle, t_end )
-
-       call get_laplacian_c( Vortin, psi, BndrySrc, BC_Values )
-  
 END SUBROUTINE GetLaplacian
 
 
@@ -2931,7 +2714,7 @@ SUBROUTINE GetLaplacGrads(HuynhSolver_type, Phi, getCurl)
        integer HuynhSolver_type, getCurl
        real*8, dimension(Knod, Knod, Nel) :: Phi
 
-       integer i, j, jx, jy, el, eln, ijP, ijPm, idir, ibnd
+       integer i, j, jx, jy, el, eln, ijP, ijPm, idir, ibnd, elbn
        real*8, dimension(Knod, 2) :: loclPhi
        ! Phi and GradPhi at the L/R (0:1) and S/N (2:3) boundaries of a mesh
        real*8, dimension(Knod, 0:3, Nel) :: bndrPhi, bndrGradPhi
@@ -2940,6 +2723,8 @@ SUBROUTINE GetLaplacGrads(HuynhSolver_type, Phi, getCurl)
 
        real*8, dimension(Knod, Knod) :: f_tilda, g_tilda
        real*8, dimension(Knod, 0:1) :: f_tildaB, g_tildaB
+
+       real*8, dimension(0:1) :: bndrPhiEnds
 
        real*8 du_dxsi, du_deta
 
@@ -3008,12 +2793,23 @@ SUBROUTINE GetLaplacGrads(HuynhSolver_type, Phi, getCurl)
 
                  ELSEIF (BC_Switch(-eln) .eq. NeumannBC) THEN
 !                   VelocJump(1:Knod,-eln) = comPhi(1:Knod,ijP,el)
+if (.false.) then
                    DO j = 1, Knod
                      VelocJump(j,-eln) = dot_product(comPhi(1:Knod,ijP,el), SolnNodesGradLgrangeBasis(1:Knod,j)) / &
                                                      Face_Norm(j,ijP,el)
                      IF (getCurl .eq. 1 .and. idir .eq. 2) VelocJump(j,-eln) = - VelocJump(j,-eln)
+                     IF (getCurl .eq. 0 .and. idir .eq. 1) VelocJump(j,-eln) = - VelocJump(j,-eln)
+                     IF (getCurl .eq. 0) THEN
+!                       IF (ijP .eq. 1 .or. ijP .eq. 2)  VelocJump(j,-eln) = - VelocJump(j,-eln)
+                     ENDIF
                    ENDDO
-
+                     IF (getCurl .eq. 0) THEN
+print *,'potential ',el,eln,idir,ibnd,VelocJump(1:Knod,-eln),comPhi(1:Knod,ijP,el)
+                     ELSE
+print *,'vortical  ',el,eln,idir,ibnd,VelocJump(1:Knod,-eln),comPhi(1:Knod,ijP,el)
+                     ENDIF
+!print *,getcurl,eln,el,idir,ibnd,VelocJump(1:knod,-eln)!,BC_VelParl(1:knod,-eln)
+endif
                  ENDIF
 
                ELSEIF (eln .gt. 0) THEN
@@ -3035,7 +2831,143 @@ SUBROUTINE GetLaplacGrads(HuynhSolver_type, Phi, getCurl)
            DO ijP = 0, 3
              eln = elemID(i2f(ijP),el)
              ! common GradPhi(el,right) is Average of bndrGradPhi(el,right) + (el+1,left); same works for Left, South, and North
-             IF (eln .gt. 0) comGradPhi(1:Knod,ijP,el) = 0.5d0*(bndrGradPhi(1:Knod,ijP,el) + bndrGradPhi(1:Knod,nbr(ijP),eln))
+             IF (eln .gt. 0) THEN
+               comGradPhi(1:Knod,ijP,el) = 0.5d0*(bndrGradPhi(1:Knod,ijP,el) + bndrGradPhi(1:Knod,nbr(ijP),eln))
+!             ELSEIF (eln .lt. 0 .and. BC_Switch(-eln) .eq. NeumannBC .and. getCurl .eq. 1) THEN
+!                   DO j = 1, Knod
+!                     VelocJump(j,-eln) = dot_product(comPhi(1:Knod,ijP,el), SolnNodesGradLgrangeBasis(1:Knod,j)) / &
+!                                                     Face_Norm(j,ijP,el)
+!                     IF (getCurl .eq. 1 .and. idir .eq. 2) VelocJump(j,-eln) = - VelocJump(j,-eln)
+!                     IF (getCurl .eq. 0 .and. idir .eq. 1) VelocJump(j,-eln) = - VelocJump(j,-eln)
+!                   ENDDO
+!             ELSEIF (eln .lt. 0 .and. BC_Switch(-eln) .eq. NeumannBC .and. getCurl .eq. 0) THEN
+             ELSEIF (eln .lt. 0 .and. BC_Switch(-eln) .eq. NeumannBC) THEN
+if(.true.) then
+               DO ibnd = 0, 1
+                 bndrPhiEnds(ibnd) = dot_product(comPhi(1:Knod,ijP,el), SolnBndryLgrangeBasis(1:Knod,ibnd))
+               ENDDO
+               DO j = 1, Knod
+                 VelocJump(j,-eln) = dot_product(comPhi(1:Knod,ijP,el), SolnNodesGradLgrangeBasis(1:Knod,j))
+               ENDDO
+               IF (ijP .eq. 0) THEN
+                 ! We're on left boundary; check south and north elements; if positive then take their left boundary values
+                 !   for interpolation; if negative then take their south or north boundary values
+                 elbn = elemID(i2f(2),el)
+                 IF (elbn .lt. 0) THEN
+                   DO j = 1, Knod
+                     VelocJump(j,-eln) = VelocJump(j,-eln) + 0.5d0 * NodesGradRadau(j,0) * ( &
+                                            dot_product(comPhi(1:Knod,2,el), SolnBndryLgrangeBasis(1:Knod,0)) - bndrPhiEnds(0) )
+                   ENDDO
+                 ELSE
+                   DO j = 1, Knod
+                     VelocJump(j,-eln) = VelocJump(j,-eln) + 0.5d0 * NodesGradRadau(j,0) * ( &
+                                            dot_product(comPhi(1:Knod,0,elbn), SolnBndryLgrangeBasis(1:Knod,1)) - bndrPhiEnds(0) )
+                   ENDDO
+                 ENDIF
+                 elbn = elemID(i2f(3),el)
+                 IF (elbn .lt. 0) THEN
+                   DO j = 1, Knod
+!                     VelocJump(j,-eln) = VelocJump(j,-eln) + 0.5d0 * NodesGradRadau(j,1) * ( &
+!                                            dot_product(comPhi(1:Knod,3,el), SolnBndryLgrangeBasis(1:Knod,0)) - bndrPhiEnds(1) )
+                   ENDDO
+                 ELSE
+                   DO j = 1, Knod
+                     VelocJump(j,-eln) = VelocJump(j,-eln) + 0.5d0 * NodesGradRadau(j,1) * ( &
+                                            dot_product(comPhi(1:Knod,0,elbn), SolnBndryLgrangeBasis(1:Knod,0)) - bndrPhiEnds(1) )
+                   ENDDO
+                 ENDIF
+                 VelocJump(1:Knod,-eln) = VelocJump(1:Knod,-eln) / Face_Norm(1:Knod,ijP,el)
+                 IF (getCurl .eq. 0) VelocJump(1:Knod,-eln) = - VelocJump(1:Knod,-eln)
+               ELSEIF (ijP .eq. 1) THEN
+                 elbn = elemID(i2f(2),el)
+                 IF (elbn .lt. 0) THEN
+                   DO j = 1, Knod
+                     VelocJump(j,-eln) = VelocJump(j,-eln) + 0.5d0 * NodesGradRadau(j,0) * ( &
+                                            dot_product(comPhi(1:Knod,2,el), SolnBndryLgrangeBasis(1:Knod,1)) - bndrPhiEnds(0) )
+                   ENDDO
+                 ELSE
+                   DO j = 1, Knod
+                     VelocJump(j,-eln) = VelocJump(j,-eln) + 0.5d0 * NodesGradRadau(j,0) * ( &
+                                            dot_product(comPhi(1:Knod,1,elbn), SolnBndryLgrangeBasis(1:Knod,1)) - bndrPhiEnds(0) )
+                   ENDDO
+                 ENDIF
+                 elbn = elemID(i2f(3),el)
+                 IF (elbn .lt. 0) THEN
+                   DO j = 1, Knod
+!                     VelocJump(j,-eln) = VelocJump(j,-eln) + 0.5d0 * NodesGradRadau(j,1) * ( &
+!                                            dot_product(comPhi(1:Knod,3,el), SolnBndryLgrangeBasis(1:Knod,1)) - bndrPhiEnds(1) )
+                   ENDDO
+                 ELSE
+                   DO j = 1, Knod
+                     VelocJump(j,-eln) = VelocJump(j,-eln) + 0.5d0 * NodesGradRadau(j,1) * ( &
+                                            dot_product(comPhi(1:Knod,1,elbn), SolnBndryLgrangeBasis(1:Knod,0)) - bndrPhiEnds(1) )
+                   ENDDO
+                 ENDIF
+                 VelocJump(1:Knod,-eln) = VelocJump(1:Knod,-eln) / Face_Norm(1:Knod,ijP,el)
+                 IF (getCurl .eq. 0) VelocJump(1:Knod,-eln) = - VelocJump(1:Knod,-eln)
+               ELSEIF (ijP .eq. 2) THEN
+                 elbn = elemID(i2f(0),el)
+                 IF (elbn .lt. 0) THEN
+                   DO j = 1, Knod
+                     VelocJump(j,-eln) = VelocJump(j,-eln) + 0.5d0 * NodesGradRadau(j,0) * ( &
+                                            dot_product(comPhi(1:Knod,0,el), SolnBndryLgrangeBasis(1:Knod,0)) - bndrPhiEnds(0) )
+                   ENDDO
+                 ELSE
+                   DO j = 1, Knod
+                     VelocJump(j,-eln) = VelocJump(j,-eln) + 0.5d0 * NodesGradRadau(j,0) * ( &
+                                            dot_product(comPhi(1:Knod,2,elbn), SolnBndryLgrangeBasis(1:Knod,1)) - bndrPhiEnds(0) )
+                   ENDDO
+                 ENDIF
+                 elbn = elemID(i2f(1),el)
+                 IF (elbn .lt. 0) THEN
+                   DO j = 1, Knod
+                     VelocJump(j,-eln) = VelocJump(j,-eln) + 0.5d0 * NodesGradRadau(j,1) * ( &
+                                            dot_product(comPhi(1:Knod,1,el), SolnBndryLgrangeBasis(1:Knod,0)) - bndrPhiEnds(1) )
+                   ENDDO
+                 ELSE
+                   DO j = 1, Knod
+                     VelocJump(j,-eln) = VelocJump(j,-eln) + 0.5d0 * NodesGradRadau(j,1) * ( &
+                                            dot_product(comPhi(1:Knod,2,elbn), SolnBndryLgrangeBasis(1:Knod,0)) - bndrPhiEnds(1) )
+                   ENDDO
+                 ENDIF
+                 VelocJump(1:Knod,-eln) = VelocJump(1:Knod,-eln) / Face_Norm(1:Knod,ijP,el)
+                 IF (getCurl .eq. 1) VelocJump(1:Knod,-eln) = - VelocJump(1:Knod,-eln)
+               ELSEIF (ijP .eq. 3) THEN
+                 elbn = elemID(i2f(0),el)
+                 IF (elbn .lt. 0) THEN
+                   DO j = 1, Knod
+!                     VelocJump(j,-eln) = VelocJump(j,-eln) + 0.5d0 * NodesGradRadau(j,0) * ( &
+!                                            dot_product(comPhi(1:Knod,0,el), SolnBndryLgrangeBasis(1:Knod,1)) - bndrPhiEnds(0) )
+                   ENDDO
+                 ELSE
+                   DO j = 1, Knod
+                     VelocJump(j,-eln) = VelocJump(j,-eln) + 0.5d0 * NodesGradRadau(j,0) * ( &
+                                            dot_product(comPhi(1:Knod,3,elbn), SolnBndryLgrangeBasis(1:Knod,1)) - bndrPhiEnds(0) )
+                   ENDDO
+                 ENDIF
+                 elbn = elemID(i2f(1),el)
+                 IF (elbn .lt. 0) THEN
+                   DO j = 1, Knod
+!                     VelocJump(j,-eln) = VelocJump(j,-eln) + 0.5d0 * NodesGradRadau(j,1) * ( &
+!                                            dot_product(comPhi(1:Knod,1,el), SolnBndryLgrangeBasis(1:Knod,1)) - bndrPhiEnds(1) )
+                   ENDDO
+                 ELSE
+                   DO j = 1, Knod
+                     VelocJump(j,-eln) = VelocJump(j,-eln) + 0.5d0 * NodesGradRadau(j,1) * ( &
+                                            dot_product(comPhi(1:Knod,3,elbn), SolnBndryLgrangeBasis(1:Knod,0)) - bndrPhiEnds(1) )
+                   ENDDO
+                 ENDIF
+                 VelocJump(1:Knod,-eln) = VelocJump(1:Knod,-eln) / Face_Norm(1:Knod,ijP,el)
+                 IF (getCurl .eq. 1) VelocJump(1:Knod,-eln) = - VelocJump(1:Knod,-eln)
+               ENDIF
+                     IF (getCurl .eq. 0) THEN
+print *,'potential ',el,eln,ijP,VelocJump(1:Knod,-eln),comPhi(1:Knod,ijP,el)
+                     ELSE
+print *,'vortical  ',el,eln,ijP,VelocJump(1:Knod,-eln),comPhi(1:Knod,ijP,el)
+                     ENDIF
+endif
+             ENDIF
+
            ENDDO
 
          ENDDO
@@ -3192,12 +3124,7 @@ SUBROUTINE GetDiffusedFlux(HuynhSolver_type, Phi, LapPhi)
        comPhi = 0.d0
        comGradPhi = 0.d0
 
-!$omp parallel private( i, j, jx, jy, el, eln, ijP, ijPm, idir, ibnd )&
-!$omp&         private( f_tilda, g_tilda, f_tildaB, g_tildaB, du_dxsi, du_deta )
-
        ! Extrapolate the unknown, uin, and its derivative to the mesh boundaries using Lagrange polynomials of order Knod-1
-
-!$omp  do
        DO el = 1, Nel
          DO j = 1, Knod
 
@@ -3235,8 +3162,6 @@ SUBROUTINE GetDiffusedFlux(HuynhSolver_type, Phi, LapPhi)
          ! Get the common values of Phi at the mesh interfaces (we use simple averaging in this case)
          ! We definitely need a more efficient strategy - right now we're saving com-s twice, and can probably save on bndrGradPhi as well
          ! We probably can and should write a more compact method so that we don't repeat the same stuff for NEWS (which becomes messier for NEWSBT in 3D)
-
-!$omp    do
          DO el = 1, Nel
 
            ijP = 0
@@ -3371,8 +3296,6 @@ SUBROUTINE GetDiffusedFlux(HuynhSolver_type, Phi, LapPhi)
          ENDDO
 
        ENDDO
-
-!$omp end parallel
   
 END SUBROUTINE GetDiffusedFlux
 
