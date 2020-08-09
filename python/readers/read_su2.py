@@ -383,7 +383,7 @@ def create_connectivity(elements, all_faces):
         e.faces = np.array(e.faces, dtype='i')
         # efaces[i,:] = e.faces[:]
         efaces.extend([(fidx, i) for fidx in e.faces])
-        e.neighbors = np.full((nfaces_per_element), -1)
+        e.neighbors = np.full((nfaces_per_element), -1, dtype='i')
         e.isRight = np.full((nfaces_per_element), 0, dtype='i')
 
     
@@ -922,8 +922,7 @@ def test_mesh_hex8(testid):
 
 
 
-            
-if __name__ == "__main__":
+def main():
 
     import getopt
 
@@ -1224,3 +1223,8 @@ if __name__ == "__main__":
             if not allzero:
                 print("Face 4 of element {} is not on the z=0 plane".format(j))
                 sys.exit(1)
+
+
+
+if __name__ == "__main__":
+    main()
