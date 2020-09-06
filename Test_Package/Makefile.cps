@@ -51,8 +51,8 @@ CXXFLAGS += -Wfatal-errors
 
 #CXXFLAGS += -DENABLE_LINEAR_SOLVER_BENCHMARK
 
-CXXFLAGS += -I $(HYPRE_DIR)/include -DENABLE_HYPRE
-LDFLAGS  += -lHYPRE -L $(HYPRE_DIR)/lib
+#CXXFLAGS += -I $(HYPRE_DIR)/include -DENABLE_HYPRE
+#LDFLAGS  += -lHYPRE -L $(HYPRE_DIR)/lib
 
 ifeq ($(F90),gfortran)
   F90FLAGS += -I. -J.

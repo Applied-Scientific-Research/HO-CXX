@@ -13,6 +13,7 @@
 
 #include "aplles_interface.h"
 #include "linsolver.hpp"
+#include "wtimer.hpp"
 
 namespace HighOrderFEM
 {

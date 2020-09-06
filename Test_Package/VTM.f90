@@ -427,7 +427,7 @@ PROGRAM TwoD_Vorticity_Transport
          OPEN (10, File = trim(mesh_filename), Status = 'old')
 
          NelB = 0
-         read(10,'(a6,i10)') buf, ibuf
+         read(10,'(a6,i10)') buf, idum
          read(10,'(a6,i10)') buf, Nel
          DO el = 1, Nel
            read(10,'(a)') buf
@@ -440,9 +440,9 @@ PROGRAM TwoD_Vorticity_Transport
          read(10,'(a6,i10)') buf, NBndry
          DO i = 1, NBndry
            read(10,'(a)') buf
-           read(10,'(a14,i10)') buf, ibuf
-           NelB = NelB + ibuf
-           DO el = 1, ibuf
+           read(10,'(a14,i10)') buf, idum
+           NelB = NelB + idum
+           DO el = 1, idum
              read(10,'(a)') buf
            ENDDO
          ENDDO
@@ -3261,6 +3261,19 @@ SUBROUTINE GetDiffusedFlux(HuynhSolver_type, Phi, LapPhi)
                                                 Face_Jac(1:Knod,ijP,el), bndrPhi(1:Knod,ijP,el), bndrPhi(1:Knod,ijPm,eln), &
                                                 bndrGradPhi(1:Knod,ijP,el), comPhi(1:Knod,ijP,el))
 
+!cps
+!                if (any(abs(Face_Jac(:,ijP,el) - FacE_Jac(:,ijPm,eln)) .gt. 1d-12)) then
+!                  print *, 'Face_Jac mismatch ', el, eln, ijP, ijPm
+!                  print *, Face_Jac(:,ijP,el)
+!                  print *, Face_Jac(:,ijPm,eln)
+!                  print *, Face_Acoef(:,ijP,el) / Face_Jac(:,ijP,el)
+!                  print *, Face_Acoef(:,ijPm,eln) / Face_Jac(:,ijPm,eln)
+!                  print *, Face_Bcoef(:,ijP,el) / Face_Jac(:,ijP,el)
+!                  print *, Face_Bcoef(:,ijPm,eln) / Face_Jac(:,ijPm,eln)
+!                  stop
+!                endif
+!cps
+
                ENDIF
                ijP = ijP + 1
              ENDDO
@@ -3274,6 +3287,17 @@ SUBROUTINE GetDiffusedFlux(HuynhSolver_type, Phi, LapPhi)
              eln = elemID(i2f(ijP),el)
              ! common GradPhi(el,right) is Average of bndrGradPhi(el,right) + (el+1,left); same works for Left, South, and North
              IF (eln .gt. 0) comGradPhi(1:Knod,ijP,el) = 0.5d0*(bndrGradPhi(1:Knod,ijP,el) + bndrGradPhi(1:Knod,nbr(ijP),eln))
+!cps
+             if (eln .gt. 0) then
+               ijPm = nbr(ijP)
+               if (any(abs(comPhi(:,ijP,el) - comPhi(:,ijPm,eln)) .gt. 1d-12)) then
+                 print *, 'comPhi mismatch ', el, eln, ijP, ijPm
+                 print *, comPhi(:,ijP,el)
+                 print *, comPhi(:,ijPm,eln)
+                 stop
+               endif
+             endif
+!cps
            ENDDO
 
          ENDDO
@@ -3524,6 +3548,7 @@ SUBROUTINE GetConvectedFlux(HuynhSolver_type, Phi, dPhi)
 
        integer, parameter, dimension(0:3) :: sgn = (/-1, 1, -1, 1/)
        integer i, j, jx, jy, el, eln, ijP, ijPm, idir, ibnd
+       integer ijPn
        real*8 bndrVel
        real*8, dimension(Knod, 2) :: loclPhi, loclVel
        real*8, dimension(Knod, Knod, 2, Nel) :: discFlx            ! nodal values of Discontinous Fluxes in X and Y dirs
@@ -3595,6 +3620,9 @@ SUBROUTINE GetConvectedFlux(HuynhSolver_type, Phi, dPhi)
            ! mesh to the left/south of left/south face or right/north of right/north face
            eln = elemID(i2f(ijP),el)
            IF (eln .gt. 0) THEN
+!cps
+!            if (ijP == 1 .or. ijP == 3) cycle
+!
              DO j = 1, Knod
                IF (Abs(bndrPhi(j,ijP,el) - bndrPhi(j,ijPm,eln)) .gt. 1.0d-6) THEN
                  bndrVel = (bndrFlx(j,ijP,el) - bndrFlx(j,ijPm,eln)) / (bndrPhi(j,ijP,el) - bndrPhi(j,ijPm,eln))
@@ -3617,6 +3645,43 @@ SUBROUTINE GetConvectedFlux(HuynhSolver_type, Phi, dPhi)
          ENDDO
 
        ENDDO
+
+!cps
+! check if the upwind-fluxes are equal on shared faces.
+!      do el = 1, Nel
+!        ! west neighbor: test ijP=0 with ijP=1
+!        ijP  = 0
+!        ijPm = nbr(ijP)
+!        eln = elemID(i2f(ijP),el)
+!        if (eln > 0) then
+!          if (any(abs(upwndFlx(1:Knod,ijP,el) - upwndFlx(1:Knod,ijPm,eln)) .gt. 1d-12)) then
+!            print *, "upwndFlx mismatch ", el, eln, ijP, ijPm
+!            print *, upwndFlx(:,ijP ,el )
+!            print *, upwndFlx(:,ijPm,eln)
+!            print *, abs(upwndFlx(:,ijP,el) - upwndFlx(:,ijPm,eln))
+!            stop
+!          endif
+!        endif
+!      enddo
+
+       do el = 1, Nel
+         ! if I have a neighbor to the left, fill their east flux vector.
+         ijP  = 0
+         ijPm = nbr(ijP)
+         eln  = elemID(i2f(ijP),el)
+         if (eln > 0) then
+             upwndFlx(:,ijPm,eln) = upwndFlx(:,ijP,el)
+         endif
+ 
+         ! if I have a neighbor to the south, fill their north flux vector.
+         ijP  = 2
+         ijPm = nbr(ijP)
+         eln  = elemID(i2f(ijP),el)
+         if (eln > 0) then
+             upwndFlx(:,ijPm,eln) = upwndFlx(:,ijP,el)
+         endif
+       enddo
+!cps
 
 
        DO el = 1, Nel
