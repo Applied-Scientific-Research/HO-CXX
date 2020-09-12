@@ -377,6 +377,8 @@ def create_connectivity(elements, all_faces):
     etype  = elements[0].etype
     nfaces_per_element = nFaces(etype)
     
+    t_start = getTimeStamp()
+
     # efaces = np.empty((nelems,nfaces_per_element), dtype='i')
     efaces = []
     for i, e in enumerate(elements):
@@ -386,37 +388,109 @@ def create_connectivity(elements, all_faces):
         e.neighbors = np.full((nfaces_per_element), -1, dtype='i')
         e.isRight = np.full((nfaces_per_element), 0, dtype='i')
 
-    
-    # This will fail if nfaces isn't uniform.
-    #print('efaces: ', efaces.shape, nfaces)
-    # print('efaces: ', len(efaces), nfaces)
-    # print(efaces[:10])
-    efaces = sorted(efaces) #sorted(efaces, key=lambda it: it[0])
-    # print(efaces[:10])
+    #print("Prep: {}".format(getTimeStamp() - t_start))
 
-    import bisect
-    
-    # Populate an array with left/right element neighbor for each face.
-    t_start = getTimeStamp()
     pairs = np.zeros((nfaces,2), dtype='i')
-    for i in range(nfaces):
-        #els = np.where(efaces == i)[0]
-        #assert els.shape[0] == 1 or els.shape[0] == 2
-        #pairs[i,0] = els[0]
-        #pairs[i,1] = -1 if els.shape[0] == 1 else els[1]
+
+    if False:
+
+        efaces = []
+        for i, e in enumerate(elements):
+            efaces.extend([(fidx, i) for fidx in e.faces])
+
+        # This will fail if nfaces isn't uniform.
+        #print('efaces: ', efaces.shape, nfaces)
+        # print('efaces: ', len(efaces), nfaces)
+        # print(efaces[:10])
+        efaces = sorted(efaces) #sorted(efaces, key=lambda it: it[0])
+        # print(efaces[:10])
+
+        import bisect
         
-        j = bisect.bisect_left(efaces, (i, -1))
-        assert j < len(efaces)
-        left = efaces[j][1]
-        right = -1
-        if j != len(efaces)-1:
-            if efaces[j+1][0] == i:
-                right = efaces[j+1][1]
-        pairs[i,0] = left
-        pairs[i,1] = right
-        
-    # print('face pairing took: {} secs'.format(getTimeStamp()-t_start))
+        # Populate an array with left/right element neighbor for each face.
+        for i in range(nfaces):
+            #els = np.where(efaces == i)[0]
+            #assert els.shape[0] == 1 or els.shape[0] == 2
+            #pairs[i,0] = els[0]
+            #pairs[i,1] = -1 if els.shape[0] == 1 else els[1]
+            
+            j = bisect.bisect_left(efaces, (i, -1))
+            assert j < len(efaces)
+            left = efaces[j][1]
+            right = -1
+            if j != len(efaces)-1:
+                if efaces[j+1][0] == i:
+                    right = efaces[j+1][1]
+            pairs[i,0] = left
+            pairs[i,1] = right
+            
+        print('face pairing (search): {}'.format(getTimeStamp() - t_start))
+
+    else:
+
+        #rowptr = [0]
+        rowptr = [nfaces_per_element * i for i in range(nelems+1)]
+        colidx = []
+        #values = []
+
+        for i, e in enumerate(elements):
+            #for j, f in enumerate(e.faces):
+            #    colidx.append(f)
+            #    #values.append(j)
+            colidx.extend([f for f in e.faces])
+
+            #rowptr.append(rowptr[-1] + nfaces_per_element)
+
+        # print(rowptr[:10])
+        # print(values[:20])
+        # print(colidx[:20])
+
+        import scipy.sparse as sparse
+
+        csr_matrix = sparse.csr_matrix((np.ones(len(colidx), dtype='i'), #np.array(values, dtype='i'),
+                                        np.array(colidx, dtype='i'),
+                                        np.array(rowptr, dtype='i')),
+                                       #shape=(nelems, nfaces),
+                                       dtype='i')
+
+        csc_matrix = csr_matrix.tocsc()
+
+        # print('csr:\n', csr_matrix.shape)
+        # print('data   :\n', csr_matrix.data.shape, csr_matrix.data[:10])
+        # print('indices:\n', csr_matrix.indices.shape, csr_matrix.indices[:10])
+        # print('indptr :\n', csr_matrix.indptr.shape, csr_matrix.indptr[:10])
+
+        # print('csc:\n', csc_matrix)
+        # print('csc:\n', csc_matrix.has_sorted_indices)
+        assert csc_matrix.has_sorted_indices
+        # print('data   :\n', csc_matrix.data[:10])
+        # print('indices:\n', csc_matrix.indices[:10])
+        # print('indptr :\n', csc_matrix.indptr[:10])
+
+        #print("Matrix: {}".format(getTimeStamp() - t_start))
     
+        #pairs0 = np.zeros((nfaces,2), dtype='i')
+
+        # Scan over each column (i.e., each face) and look for the # of entries.
+        # If 1 entry, this is an unconnected face.
+        # If 2, it's connected.
+        colptr = csc_matrix.indptr
+        rowidx = csc_matrix.indices
+        for j in range(nfaces):
+            offset = colptr[j]
+            n = csc_matrix.indptr[j+1] - offset
+            pairs[j,0] = rowidx[offset]
+            assert n == 1 or n == 2
+            pairs[j,1] = -1 if n == 1 else rowidx[offset+1]
+
+        #print("Face pairing (matrix): {}".format(getTimeStamp() - t_start))
+
+        #for i in range(10):
+        #    print(pairs[i,:], pairs0[i,:])
+
+        #print(np.all(pairs == pairs0))
+
+
     # print(pairs[:10,:])    
     # Add neighbor data into element list.
     for fidx in range(nfaces):
@@ -438,6 +512,8 @@ def create_connectivity(elements, all_faces):
             i = face_lidx[0]
             e.neighbors[i] = eleft
             e.isRight[i] = True
+
+    #print('element update: {}'.format(getTimeStamp() - t_start))
 
     return pairs
 
@@ -1083,7 +1159,7 @@ def main():
     print(len(face_map_vecs))
 
 
-    if testid is None and False:
+    if testid is None:
         
         maxlines = 25
         i = 0
