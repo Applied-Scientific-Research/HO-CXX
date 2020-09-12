@@ -522,9 +522,9 @@ def set_boundary_faces(elems, all_faces, bndry_sections):
                 ebnds[i] = bndryIdMap[bnd]
         e.bndrys = ebnds
         if ei < 10:
-            print(e.eindex, e.neighbors, i, f, n, [bndryIds[k] for k in e.bndrys])
+            print(e.eindex, e.neighbors, [bndryIds[k] for k in e.bndrys])
 
-    return
+    return bndryIdMap
 
 
 def create_conn_matrix_from_vec(vec):
@@ -928,11 +928,12 @@ def main():
 
     infile = 'Step_Expansion.su2'
     testid = None
+    outfile = None
 
     if len(sys.argv) > 1:
 
         try:
-            opts, args = getopt.getopt(sys.argv[1:], 'f:t:', ['file=', 'test='])
+            opts, args = getopt.getopt(sys.argv[1:], 'f:t:o:', ['file=', 'test=', 'out='])
         except getopt.GetoptError as err:
             print('getopt error {}'.format(str(err)))
             sys.exit(2)
@@ -942,6 +943,8 @@ def main():
         for opt, arg in opts:
             if opt in ('-f', '--file'):
                 infile = arg
+            elif opt in ('-o', '--out'):
+                outfile = arg
             elif opt in ('-t', '--test'):
                 testid = arg
             else:
@@ -952,12 +955,15 @@ def main():
         ndims, elems, coords, bndry_sections = load_mesh_su2(infile)
     else:
         ndims, elems, coords, bndry_sections = test_mesh_hex8(testid)
-    
+
     original_data = {'ndims': ndims,
-                     'elems': elems,
-                     'coords': coords,
-                     'bndrys': bndry_sections}
-    
+                     'elements': [e.verts.copy() for e in elems],
+                     'bndfaces': {}
+                    }
+
+    for key in bndry_sections:
+        bnd = bndry_sections[key]
+        original_data['bndfaces'][key] = [e.verts.copy() for e in bnd]
     
     
     report = True
@@ -1019,13 +1025,63 @@ def main():
 
     t_start = getTimeStamp()
     
-    set_boundary_faces(elems, all_faces, bndry_sections)
+    bndryIdMap = set_boundary_faces(elems, all_faces, bndry_sections)
     
     print("set_boundary_faces took: {} secs".format(getTimeStamp()-t_start))
+
+
+    # Export the data into a simple format for reading.
+    if outfile:
+        print('Writing connectivity to {}'.format(outfile))
+
+        with open(outfile, 'w') as f:
+            f.write('ndims:\n{}\n'.format(ndims))
+            f.write('nelems:\n{}\n'.format(len(elems)))
+            for i, e in enumerate(elems):
+                f.write('{} '.format(i))
+                # for v in elems.verts:
+                for v in original_data['elements'][i]:
+                    f.write('{} '.format(v))
+                f.write('\n')
+
+            # assert len(all_faces) == 1
+            # faces = None
+            # for k in all_faces:
+            #     faces = all_faces[k]
+
+            # f.write('nfaces:\n{}\n'.format( len(faces) ))
+            # #for i, f in enumerate(faces):
+            # #    f.write('{} '.format(i)
+
+            f.write('npoints:\n{}\n'.format(len(coords)))
+            for i, v in enumerate(coords):
+                if ndims == 2:
+                    f.write('{} {} {}\n'.format(i, v[0], v[1]))
+                elif ndims == 3:
+                    f.write('{} {} {} {}\n'.format(i, v[0], v[1], v[2]))
+
+            f.write('connectivity:\n')
+            for i, e in enumerate(elems):
+                f.write('{} '.format(i))
+                for j, (n, b) in enumerate(zip(e.neighbors, e.bndrys)):
+                    if n < 0:
+                        f.write('{} '.format(-b))
+                    else:
+                        f.write('{} '.format(n))
+                f.write('\n')
+
+            f.write('nbndry:\n{}\n'.format(len(bndryIdMap)-1))
+            for k, v in bndryIdMap.items():
+                if k:
+                    f.write('{} {}\n'.format(v, k))
+
+        return
+
 
     print('neighbor cell maps')
     face_map_vecs = create_neighbor_mappings(elems)
     print(len(face_map_vecs))
+
 
     if testid is None and False:
         
