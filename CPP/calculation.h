@@ -78,7 +78,7 @@ public:
 	}; // desctructor
 
 	void release_memory();
-	int read_input_file(const std::string const filename);
+	int read_input_file(const std::string filename);
 	char allocate_arrays();
 	char setup_mesh(); //based on the problem_type reads/creates the mesh
 	void setup_sps_gps(); //setup the sps and their weights, gps

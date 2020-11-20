@@ -308,7 +308,7 @@ char Mesh::setup_mesh_problem(unsigned int prob_type) {
 
 		for (int j = 0; j < Lnod_in * N_el_j; ++j) {
 			for (int i = 0; i < Lnod_in * N_el_i; ++i)
-				nodes[nd++].coor.set_coor(i * dx + sin(i * 2. * pi * dx) * sin(j * 2. * pi * dy) * fac, j * dy + sin(i * 2. * pi * dx) * sin(j * 2. * pi * dy) * fac);
+				nodes[nd++].coor.set_coor(i * dx + sin(i * 2. * M_PI * dx) * sin(j * 2. * M_PI * dy) * fac, j * dy + sin(i * 2. * M_PI * dx) * sin(j * 2. * M_PI * dy) * fac);
 			//already makes a straight boundaries for the west and south boundaries only when i=j=0
 			nodes[nd++].coor.set_coor(xL, j * dy); //east edge
 		}
@@ -324,8 +324,8 @@ char Mesh::setup_mesh_problem(unsigned int prob_type) {
 		double dr = (R_out - R_in) / ((double)N_el_j * Lnod_in);
 		std::cout << "enter percent rotation (0 --> 1): ";
 		std::cin >> percent;
-		theta_in = 0.0 + percent * 2.0 * pi;
-		theta_out = 2.0 * pi * (1.0 + percent); //make it a full 360 rotation
+		theta_in = 0.0 + percent * 2.0 * M_PI;
+		theta_out = 2.0 * M_PI * (1.0 + percent); //make it a full 360 rotation
 		double dtheta = (theta_out - theta_in) / ((double)N_el_i * Lnod_in);
 
 		for (int j = 0; j <= N_el_j * Lnod_in; ++j)

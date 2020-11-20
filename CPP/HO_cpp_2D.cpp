@@ -1,5 +1,6 @@
 #include "calculation.h"
 #include "misc.hpp"
+#include <cmath>
 
 void HO_2D::release_memory() { //release the memory as destructor
 	//delete[] vert_coor; delete[] vert_coor_initial; delete[] vert_coor_m1; delete[] Hex_verts_comps; delete[] projected_hex_verts_comps;
@@ -19,7 +20,7 @@ void HO_2D::release_memory() { //release the memory as destructor
 	delete[] initial_vorticity;
 }
 
-int HO_2D::read_input_file(const std::string const filename) {
+int HO_2D::read_input_file(const std::string filename) {
 	//reads the essential solver / problem settings form the file filenme
 	int retval=0;
 	std::string temp_string;
@@ -110,33 +111,33 @@ void HO_2D::setup_sps_gps() {
 		sps_weight[0] = 2.;   //Gaussian weights
 	}
 	else if (Knod == 2) {
-		sps_local_coor[1] = 1. / sqrt(3.);    //collocation nodes per elem are{ -C1, C1 }
+		sps_local_coor[1] = 1. / std::sqrt(3.);    //collocation nodes per elem are{ -C1, C1 }
 		sps_local_coor[0] = -sps_local_coor[1];
 		sps_weight[0] = sps_weight[1] = 1.0;  //Gaussian weights
 	}
 	else if (Knod == 3) {
-		sps_local_coor[2] = sqrt(0.6);	//collocation nodes per elem are{ -C1, 0, C1 }
+		sps_local_coor[2] = std::sqrt(0.6);	//collocation nodes per elem are{ -C1, 0, C1 }
 		sps_local_coor[1] = 0.;
 		sps_local_coor[0] = -sps_local_coor[2];
 		sps_weight[2] = sps_weight[0] = 5.0 / 9.0;
 		sps_weight[1] = 8.0 / 9.0;
 	}
 	else if (Knod == 4) {
-		sps_local_coor[3] = sqrt((15. + 2. * sqrt(30.)) / 35.);	//collocation nodes per elem are{ -C2, -C1, C1, C2 }
-		sps_local_coor[2] = sqrt((15. - 2. * sqrt(30.)) / 35.);
+		sps_local_coor[3] = std::sqrt((15. + 2. * std::sqrt(30.)) / 35.);	//collocation nodes per elem are{ -C2, -C1, C1, C2 }
+		sps_local_coor[2] = std::sqrt((15. - 2. * std::sqrt(30.)) / 35.);
 		sps_local_coor[1] = -sps_local_coor[2];
 		sps_local_coor[0] = -sps_local_coor[3];
-		sps_weight[3] = sps_weight[0] = (18. - sqrt(30.)) / 36.;
-		sps_weight[2] = sps_weight[1] = (18. + sqrt(30.)) / 36.;
+		sps_weight[3] = sps_weight[0] = (18. - std::sqrt(30.)) / 36.;
+		sps_weight[2] = sps_weight[1] = (18. + std::sqrt(30.)) / 36.;
 	}
 	else if (Knod == 5) {
-		sps_local_coor[4] = sqrt(5. + 2. * sqrt(70.) / 7.) / 3.;     //collocation nodes per elem are{ -C2, -C1, 0, C1, C2 }
-		sps_local_coor[3] = sqrt(5. - 2. * sqrt(70.) / 7.) / 3.;
+		sps_local_coor[4] = std::sqrt(5. + 2. * std::sqrt(70.) / 7.) / 3.;     //collocation nodes per elem are{ -C2, -C1, 0, C1, C2 }
+		sps_local_coor[3] = std::sqrt(5. - 2. * std::sqrt(70.) / 7.) / 3.;
 		sps_local_coor[2] = 0.;
 		sps_local_coor[1] = -sps_local_coor[3];
 		sps_local_coor[0] = -sps_local_coor[4];
-		sps_weight[0] = sps_weight[4] = (322. - 13. * sqrt(70.)) / 900.;
-		sps_weight[1] = sps_weight[3] = (322. + 13. * sqrt(70.)) / 900.;
+		sps_weight[0] = sps_weight[4] = (322. - 13. * std::sqrt(70.)) / 900.;
+		sps_weight[1] = sps_weight[3] = (322. + 13. * std::sqrt(70.)) / 900.;
 		sps_weight[2] = 128. / 225.;
 	}
 	else {
@@ -622,7 +623,7 @@ char HO_2D::calc_advection_flux() {
 
 	
 
-
+/*
 		ijP = 0
 		!Extrapolation operations in x(= 1) and y(= 2) directions
 		DO idir = 1, 2
@@ -656,7 +657,7 @@ char HO_2D::calc_advection_flux() {
 		ENDDO
 
 		ENDDO
-
+*/
 
 
 

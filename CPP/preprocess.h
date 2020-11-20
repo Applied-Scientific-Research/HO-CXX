@@ -3,11 +3,11 @@
 #include <iostream>
 #include <fstream>
 #include <string>
-#include<vector>
-#include<assert.h>
-#include<algorithm>
+#include <vector>
+#include <cassert>
+#include <cmath>
+#include <algorithm>
 
-#define pi 3.14159265358979323846
 
 //enum edges_types {_2Node_edge = 1, _3Node_edge = 8, _4Node_edge = 26, _5Node_edge = 27, _6Node_edge = 28};
 //std::vector< std::vector<unsigned int>> edge_type_node_number{ {1,8,26,27,28}, {2,3,4,5,6} }; //holds the number of nodes on each edge type
@@ -54,7 +54,7 @@ struct Cmpnts2 {
 		y *= r;
 	}
 	double norm2() {
-		return sqrt(x * x + y * y);
+		return std::sqrt(x * x + y * y);
 	}
 	void set_coor(double a, double b) {
 		x = a; y = b;
