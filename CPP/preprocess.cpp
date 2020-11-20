@@ -250,7 +250,7 @@ char Mesh::setup_mesh_problem(unsigned int prob_type) {
 	boundary_node_ID = new unsigned int* [N_edges_boundary];
 	for (int i = 0; i < N_edges_boundary; ++i) boundary_node_ID[i] = new unsigned int[Lnod]; //Lnod nodes per boundary edge
 	node_ID = new unsigned int* [(int)N_el]; //resize the node_ID arrays
-	for (int i = 0; i < N_el; ++i) node_ID[i] = new unsigned int[(int)Lnod * Lnod]; //Lnod*Lnod nodes per element
+	for (int i = 0; i < N_el; ++i) node_ID[i] = new unsigned int[Lnod * Lnod]; //Lnod*Lnod nodes per element
 
 
 	/*

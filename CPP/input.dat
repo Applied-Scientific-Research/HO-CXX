@@ -1,4 +1,4 @@
-Nx, Ny             ! num. of meshes/elements
+Nx, Ny             ! num. of meshes/elements  
 2,2
 K                  ! nodes per elem
 3
