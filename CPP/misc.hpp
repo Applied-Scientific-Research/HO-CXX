@@ -1,6 +1,7 @@
 #pragma once
+
 inline double minus_one_to_power(int n) {
-	return (n % 2 == 0 ? 1. : -1);
+	return (n % 2 == 0 ? 1. : -1.);
 }
 
 double Legendre(int n, double x) {
@@ -22,3 +23,25 @@ double Legendre(int n, double x) {
 	return LegendreP;
 }
 
+void Gauss_solver(int n, double** LHS, double* RHS, double* x) {
+	//Gauss Elimination solver without pivoting solves the system [LHS]*{x} = {RHS} to find x. The size of x and Rhs are n;  LHS is n by n
+	double c;
+	for (int k = 0; k < n - 1; ++k) {
+		for (int i = k + 1; i < n; ++i) {
+			c = LHS[i][k] / LHS[k][k];
+			LHS[i][k] = 0.;
+			RHS[i] = RHS[i] - c * RHS[k];
+			for (int j = k + 1; j < n; ++j)
+				LHS[i][j] -= c * LHS[k][j];
+		}
+	}
+
+	//Back - substitution
+	x[n - 1] = RHS[n - 1] / LHS[n - 1][n - 1];
+	for (int i = n - 2; i >= 0; i--) {
+		c = 0.;
+		for (int j = i + 1; j < n; ++j)
+			c += LHS[i][j] * x[j];
+		x[i] = (RHS[i] - c) / LHS[i][i];
+	}
+}
