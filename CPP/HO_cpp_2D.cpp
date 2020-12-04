@@ -246,15 +246,15 @@ char HO_2D::allocate_arrays() {
 			RHS_advective[e][i] = new double[Knod];
 	}
 
-	Lap_vorticity = new double** [N_el];
+	RHS_diffusive = new double** [N_el];
 	for (int el = 0; el < N_el; ++el) {
-		Lap_vorticity[el] = new double* [Knod];
+		RHS_diffusive[el] = new double* [Knod];
 		for (int k = 0; k < Knod; ++k)
-			Lap_vorticity[el][k] = new double[Knod];
+			RHS_diffusive[el][k] = new double[Knod];
 	}
 	
-	BC_no_slip = new bool[N_boundary] { true }; //Set NoSlip to all walls (as default)
-	mesh.boundaries.resize(N_boundary);
+	BC_no_slip = new bool[mesh.N_Gboundary]; //Set NoSlip to all walls (as default)
+	mesh.boundaries.resize(mesh.N_Gboundary);
 
 	return 0;
 }
@@ -412,7 +412,7 @@ void HO_2D::setup_IC_BC_SRC() {
 		// Periodic moving wall problem; bottom velocity is 1; top is 0
 		for (int el_b=0; el_b < mesh.N_edges_boundary; el_b++) BC_switch[el_b] = DirichletBC;
 		for (int el_b=0; el_b < mesh.N_edges_boundary; el_b++) {
-			if (fabs(mesh.nodes[mesh.boundary_node_ID[el_b][0]].coor.y) < 1.e-6 && fabs(mesh.nodes[mesh.boundary_node_ID[el_b][1]].coor.y) < 1.e-6) //boundary on the bottom
+			if (fabs(mesh.nodes[mesh.edges[el_b].nodes[0]].coor.y) < 1.e-6 && fabs(mesh.nodes[mesh.edges[el_b].nodes[1]].coor.y) < 1.e-6) //boundary on the bottom
 				for (int m = 0; m < Knod; ++m) BC_parl_vel[el_b][m] = 1.0;    //Wall parallel velocity
 		}
 	}
@@ -421,7 +421,7 @@ void HO_2D::setup_IC_BC_SRC() {
 		//Square Cavity Problem; top velocity is 1
 		for (int el_b=0; el_b < mesh.N_edges_boundary; el_b++) BC_switch[el_b] = DirichletBC;
 		for (int el_b=0; el_b < mesh.N_edges_boundary; el_b++) {
-			if (fabs(mesh.nodes[mesh.boundary_node_ID[el_b][0]].coor.y - 1.) < 1.e-6 && fabs(mesh.nodes[mesh.boundary_node_ID[el_b][1]].coor.y - 1.) < 1.e-6) //top boundary
+			if (fabs(mesh.nodes[mesh.edges[el_b].nodes[0]].coor.y - 1.) < 1.e-6 && fabs(mesh.nodes[mesh.edges[el_b].nodes[1]].coor.y - 1.) < 1.e-6) //top boundary
 				for (int m = 0; m < Knod; ++m) BC_parl_vel[el_b][m] = 1.0; //top wall parallel velocity
 		}
 	}
@@ -449,7 +449,7 @@ void HO_2D::form_metrics() {
 	for (int el = 0; el < mesh.N_el; ++el) {
 		for (int j = 0; j < Lnod; ++j)
 			for (int i = 0; i < Lnod; ++i)
-				local_coor[j][i] = mesh.nodes[mesh.node_ID[el][tensor2FEM(i, j)]].coor;
+				local_coor[j][i] = mesh.nodes[mesh.elements[el].nodes[tensor2FEM(i, j)]].coor;
 
 		for (int j = 0; j < Knod; ++j)
 			for (int i = 0; i < Knod; ++i) {
@@ -633,7 +633,7 @@ char HO_2D::Euler_time_integrate() {
 	for (int el = 0; el < mesh.N_el; ++el)
 		for (int ky = 0; ky < Knod; ++ky)
 			for (int kx = 0; kx < Knod; ++kx)
-				vorticity[el][ky][kx] += dt * (RHS_advective[el][ky][kx] + Lap_vorticity[el][ky][kx]);
+				vorticity[el][ky][kx] += dt * (RHS_advective[el][ky][kx] + RHS_diffusive[el][ky][kx]);
 	return 0;
 }
 
@@ -812,7 +812,7 @@ char HO_2D::calc_RHS_diffusion() {
 	//this method calculates the 1/Re * Laplacian of vorticity at all sps of all elements stored in Lap_vorticity[el][ky][kx]
 	
 	//   update the BC based on below later
-	for (int Gboundary = 0; Gboundary < N_boundary; ++Gboundary) { //usually 4 in case of square
+	for (int Gboundary = 0; Gboundary < mesh.N_Gboundary; ++Gboundary) { //usually 4 in case of square
 		if (BC_no_slip[Gboundary]) {  //no slip condition on the global boundary element Gboundary, so if no slip wall then
 			for (int edge_index : mesh.boundaries[Gboundary].edges) {  //loop over edges on the Gboundary global boundary
 				for (int m = 0; m < Knod; ++m) velocity_jump[edge_index][m] -= BC_parl_vel[edge_index][m];
@@ -963,13 +963,13 @@ char HO_2D::calc_RHS_diffusion() {
 		//now calculate the Laplacian
 		for (int ky = 0; ky < Knod; ++ky) {
 			for (int kx = 0; kx < Knod; ++kx) {
-				Lap_vorticity[el][ky][kx] = 0.;
-				for (int dummy = 0; dummy < Knod; ++dummy) Lap_vorticity[el][ky][kx] += f_tilda[ky][dummy] * sps_sps_grad_basis[dummy][kx];
-				Lap_vorticity[el][ky][kx] += f_tilda_B[0][ky] * sps_grad_radau[kx][0] + f_tilda_B[1][ky] * sps_grad_radau[kx][1]; //contribution from xsi dir
+				RHS_diffusive[el][ky][kx] = 0.;
+				for (int dummy = 0; dummy < Knod; ++dummy) RHS_diffusive[el][ky][kx] += f_tilda[ky][dummy] * sps_sps_grad_basis[dummy][kx];
+				RHS_diffusive[el][ky][kx] += f_tilda_B[0][ky] * sps_grad_radau[kx][0] + f_tilda_B[1][ky] * sps_grad_radau[kx][1]; //contribution from xsi dir
 
-				for (int dummy = 0; dummy < Knod; ++dummy) Lap_vorticity[el][ky][kx] += g_tilda[dummy][kx] * sps_sps_grad_basis[dummy][ky];
-				Lap_vorticity[el][ky][kx] += g_tilda_B[0][kx] * sps_grad_radau[ky][0] + g_tilda_B[1][kx] * sps_grad_radau[ky][1];
-				Lap_vorticity[el][ky][kx] *= Reyn_inv/vol_jac[el][ky][kx];
+				for (int dummy = 0; dummy < Knod; ++dummy) RHS_diffusive[el][ky][kx] += g_tilda[dummy][kx] * sps_sps_grad_basis[dummy][ky];
+				RHS_diffusive[el][ky][kx] += g_tilda_B[0][kx] * sps_grad_radau[ky][0] + g_tilda_B[1][kx] * sps_grad_radau[ky][1];
+				RHS_diffusive[el][ky][kx] *= Reyn_inv/vol_jac[el][ky][kx];
 
 			}
 		}
