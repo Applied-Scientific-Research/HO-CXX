@@ -1,5 +1,6 @@
 #include "calculation.h"
 #include "misc.hpp"
+#include <cmath>
 
 void HO_2D::release_memory() { //release the memory as destructor
 	//delete[] vert_coor; delete[] vert_coor_initial; delete[] vert_coor_m1; delete[] Hex_verts_comps; delete[] projected_hex_verts_comps;
@@ -110,33 +111,33 @@ void HO_2D::setup_sps_gps() {
 		sps_weight[0] = 2.;   //Gaussian weights
 	}
 	else if (Knod == 2) {
-		sps_local_coor[1] = 1. / sqrt(3.);    //collocation nodes per elem are{ -C1, C1 }
+		sps_local_coor[1] = 1. / std::sqrt(3.);    //collocation nodes per elem are{ -C1, C1 }
 		sps_local_coor[0] = -sps_local_coor[1];
 		sps_weight[0] = sps_weight[1] = 1.0;  //Gaussian weights
 	}
 	else if (Knod == 3) {
-		sps_local_coor[2] = sqrt(0.6);	//collocation nodes per elem are{ -C1, 0, C1 }
+		sps_local_coor[2] = std::sqrt(0.6);	//collocation nodes per elem are{ -C1, 0, C1 }
 		sps_local_coor[1] = 0.;
 		sps_local_coor[0] = -sps_local_coor[2];
 		sps_weight[2] = sps_weight[0] = 5.0 / 9.0;
 		sps_weight[1] = 8.0 / 9.0;
 	}
 	else if (Knod == 4) {
-		sps_local_coor[3] = sqrt((15. + 2. * sqrt(30.)) / 35.);	//collocation nodes per elem are{ -C2, -C1, C1, C2 }
-		sps_local_coor[2] = sqrt((15. - 2. * sqrt(30.)) / 35.);
+		sps_local_coor[3] = std::sqrt((15. + 2. * std::sqrt(30.)) / 35.);	//collocation nodes per elem are{ -C2, -C1, C1, C2 }
+		sps_local_coor[2] = std::sqrt((15. - 2. * std::sqrt(30.)) / 35.);
 		sps_local_coor[1] = -sps_local_coor[2];
 		sps_local_coor[0] = -sps_local_coor[3];
-		sps_weight[3] = sps_weight[0] = (18. - sqrt(30.)) / 36.;
-		sps_weight[2] = sps_weight[1] = (18. + sqrt(30.)) / 36.;
+		sps_weight[3] = sps_weight[0] = (18. - std::sqrt(30.)) / 36.;
+		sps_weight[2] = sps_weight[1] = (18. + std::sqrt(30.)) / 36.;
 	}
 	else if (Knod == 5) {
-		sps_local_coor[4] = sqrt(5. + 2. * sqrt(70.) / 7.) / 3.;     //collocation nodes per elem are{ -C2, -C1, 0, C1, C2 }
-		sps_local_coor[3] = sqrt(5. - 2. * sqrt(70.) / 7.) / 3.;
+		sps_local_coor[4] = std::sqrt(5. + 2. * std::sqrt(70.) / 7.) / 3.;     //collocation nodes per elem are{ -C2, -C1, 0, C1, C2 }
+		sps_local_coor[3] = std::sqrt(5. - 2. * std::sqrt(70.) / 7.) / 3.;
 		sps_local_coor[2] = 0.;
 		sps_local_coor[1] = -sps_local_coor[3];
 		sps_local_coor[0] = -sps_local_coor[4];
-		sps_weight[0] = sps_weight[4] = (322. - 13. * sqrt(70.)) / 900.;
-		sps_weight[1] = sps_weight[3] = (322. + 13. * sqrt(70.)) / 900.;
+		sps_weight[0] = sps_weight[4] = (322. - 13. * std::sqrt(70.)) / 900.;
+		sps_weight[1] = sps_weight[3] = (322. + 13. * std::sqrt(70.)) / 900.;
 		sps_weight[2] = 128. / 225.;
 	}
 	else {
@@ -480,7 +481,7 @@ void HO_2D::form_metrics() {
 			face_jac[el][0][k] = dx_dxsi * dy_deta - dx_deta * dy_dxsi;  //local area: G = 1/J in fotis notes
 			face_Acoef[el][0][k] = dx_deta * dx_deta + dy_deta * dy_deta; //g_2 dot g_2 in fotis notes = g_{22}
 			face_Bcoef[el][0][k] = dx_dxsi * dx_deta + dy_dxsi * dy_deta; //g_1 dot g_2 in fotis notes = g_{12}
-			face_Anorm[el][0][k] = sqrt(face_Acoef[el][0][k]); //||g_2||
+			face_Anorm[el][0][k] = std::sqrt(face_Acoef[el][0][k]); //||g_2||
 			// **********************************************************
 			// ****** sps on the right (east) boundary (xsi=+1) *********
 			dx_dxsi = dx_deta = dy_dxsi = dy_deta = 0.;
@@ -495,7 +496,7 @@ void HO_2D::form_metrics() {
 			face_jac[el][1][k] = dx_dxsi * dy_deta - dx_deta * dy_dxsi;  //local area: G = 1/J in fotis notes
 			face_Acoef[el][1][k] = dx_deta * dx_deta + dy_deta * dy_deta; //g_2 dot g_2 in fotis notes = g_{22}
 			face_Bcoef[el][1][k] = dx_dxsi * dx_deta + dy_dxsi * dy_deta; //g_1 dot g_2 in fotis notes = g_{12}
-			face_Anorm[el][1][k] = sqrt(face_Acoef[el][1][k]); //||g_2||
+			face_Anorm[el][1][k] = std::sqrt(face_Acoef[el][1][k]); //||g_2||
 			// ************************************************************
 			// ****** sps on the bottom (south) boundary (eta=-1) *********
 			dx_dxsi = dx_deta = dy_dxsi = dy_deta = 0.;
@@ -510,7 +511,7 @@ void HO_2D::form_metrics() {
 			face_jac[el][2][k] = dx_dxsi * dy_deta - dx_deta * dy_dxsi;  //local area: G = 1/J in fotis notes
 			face_Acoef[el][2][k] = dx_dxsi * dx_dxsi + dy_dxsi * dy_dxsi; //g_1 dot g_1 in fotis notes = g_{11}
 			face_Bcoef[el][2][k] = dx_dxsi * dx_deta + dy_dxsi * dy_deta; //g_1 dot g_2 in fotis notes = g_{12}
-			face_Anorm[el][2][k] = sqrt(face_Acoef[el][2][k]); //||g_1||
+			face_Anorm[el][2][k] = std::sqrt(face_Acoef[el][2][k]); //||g_1||
 			// ************************************************************
 			// ****** sps on the top (north) boundary (eta=+1) *********
 			dx_dxsi = dx_deta = dy_dxsi = dy_deta = 0.;
@@ -525,7 +526,7 @@ void HO_2D::form_metrics() {
 			face_jac[el][3][k] = dx_dxsi * dy_deta - dx_deta * dy_dxsi;  //local area: G = 1/J in fotis notes
 			face_Acoef[el][3][k] = dx_dxsi * dx_dxsi + dy_dxsi * dy_dxsi; //g_1 dot g_1 in fotis notes = g_{11}
 			face_Bcoef[el][3][k] = dx_dxsi * dx_deta + dy_dxsi * dy_deta; //g_1 dot g_2 in fotis notes = g_{12}
-			face_Anorm[el][3][k] = sqrt(face_Acoef[el][3][k]); //||g_1||
+			face_Anorm[el][3][k] = std::sqrt(face_Acoef[el][3][k]); //||g_1||
 		}  //for k=0; k<Knod
 	} //for el
 }
