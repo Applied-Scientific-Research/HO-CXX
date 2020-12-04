@@ -1,6 +1,17 @@
-#include <iostream>
+/*
+ * main.cpp - Driver code for HO-CXX, a high-order solver in vorticity variables
+ *
+ * (c)2018-20 Applied Scientific Research, Inc.
+ *            Mohammad Haji <mhajit@gmail.com>
+ *            Based on work by
+ *            Adrin Gharakhani <adrin@applied-scientific.com>
+ *            Christoper Stone <cpstone@gmail.com>
+ */
+
 #include "calculation.h"
 #include "preprocess.h"
+#include <iostream>
+
 
 int main()
 {
@@ -13,7 +24,6 @@ int main()
     ho_2d.form_bases(); //form the sps lagrangian shepe function (&derivatives), gps shape functions (&derivatives), form Radau bases
     ho_2d.setup_IC_BC_SRC();
     ho_2d.form_metrics();
-    
-
-
+    ho_2d.solve_vorticity_streamfunction(); //solves the vorticity and stream functions equations for all the times
 }
+

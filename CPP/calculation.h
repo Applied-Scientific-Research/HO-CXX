@@ -11,12 +11,8 @@ struct LR_boundary { // for the shape functions and Radua where everything rever
 	double left=1., right=1.;
 };
 
-cell_sides i2f[] = {west,east,south,north}; //(i2f[ijp] is the local side index (south, east, ... CCW) of the current cell: south =0:ibnd=0,idir=1; east=1:ibnd=1, idir=0, ...
-unsigned int nbr[] = {east, south, west, north}; //ijpm = nbr[ijp]: neighbor of ijp face, returned in the same ijp ordering
-double sgn[] = { -1., 1., -1., 1. }; //to calculate the upwind flux fronm the two neighboring fluxes at the common face
-
 // the main class to hold the primitve and fundamental variables and methods
-class HO_2D{
+class HO_2D {
 
 private:
 	Mesh mesh;
@@ -25,6 +21,7 @@ private:
 	unsigned char* BC_switch; //specify if a boundary edge is dirichlet(0 or neumann(1) BC
 	double** BC_values; // BC values for the Knod points of NelB boundary elements (in terms of velocity or gradient)
 	double** BC_parl_vel, ** BC_normal_vel; //the parallel and normal contravariant flux velocity on all global boundary elements
+	double** BC_psi; // wall normal velocity (in terms of psi)
 	bool* BC_no_slip; //if the boundary conditions are no slip wall. if yes, then it is true
 	double*** vorticity; //the vorticity field: first index goes for element, second and third go for j (eta dir) and i (csi dir) sps
 	double*** initial_vorticity; //The initial (t=0) vorticity field
@@ -38,7 +35,6 @@ private:
 	double dt; //time step size
 	unsigned int dump_frequency; //the frequency of time saving
 	bool fast; //0 for original, 1 for compact formulation (use gLB, gRB)
-	unsigned int N_boundary; //number of boundary conditions (number of different boundaries)
 	unsigned int N_gps; //number of geometry nodes in the domain
 	unsigned int N_el_boundary; //number of edges on the boundaries
 	double *sps_local_coor, *sps_weight, *gps_local_coor; //the arrays to store the Gauss-Legendre and their weight, geometry points
@@ -56,9 +52,8 @@ private:
 	double*** vol_jac;
 	double*** face_Acoef, *** face_Bcoef, *** face_Anorm, *** face_jac; // all have the size(N, 4, Knod)
 	double*** RHS_advective; //the right hand side of the vorticity eq for the advective term: -div(vw) = -d_dxsi_j(V^jw)/G
-	double*** RHS_diffusive;   //stores Laplace(w) in RHS_diffusive[el][Knod][Knod]
+	double*** RHS_diffusive;   //stores 1/Re * Laplace(w) in RHS_diffusive[el][ky][kx]
 	double** velocity_jump;
-	double*** Lap_vorticity; //Laplacian of the vorticity at [el][ky][kx]
 	
 
 
@@ -74,7 +69,6 @@ public:
 		HuynhSolver_type = 2;
 		Reyn_inv = 0.001;
 		Knod = 2;
-		N_boundary = 4;
 	}; 
 	HO_2D(const HO_2D& HO) :
 		vorticity(HO.vorticity), stream_function(HO.stream_function) {}
@@ -95,7 +89,7 @@ public:
 	}; // desctructor
 
 	void release_memory();
-	int read_input_file(const std::string const filename);
+	int read_input_file(const std::string filename);
 	char allocate_arrays();
 	char setup_mesh(); //based on the problem_type reads/creates the mesh
 	void setup_sps_gps(); //setup the sps and their weights, gps

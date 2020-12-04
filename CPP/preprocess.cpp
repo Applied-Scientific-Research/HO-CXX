@@ -1,14 +1,15 @@
 #include "preprocess.h"
+#include <cmath>
 
 char Mesh::read_msh_file() {
 	// reads a msh file output from the Gmsh software. The msh file is in ASCII 4.1 version of the Gmsh output
-	const char* filename = input_msh_file;
+	std::string filename = input_msh_file;
 	std::cout << "     Gmsh file   ***** " << filename << " *****   opened for reading ..." << std::endl << std::endl;
 	int retval = 1, tmp, tmp1, tmp2;
 	unsigned int index;
 	unsigned int nodes_min_index, nodes_max_index, raw_N_nodes, tag_N_nodes, nodes_total_entities, group_tag, entity_dim, unorganized_node_index = 0;
 	unsigned int elements_min_index, elements_max_index, tag_N_elements, elements_total_entities, element_type;
-	unsigned int N_boundary, node_index;
+	unsigned int node_index;
 	unsigned int entities_N_points, entities_N_curves, entities_N_faces;
 	bool found = false;
 	double double_field, coorX, coorY, coorZ;
@@ -29,10 +30,10 @@ char Mesh::read_msh_file() {
 	// *************** Now read in the Boundaries field: locate the keyword $PhysicalNames *****************
 	//-----------------------------------------------------------------------------------------
 	tmp = locate_in_file(mshfile, "$PhysicalNames");
-	mshfile >> N_boundary;
-	boundaries.resize(N_boundary);
-	std::vector<unsigned int> tmp_boundary_tag(N_boundary); //temporary vector to store the boundary indices in MSH file (it is often irregular)
-	for (int i = 0; i < N_boundary; ++i) {
+	mshfile >> N_Gboundary;  //number of global boundaries with boundary conditions
+	boundaries.resize(N_Gboundary);
+	std::vector<unsigned int> tmp_boundary_tag(N_Gboundary); //temporary vector to store the boundary indices in MSH file (it is often irregular)
+	for (int i = 0; i < N_Gboundary; ++i) {
 		mshfile >> tmp >> tmp_boundary_tag[i] >> boundaries[i].name;
 		boundaries[i].name.erase(boundaries[i].name.size() - 1); //get rid of the "" that are in the name field read from MSH file
 		boundaries[i].name.erase(0, 1);
@@ -120,7 +121,7 @@ char Mesh::read_msh_file() {
 			int curve_boundary_tag = tmp_curves_boundary_tag[index];
 			its = std::find(tmp_boundary_tag.begin(), tmp_boundary_tag.end(), curve_boundary_tag);
 			index = its - tmp_boundary_tag.begin();  //index of the boundary_tag in the vector tmp_boundary_tag which corresponds to the curve_boundary_tag. it is used to extract the boundary name below
-			boundaries[index].N_edges += tag_N_elements; //number of edges that from the boundary
+			boundaries[index].N_edges += tag_N_elements; //number of edges that form the boundary
 			boundaries[index].edges.resize(boundaries[index].N_edges); //open up more space at the end of the vector, in case a boundary is made of multiple curves (and each curve has multiple edges)
 
 			//tmp_curves_edges_tag[index].resize(tag_N_elements); //to store the edges tags for the curves (which are defined in entities)
@@ -201,10 +202,93 @@ char Mesh::read_msh_file() {
 	std::cout << "         Done" << std::endl;
 	mshfile.close();
 
-	for (int i = 0; boundaries.size(); ++i)
-		N_edges_boundary += boundaries[i].N_edges; //total number of edges on boundaries
+	process_mesh();
 
 	return retval;
+}
+
+void Mesh::process_mesh() {
+	/*
+	processes the mesh that is read from file. It finds the elements neighbors and stores it in elem_neighbors, 
+	*/
+	std::vector<unsigned int>::iterator its;
+	N_nodes = nodes.size(); //total number of nodes in the domain
+	for (int i = 0; i<boundaries.size(); ++i)
+		N_edges_boundary += boundaries[i].N_edges; //total number of edges on global boundaries
+	N_el = elements.size();  //total number of elements (2d faces)
+	elem_neighbor = new element_neighbor[N_el];
+	boundary_elem_ID = new boundary_element[N_edges_boundary];
+	// *************** detect the total interior edges in the domain and add them to the edges vector (which already has boundary edges) and add them to the elements vector *********************
+	edge _edge;
+	unsigned int N_node; //number of nodes on the edges of an element
+	unsigned int edge_type; 
+	unsigned int N_edge_nodes;
+	bool found;
+	unsigned int edge_index = edges.size();
+	for (int el = 0; el < N_el; ++el) {  //loop over all 2D elements
+		unsigned int element_type = elements[el].element_type;
+		its = std::find(element_edge_node_number[0].begin(), element_edge_node_number[0].end(), element_type);
+		unsigned int index = its - element_edge_node_number[0].begin();
+		N_edge_nodes = element_edge_node_number[1][index];  //number of nodes for this edge type on the boundary of the element el
+		its = std::find(edge_type_node_number[1].begin(), edge_type_node_number[1].end(), N_edge_nodes); //find the edge type that has N_edge_nodes number of nodes
+		index = its - edge_type_node_number[1].begin();
+		edge_type = edge_type_node_number[0][index];  //type of edge on the boundary of the element el
+		_edge.N_nodes = N_edge_nodes;
+		_edge.edge_type = edge_type;
+		_edge.nodes.resize(N_edge_nodes);
+		for (int s = south; s <= west; s++) { //loop over all 4 sides of each element to find the neighbors
+			_edge.nodes[0] = elements[el].nodes[s];
+			_edge.nodes[1] = elements[el].nodes[(s + 1) % 4];
+			//_edge.nodes.insert(_edge.nodes.begin() + 2, elements[el].nodes.begin() + s * (N_edge_nodes - 2) + 4, elements[el].nodes.begin() + (s + 1) * (N_edge_nodes - 2) + 4);
+			std::copy(elements[el].nodes.begin() + s * (N_edge_nodes - 2) + 4, elements[el].nodes.begin() + (s + 1) * (N_edge_nodes - 2) + 4, _edge.nodes.begin() + 2);
+
+			//search edge _edge in the edges vector to check if it doesnt already exist
+			found = false; //if the _edge exists in the edges list already
+			for (int edg = 0; edg < edges.size(); ++edg) {
+				if ((edges[edg].nodes == _edge.nodes) || 
+					(edges[edg].nodes[1] == _edge.nodes[0] && edges[edg].nodes[0] == _edge.nodes[1]) ) { //this edge already exists in the list
+					elements[el].edges[s] = edg; // the index of the edge that exists
+					found = true;
+					break;
+				}
+			}
+
+			if (!found) {  // is the _edge does not exist in the list of edges
+				edges.push_back(_edge);
+				elements[el].edges[s] = edge_index++;
+			}
+		} //for s=south, ...
+	} //for el
+	//*********************************************************************************************************************************************************
+	// ************************************* now detect the neighbors of each element **************************************
+	for (int el = 0; el < N_el; ++el) {
+		for (int s = south; s <= west; s++) { //loop over all 4 sides of each element to find the neighbors
+			found = false;
+			for (int eln = 0; eln < N_el; ++eln) { //loop over all elements to see if the edge[s] belongs to them too
+				if (elements[el].edges[s] == elements[eln].edges[(s + 2) % 4]) {  //I have assumed that the edges start from a certain side and rotate, i.e. the neighbor of west side is east side of the neighbor. the assumption is not always valid (only for structured is valid)
+					elem_neighbor[el].neighbor[s] = eln;
+					found = true;
+					break;
+				}
+			}
+			if (!found) { // if the side s of element el does not have a neighboring element, then side s SHOULD be on the boundary, so find the edge index
+				elem_neighbor[el].is_on_boundary[s] = true;
+				elem_neighbor[el].boundary_index[s] = elements[el].edges[s];
+			}
+		}
+	}
+	//*********************************************************************************************************************
+	// ****************************** form the boundary_elem_ID which has the details of all edges on the global boundary *****************************
+	for (int el = 0; el < N_el; ++el) {
+		for (int s = south; s <= west; s++) {
+			if (elem_neighbor[el].is_on_boundary[s]) { //if the side s of element el is on global boundary
+				edge_index = elem_neighbor[el].boundary_index[s];
+				boundary_elem_ID[edge_index].element_index = el;
+				boundary_elem_ID[edge_index].side = (cell_sides) s;
+			}
+		}
+	}
+	//*********************************************************************************************************************		
 }
 
 int Mesh::locate_in_file(std::ifstream& filestream, const std::string& searchname) {
@@ -227,31 +311,36 @@ int Mesh::locate_in_file(std::ifstream& filestream, const std::string& searchnam
 }
 
 char Mesh::setup_mesh_problem(unsigned int prob_type) {
-	//setup the mesh for problem types other than problem_type==10
+	//setup the mesh manually for problem types other than problem_type==10
 	double xL = 1., yL = 1.; //domain size
 	double dx, dy; //mesh spacings between nodes when they are uniformly distributed
 	bool periodic=false;
 	unsigned char grid_type = 1; //hard-coded for now
 	unsigned int nd = 0;
-	Cmpnts2 average_spacing;;
+	Cmpnts2 average_spacing;
 
 	if (fabs(dx_ratio - 1.0) > 1.e-4) grid_type = 4;
 	if (prob_type <= 2) periodic = true;
 	if (prob_type > 6) grid_type = 3;
 
+	N_Gboundary = 4;
+	boundaries.resize(N_Gboundary);
 	N_nodes = (N_el_i * Lnod_in + 1) * (N_el_j * Lnod_in + 1); //Haji: total number of geometry nodes in the domain
 	if (periodic || grid_type==3) N_nodes = (N_el_i * Lnod_in) * (N_el_j * Lnod_in + 1);
 	nodes.resize(N_nodes);
 	N_edges_boundary = 2 * (N_el_i + N_el_j);  //number of edges on the boundary
 	N_el = N_el_i * N_el_j; //total number of elements
 	elem_neighbor = new element_neighbor [N_el]; //resize the elem_neighbors arrays
-	//for (int i = 0; i < N_el; ++i) elem_neighbor[i] = new int[4]; //4 neighbors for an element
 	boundary_elem_ID = new boundary_element[N_edges_boundary];
-	boundary_node_ID = new unsigned int* [N_edges_boundary];
-	for (int i = 0; i < N_edges_boundary; ++i) boundary_node_ID[i] = new unsigned int[Lnod]; //Lnod nodes per boundary edge
-	node_ID = new unsigned int* [(int)N_el]; //resize the node_ID arrays
-	for (int i = 0; i < N_el; ++i) node_ID[i] = new unsigned int[Lnod * Lnod]; //Lnod*Lnod nodes per element
-
+	edges.resize(N_edges_boundary);
+	//boundary_node_ID = new unsigned int* [N_edges_boundary];
+	for (int i = 0; i < N_edges_boundary; ++i) {
+		/*boundary_node_ID[i] = new unsigned int[Lnod];*/ //Lnod nodes per boundary edge
+		edges[i].nodes.resize(Lnod); 
+		edges[i].N_nodes = Lnod;
+	}
+	elements.resize(N_el); //resize the elements to store the nodes forming each element
+	for (int i = 0; i < N_el; ++i) elements[i].nodes.resize(Lnod * Lnod); //Lnod*Lnod nodes per element
 
 	/*
 	A few grid types
@@ -308,7 +397,7 @@ char Mesh::setup_mesh_problem(unsigned int prob_type) {
 
 		for (int j = 0; j < Lnod_in * N_el_j; ++j) {
 			for (int i = 0; i < Lnod_in * N_el_i; ++i)
-				nodes[nd++].coor.set_coor(i * dx + sin(i * 2. * pi * dx) * sin(j * 2. * pi * dy) * fac, j * dy + sin(i * 2. * pi * dx) * sin(j * 2. * pi * dy) * fac);
+				nodes[nd++].coor.set_coor(i * dx + sin(i * 2. * M_PI * dx) * sin(j * 2. * M_PI * dy) * fac, j * dy + sin(i * 2. * M_PI * dx) * sin(j * 2. * M_PI * dy) * fac);
 			//already makes a straight boundaries for the west and south boundaries only when i=j=0
 			nodes[nd++].coor.set_coor(xL, j * dy); //east edge
 		}
@@ -324,8 +413,8 @@ char Mesh::setup_mesh_problem(unsigned int prob_type) {
 		double dr = (R_out - R_in) / ((double)N_el_j * Lnod_in);
 		std::cout << "enter percent rotation (0 --> 1): ";
 		std::cin >> percent;
-		theta_in = 0.0 + percent * 2.0 * pi;
-		theta_out = 2.0 * pi * (1.0 + percent); //make it a full 360 rotation
+		theta_in = 0.0 + percent * 2.0 * M_PI;
+		theta_out = 2.0 * M_PI * (1.0 + percent); //make it a full 360 rotation
 		double dtheta = (theta_out - theta_in) / ((double)N_el_i * Lnod_in);
 
 		for (int j = 0; j <= N_el_j * Lnod_in; ++j)
@@ -377,45 +466,45 @@ char Mesh::setup_mesh_problem(unsigned int prob_type) {
 		exit(6);
 	}
 
-	// ********** set the node_ID that makes elements ***********
+	// ********** set the node_ID that makes elements, replaced by elements vector to be consisent with read mesh file data ***********
 	unsigned int nc = 0;  //cell counter
 	nd = 0; //node index counter
 	for (int j = 0; j < N_el_j; ++j) {
 		for (int i = 0; i < N_el_i; ++i) {
-			node_ID[nc][0] = nd; //SW corner
-			node_ID[nc][1] = nd + Lnod_in;  //SE corner
-			node_ID[nc][2] = nd + Lnod_in * (Lnod_in * N_el_i + 2); // NE corner (indices go row by row)
-			node_ID[nc][3] = nd + Lnod_in * (Lnod_in * N_el_i + 1); //NW corner
+			elements[nc].nodes[0] = nd; //SW corner
+			elements[nc].nodes[1] = nd + Lnod_in;  //SE corner
+			elements[nc].nodes[2] = nd + Lnod_in * (Lnod_in * N_el_i + 2); // NE corner (indices go row by row)
+			elements[nc].nodes[3] = nd + Lnod_in * (Lnod_in * N_el_i + 1); //NW corner
 			
 			if (grid_type == 3) { //it has one less node in the theta direction, so adjust
-				node_ID[nc][2] -= Lnod_in;
-				node_ID[nc][3] -= Lnod_in;
+				elements[nc].nodes[2] -= Lnod_in;
+				elements[nc].nodes[3] -= Lnod_in;
 				if (i == N_el_i - 1) {
-					node_ID[nc][1] -= Lnod_in * N_el_i;  //or equivalently node_ID[nc-N_el_i+1][0]
-					node_ID[nc][2] -= Lnod_in * N_el_i;
+					elements[nc].nodes[1] -= Lnod_in * N_el_i;  //or equivalently node_ID[nc-N_el_i+1][0]
+					elements[nc].nodes[2] -= Lnod_in * N_el_i;
 				}
 			}
 
 			if (Lnod_in == 2) { //set the rest of nodes or higher order elements
-				node_ID[nc][4] = node_ID[nc][0] + 1;
-				node_ID[nc][6] = node_ID[nc][3] + 1;
-				node_ID[nc][7] = (node_ID[nc][0] + node_ID[nc][3]) / 2; //average of local node 0,3. This way no need to add special case for periodic condition
-				node_ID[nc][5] = (node_ID[nc][1] + node_ID[nc][2]) / 2; //average of local node 1,2
-				node_ID[nc][8] = node_ID[nc][7] + 1;
+				elements[nc].nodes[4] = elements[nc].nodes[0] + 1;
+				elements[nc].nodes[6] = elements[nc].nodes[3] + 1;
+				elements[nc].nodes[7] = (elements[nc].nodes[0] + elements[nc].nodes[3]) / 2; //average of local node 0,3. This way no need to add special case for periodic condition
+				elements[nc].nodes[5] = (elements[nc].nodes[1] + elements[nc].nodes[2]) / 2; //average of local node 1,2
+				elements[nc].nodes[8] = elements[nc].nodes[7] + 1;
 			}
 			else if (Lnod_in == 3) {
-				node_ID[nc][4] = node_ID[nc][0] + 1;
-				node_ID[nc][5] = node_ID[nc][0] + 2;
-				node_ID[nc][8] = node_ID[nc][3] + 2;
-				node_ID[nc][9] = node_ID[nc][3] + 1;
-				node_ID[nc][11] = (2*node_ID[nc][0] + node_ID[nc][3]) / 3; //get rid of special case of periodic condition
-				node_ID[nc][10] = (node_ID[nc][0] + 2*node_ID[nc][3]) / 3;
-				node_ID[nc][6] = (2*node_ID[nc][1] + node_ID[nc][2]) / 3; //get rid of special case of periodic condition
-				node_ID[nc][7] = (node_ID[nc][1] + 2*node_ID[nc][2]) / 3; //get rid of special case of periodic condition
-				node_ID[nc][12] = node_ID[nc][11] + 1;
-				node_ID[nc][13] = node_ID[nc][11] + 2;
-				node_ID[nc][14] = node_ID[nc][10] + 2;
-				node_ID[nc][15] = node_ID[nc][10] + 1;
+				elements[nc].nodes[4] = elements[nc].nodes[0] + 1;
+				elements[nc].nodes[5] = elements[nc].nodes[0] + 2;
+				elements[nc].nodes[8] = elements[nc].nodes[3] + 2;
+				elements[nc].nodes[9] = elements[nc].nodes[3] + 1;
+				elements[nc].nodes[11] = (2*elements[nc].nodes[0] + elements[nc].nodes[3]) / 3; //get rid of special case of periodic condition
+				elements[nc].nodes[10] = (elements[nc].nodes[0] + 2*elements[nc].nodes[3]) / 3;
+				elements[nc].nodes[6] = (2*elements[nc].nodes[1] + elements[nc].nodes[2]) / 3; //get rid of special case of periodic condition
+				elements[nc].nodes[7] = (elements[nc].nodes[1] + 2*elements[nc].nodes[2]) / 3; //get rid of special case of periodic condition
+				elements[nc].nodes[12] = elements[nc].nodes[11] + 1;
+				elements[nc].nodes[13] = elements[nc].nodes[11] + 2;
+				elements[nc].nodes[14] = elements[nc].nodes[10] + 2;
+				elements[nc].nodes[15] = elements[nc].nodes[10] + 1;
 			}
 			else if (Lnod_in > 3) {
 				std::cout << "ERROR: Up to bicubic elements supported! Set Lnod = 3, 2 or 1" << std::endl;
@@ -430,7 +519,7 @@ char Mesh::setup_mesh_problem(unsigned int prob_type) {
 	}
 	// **************************************************************
 
-	// *********************** set the boundary elements and nodes of cells **********************
+	// ************************* set the boundary elements and nodes of cells **********************
 	/*
 	Set mesh connectivity to nodes(nodeID); also get connectivity to neighboring meshes(elemID)
 	nodeID starts from SW cornersand goes CCW; elemID starts with S faceand goes CCW
@@ -453,12 +542,12 @@ char Mesh::setup_mesh_problem(unsigned int prob_type) {
 				elem_neighbor[nc].boundary_index[south] = nb;
 				boundary_elem_ID[nb].element_index = nc;
 				boundary_elem_ID[nb].side = south;
-				boundary_node_ID[nb][0] = node_ID[nc][0];
-				boundary_node_ID[nb][1] = node_ID[nc][1];
-				if (Lnod_in == 2) boundary_node_ID[nb][2] = node_ID[nc][4];
+				edges[nb].nodes[0] = elements[nc].nodes[0];
+				edges[nb].nodes[1] = elements[nc].nodes[1];
+				if (Lnod_in == 2) edges[nb].nodes[2] = elements[nc].nodes[4];
 				else if (Lnod_in == 3) {
-					boundary_node_ID[nb][2] = node_ID[nc][4];
-					boundary_node_ID[nb][3] = node_ID[nc][5];
+					edges[nb].nodes[2] = elements[nc].nodes[4];
+					edges[nb].nodes[3] = elements[nc].nodes[5];
 				}
 				nb++;
 			}
@@ -469,12 +558,12 @@ char Mesh::setup_mesh_problem(unsigned int prob_type) {
 				elem_neighbor[nc].boundary_index[north] = nb;  //fix this later, it is wrong as of now
 				boundary_elem_ID[nb].element_index = nc;
 				boundary_elem_ID[nb].side = north;
-				boundary_node_ID[nb][0] = node_ID[nc][3];
-				boundary_node_ID[nb][1] = node_ID[nc][2];
-				if (Lnod_in == 2) boundary_node_ID[nb][2] = node_ID[nc][6];
+				edges[nb].nodes[0] = elements[nc].nodes[3];
+				edges[nb].nodes[1] = elements[nc].nodes[2];
+				if (Lnod_in == 2) edges[nb].nodes[2] = elements[nc].nodes[6];
 				else if (Lnod_in == 3) {
-					boundary_node_ID[nb][2] = node_ID[nc][9];
-					boundary_node_ID[nb][3] = node_ID[nc][8];
+					edges[nb].nodes[2] = elements[nc].nodes[9];
+					edges[nb].nodes[3] = elements[nc].nodes[8];
 				}
 				nb++;
 			}
@@ -489,12 +578,12 @@ char Mesh::setup_mesh_problem(unsigned int prob_type) {
 					boundary_elem_ID[nb].element_index = nc;
 					boundary_elem_ID[nb].side = west;
 					//CCW rotation for meshing, For now, I'm assuming all sides are in positive x/y direction. NOTE: need to account for direction later
-					boundary_node_ID[nb][0] = node_ID[nc][0];
-					boundary_node_ID[nb][1] = node_ID[nc][3];
-					if (Lnod_in == 2) boundary_node_ID[nb][2] = node_ID[nc][7];
+					edges[nb].nodes[0] = elements[nc].nodes[0];
+					edges[nb].nodes[1] = elements[nc].nodes[3];
+					if (Lnod_in == 2) edges[nb].nodes[2] = elements[nc].nodes[7];
 					else if (Lnod_in == 3) {
-						boundary_node_ID[nb][2] = node_ID[nc][11];
-						boundary_node_ID[nb][3] = node_ID[nc][10];
+						edges[nb].nodes[2] = elements[nc].nodes[11];
+						edges[nb].nodes[3] = elements[nc].nodes[10];
 					}
 					nb++;
 				}
@@ -509,12 +598,12 @@ char Mesh::setup_mesh_problem(unsigned int prob_type) {
 					elem_neighbor[nc].boundary_index[east] = nb;
 					boundary_elem_ID[nb].element_index = nc;
 					boundary_elem_ID[nb].side = east;
-					boundary_node_ID[nb][0] = node_ID[nc][1];
-					boundary_node_ID[nb][1] = node_ID[nc][2]; 
-					if (Lnod_in == 2) boundary_node_ID[nb][2] = node_ID[nc][5];
+					edges[nb].nodes[0] = elements[nc].nodes[1];
+					edges[nb].nodes[1] = elements[nc].nodes[2];
+					if (Lnod_in == 2) edges[nb].nodes[2] = elements[nc].nodes[5];
 					else if (Lnod_in == 3) {
-						boundary_node_ID[nb][2] = node_ID[nc][6];
-						boundary_node_ID[nb][3] = node_ID[nc][7];
+						edges[nb].nodes[2] = elements[nc].nodes[6];
+						edges[nb].nodes[3] = elements[nc].nodes[7];
 					}
 					nb++;
 				}

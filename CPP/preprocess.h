@@ -1,13 +1,13 @@
 #pragma once
-
+#define _USE_MATH_DEFINES
 #include <iostream>
 #include <fstream>
 #include <string>
-#include<vector>
-#include<assert.h>
-#include<algorithm>
+#include <vector>
+#include <cassert>
+#include <cmath>
+#include <algorithm>
 
-#define pi 3.14159265358979323846
 
 //enum edges_types {_2Node_edge = 1, _3Node_edge = 8, _4Node_edge = 26, _5Node_edge = 27, _6Node_edge = 28};
 //std::vector< std::vector<unsigned int>> edge_type_node_number{ {1,8,26,27,28}, {2,3,4,5,6} }; //holds the number of nodes on each edge type
@@ -54,7 +54,7 @@ struct Cmpnts2 {
 		y *= r;
 	}
 	double norm2() {
-		return sqrt(x * x + y * y);
+		return std::sqrt(x * x + y * y);
 	}
 	void set_coor(double a, double b) {
 		x = a; y = b;
@@ -67,7 +67,8 @@ struct Cmpnts2 {
 struct element2d { // the 2D element
 	unsigned int element_type;
 	unsigned int N_nodes;
-	std::vector<unsigned int> nodes;
+	std::vector<unsigned int> nodes;  //all nodes used in the formation of an element. The details of these nodes can be found in vector nodes
+	unsigned int edges[4];  //all 4 edges used in the formation of an element. The details of these edges can be found in vector edges
 };
 struct edge {  //the side edges of the 2D elements
 	unsigned int edge_type;
@@ -102,11 +103,12 @@ private:
 	int N_nodes = 0;     //# of nodes read from msh file: total number of geometry nodes in the domain
 	int N_elements = 0;  //# of elements read from msh file
 	int N_edges_boundary;  // total number of edges on the boundary
+	int N_Gboundary; //number of global boundaries with boundary conditions: number of boundary conditions (number of different boundaries)
 	std::vector<node> nodes; //coordinates of the nodes
 	std::vector<edge> edges;		 // types and nodes constituting edges of elements
 	std::vector<element2d> elements; // types and nodes constituting elements
 	std::vector<boundary> boundaries; // the boundaries of the problem, including the names and the edges that form each boundary
-	const char* input_msh_file; //default name of the mesh file. It can be read from the file too
+	std::string input_msh_file; //default name of the mesh file. It can be read from the file too
 	double dx_ratio; //multiplier to expand the grid geometrically by factor dx_ratio
 	double fac; //multiplier to make grids randomly non-uniform; uniform: fac=0.
 	unsigned int Lnod; //number of geometry nodes on each edge (=Lnod_in + 1)
@@ -116,12 +118,13 @@ private:
 	element_neighbor* elem_neighbor; //index of the neighboring elements on the 4 sides and the boundary index (if located on the boundary). south neighbor is index0, east=1, north=2, west=3 (so CCW)
 	boundary_element* boundary_elem_ID;  //index pointing to mesh element number containing that boundary element (size is number of edges on the boundaries)
 	//boundaryPointsElemID is a 1D array that keeps the indices of the elements that have an edge on the boundary. The location of the boundary is known by elemID(1:4,nc) when it stores negative values
-	unsigned int** node_ID; //an array to hold the indices of the nodes of the elements, going from SW CCW
-	unsigned int** boundary_node_ID; //The nodes that form each boundary element
+	//unsigned int** node_ID; //an array to hold the indices of the nodes of the elements, going from SW CCW, redundant as elements[] have the same info
+	//unsigned int** boundary_node_ID; //The nodes that form each boundary element. redundant, as edges[] and boundaries[] have the information
 
 	//enum edges_types {_2Node_edge = 1, _3Node_edge = 8, _4Node_edge = 26, _5Node_edge = 27, _6Node_edge = 28};
 	std::vector< std::vector<unsigned int>> edge_type_node_number{ {1,8,26,27,28}, {2,3,4,5,6} }; //holds the number of nodes on each edge type
 	std::vector< std::vector<unsigned int>> face_type_node_number{ {3,10,16,36,37}, {4,9,8,16,25} }; //holds the number of nodes on each 2D element type
+	std::vector<std::vector<unsigned int>> element_edge_node_number{ {3,10,16,36,37}, {2,3,3,4,5} }; //holds the number of nodes on each edge of a 2D element type
 
 
 public:
@@ -130,6 +133,7 @@ public:
 		fac = 0.; //uniform
 		dx_ratio = 1; //no expanding grid
 		N_edges_boundary = 0;
+		N_Gboundary = 4;
 	} 
 
 	~Mesh() {}	//destructor define here later
@@ -138,6 +142,8 @@ public:
 	char setup_mesh_problem(unsigned int problem_type);
 
 	int locate_in_file(std::ifstream& filestream, const std::string& searchname); //to find a searchname in the MSH file and return the file stream
+
+	void process_mesh(); //processes the mesh that is read from file, finding the elements neighbors, ...
 
 	friend class HO_2D;
 
