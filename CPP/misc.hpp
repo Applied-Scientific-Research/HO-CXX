@@ -1,6 +1,7 @@
 #pragma once
 
 cell_sides i2f[] = { west,east,south,north }; //(i2f[ijp] is the local side index (south, east, ... CCW) of the current cell: south =0:ibnd=0,idir=1; east=1:ibnd=1, idir=0, ...
+cell_sides f2i[] = { north,east,west,south }; //(f2i[ijp] is the inverse of i2f, maps the senw to ijp
 unsigned int nbr[] = { east, south, west, north }; //ijpm = nbr[ijp]: neighbor of ijp face, returned in the same ijp ordering
 double sgn[] = { -1., 1., -1., 1. }; //to calculate the upwind flux fronm the two neighboring fluxes at the common face
 

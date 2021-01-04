@@ -1,4 +1,5 @@
 #pragma once
+#define _USE_MATH_DEFINES
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -28,8 +29,8 @@ private:
 	double*** stream_function; //The stream function field
 	Cmpnts2*** velocity_cart; //The velocity field
 	double Reyn_inv; // the inverse of the Reynolds number
-	unsigned char HuynhSolver_type; //based on Huynh's scheme type in Table 6.1 of his diffusion paper; types: 2 = stndard DG; 11 = higher order
-	unsigned char time_integration_type; //time integration method; 1 = Euler; 2 = Mod.Euler; 4 = RK4
+	int HuynhSolver_type; //based on Huynh's scheme type in Table 6.1 of his diffusion paper; types: 2 = stndard DG; 11 = higher order
+	int time_integration_type; //time integration method; 1 = Euler; 2 = Mod.Euler; 4 = RK4
 	unsigned int problem_type; //Solve different problems (types 1 and 2). prob_type=10 reads mesh from file
 	unsigned int num_time_steps; //total number of time steps to march in time
 	double dt; //time step size
@@ -54,6 +55,7 @@ private:
 	double*** RHS_advective; //the right hand side of the vorticity eq for the advective term: -div(vw) = -d_dxsi_j(V^jw)/G
 	double*** RHS_diffusive;   //stores 1/Re * Laplace(w) in RHS_diffusive[el][ky][kx]
 	double** velocity_jump;
+	double*** boundary_source; //Poisson Solver's RHS term to be dotted by BC_Values; size is [N_edges_boundary][Knod*Knod][Knod]
 	
 
 
@@ -104,6 +106,7 @@ public:
 	char solve_Poisson(); //solves the Poisson's equation for the streamfunction field
 	char calc_RHS_advection(); //calculates the advective term on the RHS = -div(vw), v is Cartesian velocity vector, w is vorticity. stores in RHS_advective[el][Knod][Knod]
 	char calc_RHS_diffusion();  //stores Laplace(w) in RHS_diffusive[el][Knod][Knod]
-	void calc_internal_comm_vals_meth2(int el, int ijp, int ibnd, double* B_vort, double* B_vortm, double* B_G_vort, double* com_vort);
+	void calc_internal_comm_vals_meth2(int el, int ijp, int ijpm, int ibnd, double* B_vort, double* B_vortm, double* B_G_vort, double* com_vort);
 	void calc_boundary_comm_vals_meth2(int el, int el_b, int ijp, int ibnd, double* vort, double* Dvort, double* com_vort, double* com_grad_vort);
+	void form_Laplace_operator_matrix(); //forms the left hand side matrix derived form the Laplace discretization. The matrix is sparse and in Eigen format
 };

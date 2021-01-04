@@ -17,7 +17,7 @@ fac                ! multiplier to make grids randomly non-uniform; uniform: fac
 HuynhSolver_type   ! Huynh's scheme types: 2=std DG; 11=higher order
 2
 tIntegrator_type   ! time integration method; 1=Euler; 2=Mod. Euler; 4=RK4
-4
+1
 prob_type          ! Solve different problems
 8 
 numStep            ! num. of timesteps

@@ -161,6 +161,9 @@ char Mesh::read_msh_file() {
 		}
 	}
 
+	Lnod = _edge.N_nodes;
+	Lnod_in = Lnod - 1;
+
 	// Now that the edge and elements are stored, the nodes constituting them should be renumbered
 	// use only the nodes that are used in the edges and elements vectors
 	node _node;
@@ -213,7 +216,7 @@ void Mesh::process_mesh() {
 	*/
 	std::vector<unsigned int>::iterator its;
 	N_nodes = nodes.size(); //total number of nodes in the domain
-	for (int i = 0; i<boundaries.size(); ++i)
+	for (int i = 0; i < boundaries.size(); ++i)
 		N_edges_boundary += boundaries[i].N_edges; //total number of edges on global boundaries
 	N_el = elements.size();  //total number of elements (2d faces)
 	elem_neighbor = new element_neighbor[N_el];
@@ -229,7 +232,7 @@ void Mesh::process_mesh() {
 		unsigned int element_type = elements[el].element_type;
 		its = std::find(element_edge_node_number[0].begin(), element_edge_node_number[0].end(), element_type);
 		unsigned int index = its - element_edge_node_number[0].begin();
-		N_edge_nodes = element_edge_node_number[1][index];  //number of nodes for this edge type on the boundary of the element el
+		N_edge_nodes = element_edge_node_number[1][index];  //number of nodes for this edge type on the edges of the element el
 		its = std::find(edge_type_node_number[1].begin(), edge_type_node_number[1].end(), N_edge_nodes); //find the edge type that has N_edge_nodes number of nodes
 		index = its - edge_type_node_number[1].begin();
 		edge_type = edge_type_node_number[0][index];  //type of edge on the boundary of the element el
@@ -246,7 +249,7 @@ void Mesh::process_mesh() {
 			found = false; //if the _edge exists in the edges list already
 			for (int edg = 0; edg < edges.size(); ++edg) {
 				if ((edges[edg].nodes == _edge.nodes) || 
-					(edges[edg].nodes[1] == _edge.nodes[0] && edges[edg].nodes[0] == _edge.nodes[1]) ) { //this edge already exists in the list
+					(edges[edg].nodes[1] == _edge.nodes[0] && edges[edg].nodes[0] == _edge.nodes[1])) { //this edge already exists in the list
 					elements[el].edges[s] = edg; // the index of the edge that exists
 					found = true;
 					break;
@@ -265,11 +268,16 @@ void Mesh::process_mesh() {
 		for (int s = south; s <= west; s++) { //loop over all 4 sides of each element to find the neighbors
 			found = false;
 			for (int eln = 0; eln < N_el; ++eln) { //loop over all elements to see if the edge[s] belongs to them too
-				if (elements[el].edges[s] == elements[eln].edges[(s + 2) % 4]) {  //I have assumed that the edges start from a certain side and rotate, i.e. the neighbor of west side is east side of the neighbor. the assumption is not always valid (only for structured is valid)
-					elem_neighbor[el].neighbor[s] = eln;
-					found = true;
-					break;
+				if (eln == el) continue;
+				for (int sn = south; sn <= west; sn++) { //loop over all 4 sides of neighboring element to check if any of them are common to s
+					if (elements[el].edges[s] == elements[eln].edges[sn]) {
+						elem_neighbor[el].neighbor[s] = eln;
+						elem_neighbor[el].neighbor_common_side[s] = sn;
+						found = true;
+						break;
+					}
 				}
+				if (found) break;
 			}
 			if (!found) { // if the side s of element el does not have a neighboring element, then side s SHOULD be on the boundary, so find the edge index
 				elem_neighbor[el].is_on_boundary[s] = true;
@@ -284,11 +292,56 @@ void Mesh::process_mesh() {
 			if (elem_neighbor[el].is_on_boundary[s]) { //if the side s of element el is on global boundary
 				edge_index = elem_neighbor[el].boundary_index[s];
 				boundary_elem_ID[edge_index].element_index = el;
-				boundary_elem_ID[edge_index].side = (cell_sides) s;
+				boundary_elem_ID[edge_index].side = (cell_sides)s;
 			}
 		}
 	}
+	/*
 	//*********************************************************************************************************************		
+	// ************* rotate the edges of elements so that north of this element is neighboring the south of neighboring element, ... ***************
+	//std::vector<bool> fixed_elements(N_el, false); //the elements that are fixed by rotating the edges are turned into true
+	//fixed_elements[0] = true; //I assume element 0 is fixed, so orient the rest based on element 0
+	std::vector<bool> listed_elements_to_orient(N_el, false); //a list of the elements that are added to the vector tet_guess_for_hex_vertices
+	std::vector<boundary_element> to_be_oriented_list; //a list of the elements indices to be oriented and the side it should be fixed based upon: to be completed gradually as it runs
+	to_be_oriented_list.reserve(N_el);
+	listed_elements_to_orient[0] = true;
+	boundary_element tmp_BE;
+	//tmp_BE.element_index = 0; tmp_BE.side = south;
+	to_be_oriented_list.emplace_back(0,south); //the element=0 is added and its side south should be oriented in south, sop no work on element 0
+
+	unsigned int elem_pos = 0; //the index of element in the to_be_oriented_list vector
+	unsigned int orig_edges[4];  //to make a copy of the elements[el].edges and then reorient them
+	element_neighbor orig_elem_neighbor; //to make a copy of the elem_neighbor and then reorient the components
+	while (elem_pos < N_el) {
+		int el = to_be_oriented_list[elem_pos].element_index;
+		cell_sides desired_side = to_be_oriented_list[elem_pos].side; //the side direction that we want to move the south edge on it (south edge should be oriented to this side)
+		// ************ reorient such that the local south edge orients in the to_be_oriented_list[el].side
+		int delta_orient = 4 - (desired_side - south); //old south index should move into this new side: old 0 index of edge should be this new index: new_edge[0] = old_edge[delta_orient], ...
+		if (delta_orient <4) {
+			std::copy(elements[el].edges, elements[el].edges+4, orig_edges);  // copy the edges array to shift them by desired_side amount 
+			orig_elem_neighbor = elem_neighbor[el];
+			for (int s = south; s <= west; ++s) { //reorient the order 
+				elements[el].edges[s] = orig_edges[(s + delta_orient) % 4];
+				elem_neighbor[el].boundary_index[s] = orig_elem_neighbor.boundary_index[(s + delta_orient) % 4];
+				elem_neighbor[el].neighbor[s] = orig_elem_neighbor.neighbor[(s + delta_orient) % 4];
+				elem_neighbor[el].is_on_boundary[s] = orig_elem_neighbor.is_on_boundary[(s + delta_orient) % 4];
+				elem_neighbor[el].neighbor_common_side[s] = orig_elem_neighbor.neighbor_common_side[(s + delta_orient) % 4];
+			}
+		}
+		//*******************************************************************************************
+		//************** add the 4 neighbors elements if they are not on boundary ****************
+		for (int s = south; s <= west; ++s)
+			if (!elem_neighbor[el].is_on_boundary[s]) {
+				int eln = elem_neighbor[el].neighbor[s];
+				if (!listed_elements_to_orient[eln]) {
+					listed_elements_to_orient[eln] = true;
+					int sn = elem_neighbor[el].neighbor_common_side[s];
+					to_be_oriented_list.emplace_back(eln, (cell_sides)((6 + s - sn) % 4)); //the element index and what the south side should get projected to
+				}
+			}
+		elem_pos++;
+	}
+	*/
 }
 
 int Mesh::locate_in_file(std::ifstream& filestream, const std::string& searchname) {
@@ -320,15 +373,14 @@ char Mesh::setup_mesh_problem(unsigned int prob_type) {
 	Cmpnts2 average_spacing;
 
 	if (fabs(dx_ratio - 1.0) > 1.e-4) grid_type = 4;
-	if (prob_type <= 2) periodic = true;
-	if (prob_type > 6) grid_type = 3;
+	if (prob_type > 6) periodic = true;
+	if (prob_type > 6) grid_type = 3;  //for peridic boundary
 
-	N_Gboundary = 4;
+	N_Gboundary = (grid_type == 3) ? 2 : 4; // for the cylinder case, the only boundaries are the innermost circleand outermost circle
 	boundaries.resize(N_Gboundary);
-	N_nodes = (N_el_i * Lnod_in + 1) * (N_el_j * Lnod_in + 1); //Haji: total number of geometry nodes in the domain
-	if (periodic || grid_type==3) N_nodes = (N_el_i * Lnod_in) * (N_el_j * Lnod_in + 1);
+	N_nodes = (periodic || grid_type == 3) ? (N_el_i * Lnod_in) * (N_el_j * Lnod_in + 1) : (N_el_i * Lnod_in + 1) * (N_el_j * Lnod_in + 1); //Haji: total number of geometry nodes in the domain
 	nodes.resize(N_nodes);
-	N_edges_boundary = 2 * (N_el_i + N_el_j);  //number of edges on the boundary
+	N_edges_boundary = (periodic || grid_type == 3) ? 2*N_el_i : 2 * (N_el_i + N_el_j);  //number of edges on the boundary
 	N_el = N_el_i * N_el_j; //total number of elements
 	elem_neighbor = new element_neighbor [N_el]; //resize the elem_neighbors arrays
 	boundary_elem_ID = new boundary_element[N_edges_boundary];
@@ -397,7 +449,7 @@ char Mesh::setup_mesh_problem(unsigned int prob_type) {
 
 		for (int j = 0; j < Lnod_in * N_el_j; ++j) {
 			for (int i = 0; i < Lnod_in * N_el_i; ++i)
-				nodes[nd++].coor.set_coor(i * dx + sin(i * 2. * M_PI * dx) * sin(j * 2. * M_PI * dy) * fac, j * dy + sin(i * 2. * M_PI * dx) * sin(j * 2. * M_PI * dy) * fac);
+				nodes[nd++].coor.set_coor(i * dx + sin(i * 2. * M_PI * dx) * sin(j * 2. * M_PI * dy) * fac*dx, j * dy + sin(i * 2. * M_PI * dx) * sin(j * 2. * M_PI * dy) * fac*dy);
 			//already makes a straight boundaries for the west and south boundaries only when i=j=0
 			nodes[nd++].coor.set_coor(xL, j * dy); //east edge
 		}
@@ -417,7 +469,7 @@ char Mesh::setup_mesh_problem(unsigned int prob_type) {
 		theta_out = 2.0 * M_PI * (1.0 + percent); //make it a full 360 rotation
 		double dtheta = (theta_out - theta_in) / ((double)N_el_i * Lnod_in);
 
-		for (int j = 0; j <= N_el_j * Lnod_in; ++j)
+		for (int j = 0; j < N_el_j * Lnod_in+1; ++j)
 			for (int i = 0; i < N_el_i * Lnod_in; ++i) {
 				theta_i = theta_in + i * dtheta;
 				R_j = R_in + j * dr;
@@ -529,15 +581,29 @@ char Mesh::setup_mesh_problem(unsigned int prob_type) {
 	int nb = 0;  //counter for the edges locaed on the boundaries of the domain
 	nc = 0;  //cell counter
 	nd = 0; //node index
-	int bool_boundary = false;
+	int bool_boundary = false, top_B;
 	if (Lnod_in > 3) {
 		std::cout << "ERROR: Up to bicubic elements supported! Set Lnod = 3, 2 or 1" << std::endl;
 		exit(7);
 	}
-	for (int j = 0; j < N_el_j; ++j) 
+	if (grid_type == 3 || periodic) {  //there is no boundary in the theta direction (periodic)
+		boundaries[0].name = "bottom";
+		boundaries[1].name = "top";
+		top_B = 1;
+	}
+	else {
+		boundaries[0].name = "bottom";
+		boundaries[1].name = "right";
+		boundaries[2].name = "top";
+		boundaries[3].name = "left";
+		top_B = 2;
+	}
+	for (int j = 0; j < N_el_j; ++j)
 		for (int i = 0; i < N_el_i; ++i) {
 			bool_boundary = false;
 			if (!j) { //the cells attached to the south boundary of the domain
+				boundaries[0].edges.push_back(nb);
+				boundaries[0].N_edges++;
 				elem_neighbor[nc].is_on_boundary[south]=true;
 				elem_neighbor[nc].boundary_index[south] = nb;
 				boundary_elem_ID[nb].element_index = nc;
@@ -554,6 +620,8 @@ char Mesh::setup_mesh_problem(unsigned int prob_type) {
 			else elem_neighbor[nc].neighbor[south] = nc - N_el_i; //index of the neighboring element in the South
 
 			if (j == N_el_j - 1) { //the cells attached to the north boundary of the domain
+				boundaries[top_B].edges.push_back(nb);
+				boundaries[top_B].N_edges++;
 				elem_neighbor[nc].is_on_boundary[north] = true;
 				elem_neighbor[nc].boundary_index[north] = nb;  //fix this later, it is wrong as of now
 				boundary_elem_ID[nb].element_index = nc;
@@ -573,6 +641,8 @@ char Mesh::setup_mesh_problem(unsigned int prob_type) {
 				if (grid_type == 3 || periodic)
 					elem_neighbor[nc].neighbor[west] = nc + N_el_i - 1;
 				else {
+					boundaries[3].edges.push_back(nb);
+					boundaries[3].N_edges++;
 					elem_neighbor[nc].is_on_boundary[west] = true;
 					elem_neighbor[nc].boundary_index[west] = nb;
 					boundary_elem_ID[nb].element_index = nc;
@@ -594,6 +664,8 @@ char Mesh::setup_mesh_problem(unsigned int prob_type) {
 				if (grid_type == 3 || periodic)
 					elem_neighbor[nc].neighbor[east] = nc - N_el_i +1;
 				else {
+					boundaries[1].edges.push_back(nb);
+					boundaries[1].N_edges++;
 					elem_neighbor[nc].is_on_boundary[east] = true;
 					elem_neighbor[nc].boundary_index[east] = nb;
 					boundary_elem_ID[nb].element_index = nc;
@@ -615,6 +687,5 @@ char Mesh::setup_mesh_problem(unsigned int prob_type) {
 		}  //for i < N_el_i , for j < N_el_j
 
 	N_edges_boundary = nb; //the corrected number of edges on the boundary (it exclude the edge woth periodic BC)
-
 }
 

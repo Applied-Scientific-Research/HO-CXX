@@ -81,7 +81,7 @@ struct node {  //the nodes
 };
 struct boundary {  //the boundary for 2D mesh
 	std::string name;  //name of the boundary
-	unsigned int N_edges; //number of the 1D edges constituting the boundary
+	unsigned int N_edges=0; //number of the 1D edges constituting the boundary
 	std::vector<unsigned int> edges;  //the index of the edges that form the boundary
 	boundary() : N_edges(0) {} //default constructor
 };
@@ -96,6 +96,7 @@ struct element_neighbor {
 	unsigned int neighbor[4]; //4 sides, south, east, north, west
 	bool is_on_boundary[4] = { false,false,false,false}; //by default the 4 side are not located on the boundary
 	unsigned int boundary_index[4]; //the boundary index for the element sides that are located on the boundary
+	int neighbor_common_side[4]; //the side of the neighboring element that is common
 };
 
 class Mesh {
