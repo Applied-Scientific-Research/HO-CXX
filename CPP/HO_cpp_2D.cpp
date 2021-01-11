@@ -737,17 +737,17 @@ char HO_2D::solve_Poisson() {
 
 char HO_2D::calc_RHS_advection() {
 	// ********* This subroutine calculates the - div(VW), V is Cartesian velocity vector, W is vorticity *********
-	int ijp, ijpm, eln, neighbor_side;
+	int ijp, ijpm, eln, neighbor_side, kk;
 	double bndr_vel;
 	double** local_vort = new double* [Knod]; //local array to hold the vorticity along a row of csi [0], and row of eta [1] direction
 	for (int i = 0; i < Knod; ++i) local_vort[i] = new double[2];
-	double** local_vel  = new double* [Knod]; //local array to hold the velocity along a row of csi [0], and row of eta [1] direction
+	double** local_vel  = new double* [Knod]; //local array to hold the contravariant flux on a row of csi [0] (xsi dir), and row of eta [1] direction (eta dir)
 	for (int i = 0; i < Knod; ++i) local_vel[i] = new double[2];
 
-	double ***bndr_vort, ***bndr_flx, ***upwnd_flx; //quantities per element, per face (west, east, south, north) per sps index
-	bndr_vort = new double** [mesh.N_el];
-	bndr_flx = new double** [mesh.N_el];
-	upwnd_flx = new double** [mesh.N_el];
+	double ***bndr_vort, ***bndr_flx, ***upwnd_flx; //quantities per element, per ijp face per sps index
+	bndr_vort = new double** [mesh.N_el]; //interpolated vorticity from a row/column of K nodes on the ijp faces
+	bndr_flx = new double** [mesh.N_el]; //interpolated flux of uw and vw in ijp faces, i.e. w*f^tilda on ijp=0,1 faces and w*g^tilda on ijp=2,3 faces
+	upwnd_flx = new double** [mesh.N_el]; //flux values at el element, in idir direction, at row_col row or column at k sps, hence [el][idir][row_col][k]= f^tilda[k] w[k] if idir=0 AND g^tilda[k] w[k] if idir=1
 
 	for (int i = 0; i < mesh.N_el; ++i) {
 		bndr_vort[i] = new double* [4];
@@ -762,7 +762,7 @@ char HO_2D::calc_RHS_advection() {
 
 	double**** disc_flx = new double*** [mesh.N_el];
 	for (int i = 0; i < mesh.N_el; ++i) {
-		disc_flx[i] = new double** [2]; //0 for xsi and 1: eta directions
+		disc_flx[i] = new double** [2]; //0 for xsi and 1: eta directions, so 0 means f^tilda and 1 means g^tilda
 		for (int j = 0; j < 2; j++) {
 			disc_flx[i][j] = new double* [Knod];
 			for (int k = 0; k < Knod; k++) disc_flx[i][j][k] = new double[Knod];
@@ -782,62 +782,71 @@ char HO_2D::calc_RHS_advection() {
 	//Extrapolate the unknown, Phi and the Flux to the mesh boundaries using Lagrange polynomials of order Knod - 1
 	for (int el = 0; el < mesh.N_el; el++) { //form flux (U^1w/U^2w on xsi/eta dirs, respectively) on the 4 boundaries (bndr_flx) and all interior sps of all elements (disc_flx)
 		for (int row_col = 0; row_col < Knod; ++row_col) {
-			for (int side = 0; side < 4; ++side) bndr_vort[el][side][row_col] = bndr_flx[el][side][row_col] = upwnd_flx[el][side][row_col] = 0.;
+			for (ijp = 0; ijp < 4; ++ijp) bndr_vort[el][ijp][row_col] = bndr_flx[el][ijp][row_col] = upwnd_flx[el][ijp][row_col] = 0.;
 			for (int i = 0; i < Knod; i++) {
 				local_vort[i][0] = vorticity[el][row_col][i];  // xsi direction
 				local_vort[i][1] = vorticity[el][i][row_col];  //eta direction
-				local_vel[i][0] = velocity_cart[el][row_col][i].x * vol_Dy_Dxsi[el][row_col][i].y - velocity_cart[el][row_col][i].y * vol_Dx_Dxsi[el][row_col][i].y;  //contravariant xsi FLUX component along xsi direction, based on eq. 2.11 in fotis class notes
-				local_vel[i][1] = -velocity_cart[el][i][row_col].x * vol_Dy_Dxsi[el][i][row_col].x + velocity_cart[el][i][row_col].y * vol_Dx_Dxsi[el][i][row_col].x;  //contravariant eta FLUX component along eta direction,
+				local_vel[i][0] =  velocity_cart[el][row_col][i].x * vol_Dy_Dxsi[el][row_col][i].y - velocity_cart[el][row_col][i].y * vol_Dx_Dxsi[el][row_col][i].y;  //f^tilda = contravariant xsi FLUX component along xsi direction, based on eq. 2.11 in fotis class notes
+				local_vel[i][1] = -velocity_cart[el][i][row_col].x * vol_Dy_Dxsi[el][i][row_col].x + velocity_cart[el][i][row_col].y * vol_Dx_Dxsi[el][i][row_col].x;  //g^tilda = contravariant eta FLUX component along eta direction,
 			}
 
 			ijp = 0; //ijp=0 (ibnd=idir=0)
 			for (int idir = 0; idir < 2; ++idir) { //idir=0 (xsi); idir=1: eta direction
+				//discontinuous flux values (f^tilda, g^tilda) on (row_col,1:Knod) solution points for xsi direction and on(row_col, 1:Knod) solution points for eta direction
+				for (int i = 0; i < Knod; ++i) disc_flx[el][idir][row_col][i] = local_vel[i][idir] * local_vort[i][idir];
+
 				for (int ibnd = 0; ibnd < 2; ++ibnd) { //ibnd=0: left/south); ibnd=1: right/north
 					for (int m = 0; m < Knod; m++) bndr_vort[el][ijp][row_col] += local_vort[m][idir] * sps_boundary_basis[m][ibnd];
 					int elem_side = i2f[ijp]; //the side of current element corresponding to combination of ibnd and idir
 					if (mesh.elem_neighbor[el].is_on_boundary[elem_side])
 						bndr_flx[el][ijp][row_col] = bndr_vort[el][ijp][row_col] * BC_normal_vel[mesh.elem_neighbor[el].boundary_index[elem_side]][row_col];
 					else {
-						eln = mesh.elem_neighbor[el].neighbor[elem_side]; //element number of the neighbor
 						//value of u* w; ijp = 0: on left boundary at the row_col^th row of sps, ijp = 1 : on right boundary at the row_col^th row of sps, ijp = 2 : on bottom boundary at the row_col^th column of sps, ijp = 3, top at row_col^th column
 						for (int m = 0; m < Knod; ++m) bndr_flx[el][ijp][row_col] += local_vel[m][idir] * sps_boundary_basis[m][ibnd]; //flux at the ibnd boundary in idir direction
 						bndr_flx[el][ijp][row_col] *= bndr_vort[el][ijp][row_col];
 					}
 					ijp++;
 				}
-				//discontinuous flux values on (row_col,1:Knod) solution points for xsi direction and on(row_col, 1:Knod) solution points for eta direction
-				for (int i = 0; i < Knod; ++i) disc_flx[el][idir][row_col][i] = local_vel[i][idir] * local_vort[i][idir];
+				
 			}
 		}
 	}
 
 	for (int el = 0; el < mesh.N_el; el++) {
 		for (ijp = 0; ijp < 4; ++ijp) {
-			ijpm = nbr[ijp]; //neighbor of ijp face: face to the left/south of left/south face or right/north of right/north face
 			int elem_side = i2f[ijp]; //the side of current element corresponding to combination of ibnd and idir
 			if (mesh.elem_neighbor[el].is_on_boundary[elem_side])
 				for (int j = 0; j < Knod; ++j)
 					upwnd_flx[el][ijp][j] = bndr_flx[el][ijp][j];
 			else {
 				eln = mesh.elem_neighbor[el].neighbor[elem_side]; //element number of the neighbor
+				if (problem_type == 10) ijpm = f2i[mesh.elem_neighbor[el].neighbor_common_side[elem_side]];
+				else ijpm = nbr[ijp];  //local ijp of the neighboring element (eln) : face to the left/south of left/south face or right/north of right/north face
+
+				bool revert_tangent = (ijp == ijpm) || (ijp + ijpm == 3);
+				bool revert_normal = (ijp == ijpm) || (std::fabs(ijp - ijpm) == 2);
+
+				double sign = revert_normal? -1. : 1.;
 				for (int j = 0; j < Knod; ++j) {
-					if (std::fabs(bndr_vort[el][ijp][j] - bndr_vort[eln][ijpm][j]) > 1.e-6) {
-						bndr_vel = (bndr_flx[el][ijp][j] - bndr_flx[eln][ijpm][j]) / (bndr_vort[el][ijp][j] - bndr_vort[eln][ijpm][j]); //a_tilda
-						upwnd_flx[el][ijp][j] = 0.5 * (bndr_flx[el][ijp][j] + bndr_flx[eln][ijpm][j]
-							+ sgn[ijp] * std::fabs(bndr_vel) * (bndr_vort[el][ijp][j] - bndr_vort[eln][ijpm][j]));
+					kk = (revert_tangent) ? Knod - 1 - j : j;
+											
+					upwnd_flx[el][ijp][j] = 0.5 * (bndr_flx[el][ijp][j] + sign * bndr_flx[eln][ijpm][kk]);
+					double vort_diff = bndr_vort[el][ijp][j] - bndr_vort[eln][ijpm][kk];
+					if (std::fabs(vort_diff) > 1.e-6) {
+						bndr_vel = (bndr_flx[el][ijp][j] - sign * bndr_flx[eln][ijpm][kk]) / vort_diff; //a_tilda
+						upwnd_flx[el][ijp][j] += 0.5 * sgn[ijp] * std::fabs(bndr_vel) * vort_diff;
 					}
-					else upwnd_flx[el][ijp][j] = 0.5 * (bndr_flx[el][ijp][j] + bndr_flx[eln][ijpm][j]);
 				}
 			}
 		}
 	}
 
 	for (int el = 0; el < mesh.N_el; el++) {
-
 		ijp = 0;
 		for (int idir = 0; idir < 2; ++idir) { //idir=0 (xsi); idir=1: eta direction
 			for (int ibnd = 0; ibnd < 2; ++ibnd) { //ibnd=0: left/south); ibnd=1: right/north
 				for (int j = 0; j < Knod; ++j) {
+					bndr_disc_flx[ijp][j] = 0.;
 					for (int m = 0; m < Knod; ++m) bndr_disc_flx[ijp][j] -= disc_flx[el][idir][j][m] * sps_boundary_basis[m][ibnd]; // - f(1 or -1))
 					bndr_disc_flx[ijp][j] += upwnd_flx[el][ijp][j];  //f_upw - f(1 or -1))
 				}
