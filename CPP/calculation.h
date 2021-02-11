@@ -4,6 +4,15 @@
 #include <fstream>
 #include <string>
 #include "preprocess.h"
+#include <Eigen/Eigenvalues> 
+#include<Eigen/Dense>
+#include <Eigen/Core>
+#include <Eigen/Sparse>
+#include <Eigen/Cholesky>
+#include <Eigen/LU>
+#include <Eigen/OrderingMethods>
+#include<Eigen/IterativeLinearSolvers>
+typedef Eigen::Triplet<double> Trplet;
 
 #define DirichletBC 0
 #define NeumannBC 1
@@ -52,11 +61,23 @@ private:
 	Cmpnts2*** vol_Dy_Dxsi; //the derivative of y wrt to xsi_s(s is 0, 1 to make dy / dxsi, dy / deta) at the sps(jx, jy) in tensor form on element el.This forms Vol_Dy_iDxsi_j(el, jy, jx).x, .y
 	double*** vol_jac;
 	double*** face_Acoef, *** face_Bcoef, *** face_Anorm, *** face_jac; // all have the size(N, 4, Knod)
+	double***** G; // G[el][j][i]][d1=0,1][d2=0,1] is (g_d1 dot g_d2)/J at j,i of element el
+	double***** GB; // GB[el][d=0,1][t=0,1]][j][d2=0,1] is (g_d dot g_d2)/J at j flux point on the face of element el that is in the d direction and t side.
 	double*** RHS_advective; //the right hand side of the vorticity eq for the advective term: -div(vw) = -d_dxsi_j(V^jw)/G
 	double*** RHS_diffusive;   //stores 1/Re * Laplace(w) in RHS_diffusive[el][ky][kx]
 	double** velocity_jump;
-	double*** boundary_source; //Poisson Solver's RHS term to be dotted by BC_Values; size is [N_edges_boundary][Knod*Knod][Knod]
-	
+	double*** boundary_source; //Poisson Solver's RHS term to be dotted by BC_Values of the edge that belongs to the element (which has this edge on the global boundary); size is [N_edges_boundary][Knod*Knod][Knod]
+	int LHS_type; //1 is eigen, 2 is hypre
+	int nnz; //number of non-zeros in the LHS matrix of poisson equation
+	Eigen::SparseMatrix<double> LHS_Eigen; //to store the poisson LHS in Eigen format
+	Eigen::VectorXd RHS_Eigen; //the right hand side in the poisson equation discretization
+	//Eigen::ConjugateGradient<Eigen::SparseMatrix<double>, Eigen::Lower | Eigen::Upper, Eigen::IncompleteCholesky<double, Eigen::Lower | Eigen::Upper, Eigen::AMDOrdering<int> > > cg_Eigen;  //for SPD only
+	//Eigen::ConjugateGradient<Eigen::SparseMatrix<double>, Eigen::Lower | Eigen::Upper, Eigen::DiagonalPreconditioner<double> > cg_Eigen;  //for SPD only
+	//Eigen::ConjugateGradient<Eigen::SparseMatrix<double>, Eigen::Upper, Eigen::IncompleteCholesky<double> > cg_Eigen;  //for SPD only
+	//Eigen::ConjugateGradient<Eigen::SparseMatrix<double>, Eigen::Lower> cg_Eigen;  //for SPD only
+	//Eigen::BiCGSTAB<Eigen::SparseMatrix<double>> bicg_Eigen;  //BICGSTAB without preconditioner
+	Eigen::BiCGSTAB<Eigen::SparseMatrix<double>, Eigen::IncompleteLUT<double>> bicg_Eigen;  //BICGSTAB with ILU preconditioner
+	//Eigen::SparseLU<Eigen::SparseMatrix<double>, Eigen::COLAMDOrdering<int>> LU_Eigen;  //sparseLU method 
 
 
 public:
@@ -89,7 +110,7 @@ public:
 	{
 		release_memory();
 	}; // desctructor
-
+	void save_output(int time);
 	void release_memory();
 	int read_input_file(const std::string filename);
 	char allocate_arrays();
@@ -109,4 +130,7 @@ public:
 	void calc_internal_comm_vals_meth2(int el, int ijp, int ijpm, int ibnd, double* B_vort, double* B_vortm, double* B_G_vort, double* com_vort);
 	void calc_boundary_comm_vals_meth2(int el, int el_b, int ijp, int ibnd, double* vort, double* Dvort, double* com_vort, double* com_grad_vort);
 	void form_Laplace_operator_matrix(); //forms the left hand side matrix derived form the Laplace discretization. The matrix is sparse and in Eigen format
+	void Poisson_solver_Hypre_setup(double*** laplacian_center, double**** laplacian_neighbor);  //setup and fill the LHS and RHS for Poisson solver via the Hypre 
+	void Create_Hypre_Matrix();
+	void Poisson_solver_Eigen_setup(double*** laplacian_center, double**** laplacian_neighbor);  //setup and fill the LHS and RHS for Poisson solver via the Eigen
 };

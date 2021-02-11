@@ -50,3 +50,7 @@ void Gauss_solver(int n, double** LHS, double* RHS, double* x) {
 		x[i] = (RHS[i] - c) / LHS[i][i];
 	}
 }
+
+double DOT(Cmpnts2 a, Cmpnts2 b) {
+	return (a.x * b.x + a.y * b.y);
+}

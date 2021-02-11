@@ -5,7 +5,7 @@
 void HO_2D::release_memory() { //release the memory as destructor
 	//delete[] vert_coor; delete[] vert_coor_initial; delete[] vert_coor_m1; delete[] Hex_verts_comps; delete[] projected_hex_verts_comps;
 	//delete[] zone_id; delete[] group_regions; delete[] facet_groups; delete[] cell_N_verts; delete[] face_N_verts; delete[] N_connectivity;
-	for (int k = 0; k < 10/*mesh.N_elements*/; ++k) {
+	for (int k = 0; k < mesh.N_el; ++k) {
 		for (int j = 0; j < Knod; ++j) {
 			delete[] vorticity[k][j];
 			delete[] stream_function[k][j];
@@ -81,6 +81,9 @@ int HO_2D::read_input_file(const std::string const filename) {
 		// read in if it uses large stencil or compact stencil. fast-true means compact
 		getline(file_handle, temp_string);
 		file_handle >> fast; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+		// read in the type of matrix formation for poisson equation (1=Eigen, 2=Hypre)
+		getline(file_handle, temp_string);
+		file_handle >> LHS_type; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 		// Later add to read in the type of solver and preconditioner. for now dont worry about it
 
 		std::cout << "         Done" << std::endl;
@@ -177,14 +180,17 @@ char HO_2D::allocate_arrays() {
 	int Lnod = mesh.Lnod;
 	initial_vorticity = new double** [N_el];
 	vorticity = new double** [N_el];
+	stream_function = new double** [N_el];
 	velocity_cart = new Cmpnts2** [N_el];
 	for (int j = 0; j < N_el; ++j) {
 		initial_vorticity[j] = new double* [Knod];
 		vorticity[j] = new double* [Knod];
+		stream_function[j] = new double* [Knod];
 		velocity_cart[j] = new Cmpnts2* [Knod];
 		for (int i = 0; i < Knod; ++i) {
 			initial_vorticity[j][i] = new double[Knod];
 			vorticity[j][i] = new double[Knod];
+			stream_function[j][i] = new double[Knod];
 			velocity_cart[j][i] = new Cmpnts2[Knod];
 		}
 	}
@@ -209,15 +215,32 @@ char HO_2D::allocate_arrays() {
 
 	vol_Dx_Dxsi = new Cmpnts2** [N_el];
 	vol_Dy_Dxsi = new Cmpnts2** [N_el];
+	G = new double**** [N_el];
+	GB = new double**** [N_el];
 	vol_jac = new double** [N_el];
 	for (int i = 0; i < N_el; ++i) {
 		vol_Dx_Dxsi[i] = new Cmpnts2* [Knod];
 		vol_Dy_Dxsi[i] = new Cmpnts2* [Knod];
 		vol_jac[i] = new double* [Knod];
+		G[i] = new double*** [Knod];
+		GB[i] = new double*** [2]; //for the direction d
 		for (int j = 0; j < Knod; ++j) {
 			vol_Dx_Dxsi[i][j] = new Cmpnts2 [Knod];
 			vol_Dy_Dxsi[i][j] = new Cmpnts2 [Knod];
 			vol_jac[i][j] = new double[Knod];
+			G[i][j] = new double** [Knod];
+			for (int r = 0; r < Knod; ++r) {
+				G[i][j][r] = new double* [2];
+				for (int s = 0; s < 2; ++s) G[i][j][r][s] = new double[2];
+			}
+		}
+		for (int r = 0; r < 2; ++r) {
+			GB[i][r] = new double** [2];
+			for (int s = 0; s < 2; ++s) {
+				GB[i][r][s] = new double* [Knod];
+				for (int j = 0; j < Knod; ++j)
+					GB[i][r][s][j] = new double[2];
+			}
 		}
 	}
 
@@ -516,10 +539,17 @@ void HO_2D::form_metrics() {
 	Face_Acoef[el][ijp][Knod] is the Case 1) squared length of g_2 = (dx / deta, dy / deta), i.e.g_2(dot)g_2, on the leftand right boundaries(ijp=0,1); Case 2) squared length of g_1 = (dx / dcsi, dy / dcsi), i.e.g_1(dot)g_1, on the bottom and top boundaries(ijp= 2, 3)
 		!Haji: Face_Bcoef(i(1:Knod), r(0:3), el(1:Nel)) is the dot product of g_1 with g_2 = g_1(dot)g_2 = dx / dxsi * dx / deta + dy / dxsi * dy / deta) on the 4 boundaries(left, right, bottom, top(r = 0, 1, 2, 3)
 	Face_ANorm[el][ijp][Knod] is the norm of Face_Acoef, i.e.Face_Norm[el][0:3][k] = Sqrt(Face_Acoef[el][0:3][k]
-			!Haji : The Face_Acoef and Face_Bcoef, forms the covariant metric tensor g_ij = [g11 g12; g12, g22]] (symmetric matrix))
+			!Haji : The Face_Acoef and Face_Bcoef, forms the covariant metric tensor g_ij = [g11 g12; g12, g22]] (symmetric matrix))\
+
+	G[el][j][i]][d1][d2] is (g_d1 dot g_d2)/J at j,i of element el, so the size is[N_el][Knod][[Knod][2][2]. here g_0=(-partial(x)/partial(eta),partial(y)/partial(eta)), g_1=(partial(x)/partial(csi),-partial(y)/partial(csi))
+	GB[el][d][t]][j][d2] is (g_d dot g_d2)/J at the jth flux point on the d direction , t side of the element el, so the size is[N_el][2][[2][Knod][2]. here g_0=(-partial(x)/partial(eta),partial(y)/partial(eta)), g_1=(partial(x)/partial(csi),-partial(y)/partial(csi)) on the face
+
 	*/
+
+
 	unsigned int Lnod = mesh.Lnod;
 	double dx_dxsi, dy_dxsi, dx_deta, dy_deta;
+	Cmpnts2 g[2]; //to store g_0=(-partial(x)/partial(eta),partial(y)/partial(eta)) and g_1=(partial(x)/partial(csi),-partial(y)/partial(csi))
 	Cmpnts2** local_coor = new Cmpnts2 * [Lnod]; //local array tp store the coor of the gps in an element, dont really need it just for convenience
 	for (int i = 0; i < Lnod; ++i) local_coor[i] = new Cmpnts2 [Lnod];
 
@@ -539,10 +569,15 @@ void HO_2D::form_metrics() {
 						vol_Dy_Dxsi[el][j][i].y += gps_sps_grad_basis[n][j] * gps_sps_basis[m][i] * local_coor[n][m].y;	//grad at y - dir  * no grad at x - dir  * x / y - coord of geom
 					}
 				vol_jac[el][j][i] = vol_Dx_Dxsi[el][j][i].x * vol_Dy_Dxsi[el][j][i].y - vol_Dx_Dxsi[el][j][i].y * vol_Dy_Dxsi[el][j][i].x;
+				g[0].set_coor(-vol_Dx_Dxsi[el][j][i].y, vol_Dy_Dxsi[el][j][i].y);
+				g[1].set_coor(vol_Dx_Dxsi[el][j][i].x, -vol_Dy_Dxsi[el][j][i].x);
+				for (int r = 0; r < 2; ++r)
+					for (int s = 0; s < 2; ++s) 
+						G[el][j][i][r][s] = DOT(g[r], g[s])/vol_jac[el][j][i];
 			}
 
 
-		for (int k = 0; k < Knod; ++k) { //loop on all sps on the faces to calculate metrics
+		for (int k = 0; k < Knod; ++k) { //loop on all sps (flux points) on the faces to calculate metrics
 			dx_dxsi = dx_deta = dy_dxsi = dy_deta = 0.;
 			// ****** sps on the left (west) boundary (xsi=-1) *********
 			for (int j=0; j<Lnod; ++j)
@@ -558,6 +593,11 @@ void HO_2D::form_metrics() {
 			face_Acoef[el][0][k] = dx_deta * dx_deta + dy_deta * dy_deta; //g_2 dot g_2 in fotis notes = g_{22}
 			face_Bcoef[el][0][k] = dx_dxsi * dx_deta + dy_dxsi * dy_deta; //g_1 dot g_2 in fotis notes = g_{12}
 			face_Anorm[el][0][k] = std::sqrt(face_Acoef[el][0][k]); //||g_2||
+			g[0].set_coor(-dx_deta, dy_deta);
+			g[1].set_coor(dx_dxsi, -dy_dxsi);
+			for (int r = 0; r < 2; ++r)
+				GB[el][0][0][k][r] = DOT(g[0], g[r]) / face_jac[el][0][k];
+
 			// **********************************************************
 			// ****** sps on the right (east) boundary (xsi=+1) *********
 			dx_dxsi = dx_deta = dy_dxsi = dy_deta = 0.;
@@ -573,6 +613,10 @@ void HO_2D::form_metrics() {
 			face_Acoef[el][1][k] = dx_deta * dx_deta + dy_deta * dy_deta; //g_2 dot g_2 in fotis notes = g_{22}
 			face_Bcoef[el][1][k] = dx_dxsi * dx_deta + dy_dxsi * dy_deta; //g_1 dot g_2 in fotis notes = g_{12}
 			face_Anorm[el][1][k] = std::sqrt(face_Acoef[el][1][k]); //||g_2||
+			g[0].set_coor(-dx_deta, dy_deta);
+			g[1].set_coor(dx_dxsi, -dy_dxsi);
+			for (int r = 0; r < 2; ++r)
+				GB[el][0][1][k][r] = DOT(g[0], g[r]) / face_jac[el][1][k];
 			// ************************************************************
 			// ****** sps on the bottom (south) boundary (eta=-1) *********
 			dx_dxsi = dx_deta = dy_dxsi = dy_deta = 0.;
@@ -588,6 +632,10 @@ void HO_2D::form_metrics() {
 			face_Acoef[el][2][k] = dx_dxsi * dx_dxsi + dy_dxsi * dy_dxsi; //g_1 dot g_1 in fotis notes = g_{11}
 			face_Bcoef[el][2][k] = dx_dxsi * dx_deta + dy_dxsi * dy_deta; //g_1 dot g_2 in fotis notes = g_{12}
 			face_Anorm[el][2][k] = std::sqrt(face_Acoef[el][2][k]); //||g_1||
+			g[0].set_coor(-dx_deta, dy_deta);
+			g[1].set_coor(dx_dxsi, -dy_dxsi);
+			for (int r = 0; r < 2; ++r)
+				GB[el][1][0][k][r] = DOT(g[1], g[r]) / face_jac[el][2][k];
 			// ************************************************************
 			// ****** sps on the top (north) boundary (eta=+1) *********
 			dx_dxsi = dx_deta = dy_dxsi = dy_deta = 0.;
@@ -603,6 +651,10 @@ void HO_2D::form_metrics() {
 			face_Acoef[el][3][k] = dx_dxsi * dx_dxsi + dy_dxsi * dy_dxsi; //g_1 dot g_1 in fotis notes = g_{11}
 			face_Bcoef[el][3][k] = dx_dxsi * dx_deta + dy_dxsi * dy_deta; //g_1 dot g_2 in fotis notes = g_{12}
 			face_Anorm[el][3][k] = std::sqrt(face_Acoef[el][3][k]); //||g_1||
+			g[0].set_coor(-dx_deta, dy_deta);
+			g[1].set_coor(dx_dxsi, -dy_dxsi);
+			for (int r = 0; r < 2; ++r)
+				GB[el][1][1][k][r] = DOT(g[1], g[r]) / face_jac[el][3][k];
 		}  //for k=0; k<Knod
 	} //for el
 	
@@ -687,15 +739,34 @@ char HO_2D::solve_vorticity_streamfunction() {
 				vorticity[el][j][i] = initial_vorticity[el][j][i];
 		
 
-
+	save_output(0);
 	form_Laplace_operator_matrix(); //form the LHS matrix in Laplace discretization in Eigen format. Done only once
 
 	for (unsigned int ti = 1; ti <= num_time_steps; ++ti) {
-		std::cout << "timestep  " << ti +1<< std::endl;
-		solve_Poisson();
-		solve_advection_diffusion();
+		std::cout << "timestep  " << ti << std::endl;
 		
-	}
+		//solve_advection_diffusion();
+
+		//temporarily set the right hand side (vorticity) of the poisson equation
+		for (int el = 0; el < mesh.N_el; ++el) {
+			for (int j = 0; j < Knod; ++j) {
+				for (int i = 0; i < Knod; ++i) {
+					Cmpnts2 coor(0., 0.); //coordinate of sps[j][i]
+					for (int ny = 0; ny < mesh.Lnod; ++ny)
+						for (int nx = 0; nx < mesh.Lnod; ++nx) {
+							int node_index = mesh.elements[el].nodes[tensor2FEM(nx, ny)];
+							coor.plus(gps_sps_basis[ny][j] * gps_sps_basis[nx][i], mesh.nodes[node_index].coor);
+						}
+					double ym = M_PI * (1. - coor.y);
+					vorticity[el][j][i] = M_PI * std::sin(M_PI * coor.x) * (ym * (1. + 2. * std::cos(ym)) + 2. * std::sin(ym));
+				}
+			}
+		}
+		solve_Poisson();
+
+		if (!(ti % dump_frequency) || ti==1)
+			save_output(ti);
+ 	}
 
 	return 0;
 }
@@ -710,9 +781,216 @@ char HO_2D::solve_advection_diffusion() {
 
 void HO_2D:: form_Laplace_operator_matrix() {
 	// This subroutine forms the left hand side matrix derived form the Laplace discretization. The matrix is sparse and in Eigen format
+	int N_el = mesh.N_el;
+	int a, b, q, Mq; //temporary indices as in my notes
+	int eln, ijp, ijpm; //neighbor element; element side, neighbor element side
+	int dn, tn; // the direction and boundary side of the neighboring element eln, adjacent to d direction and t side of the element el
+	int rs, ij, i1, j1; // temporary indices
+	double coeff, tmp2, tmp3;
 	unsigned int Ksq = Knod * Knod, Km1 = Knod - 1, K4 = Ksq * Ksq;
+	double*** laplacian_center = new double** [N_el]; //The coefficients in the left hand side matrix that has contribution from the element itself. it has the coefficients for element el, sps ij=j*Knod+i and rs=r*Knod+s, so laplacian_center[el][ij][rs]
+	double**** laplacian_neighbor = new double*** [N_el]; //The coefficients in the left hand side matrix that has contribution from the 4 neighboring element (if are not located on the global boundary). it has the coefficients for element el per cell side, sps ij=j*Knod+i and rs=r*Knod+s of the neighbor element, so laplacian_center[el][4][ij][rs]
 
+	for (int i = 0; i < N_el; ++i) {
+		laplacian_center[i] = new double* [Ksq];
+		for (int j = 0; j < Ksq; ++j)
+			laplacian_center[i][j] = new double[Ksq];
+	}
+	for (int i = 0; i < N_el; ++i) {
+		laplacian_neighbor[i] = new double** [4];
+		for (int j = 0; j < 4; ++j) {
+			laplacian_neighbor[i][j] = new double* [Ksq];
+			for (int k = 0; k < Ksq; ++k) laplacian_neighbor[i][j][k] = new double [Ksq];
+		}
+	}
 
+	for (int el = 0; el < N_el; ++el) {
+		for (int ij = 0; ij < Ksq; ++ij) {
+			for (int rs = 0; rs < Ksq; ++rs) {
+				laplacian_center[el][ij][rs] = 0.;
+				for (int side = 0; side < 4; ++side) laplacian_neighbor[el][side][ij][rs] = 0.;
+			}
+		}
+	}
+
+	for (int el_b=0; el_b<mesh.N_edges_boundary; ++el_b)
+		for (int ij = 0; ij < Ksq; ++ij)
+			for (int i = 0; i < Knod; ++i)
+				boundary_source[el_b][ij][i] = 0.;
+
+	nnz = K4 * N_el;
+	for (int el = 0; el < N_el; ++el) {
+		// **************** effect of the all-cases term (unrelated to the element boundaries)*********************
+		for (int j = 0; j < Knod; ++j) {
+			for (int i = 0; i < Knod; ++i) {
+				ij = j * Knod + i; //local cumulative sps index in element k
+
+				for (int m = 0; m < Knod; ++m) {
+					for (int r = 0; r < 2; r++) {
+						a = m * (1 - r) + i * r;
+						b = m * r + j * (1 - r);
+						tmp3 = 0.;
+						for (int s = 0; s < 2; s++) tmp3 += sps_boundary_basis[m][s] * sps_grad_radau[j * r + i * (1 - r)][s]; //from the M,N,P,Q of ADrins note
+						double SNGLB1 = sps_sps_grad_basis[m][i * (1 - r) + j * r];
+						for (int d = 0; d < 2; ++d) {
+							double A = G[el][b][a][r][d]; //(g_r . g_d)/J at k,a,b
+							int tmp1 = a * (1 - d) + b * d; //the second index for SNGLB
+							for (int p = 0; p < Knod; ++p) {
+								j1 = p * d + b * (1 - d);
+								i1 = p * (1 - d) + a * d;
+								rs = j1 * Knod + i1;
+								tmp2 = 0.;
+								for (int t = 0; t < 2; ++t) tmp2 += 0.5 * sps_boundary_basis[p][t] * sps_grad_radau[tmp1][t];
+								laplacian_center[el][ij][rs] += A * SNGLB1 * (sps_sps_grad_basis[p][tmp1] - tmp2);  //from the L term on page 7 of Adrin's note; page 1 of my notes, 3 feb 2021
+								laplacian_center[el][ij][rs] +=  A * (-sps_sps_grad_basis[p][tmp1] * tmp3 + tmp2 * tmp3); //from the M,N,P,Q of Adrin's note: page 2 of my notes 3 feb 2021
+							}
+						}
+					}
+				}
+			}
+		}
+		// **********************************************************************************************************
+
+		// effect of the elements faces
+		for (int d = 0; d < 2; ++d) {
+			for (int t = 0; t < 2; ++t) {
+				ijp = 2 * d + t;
+				cell_sides elem_side = i2f[ijp]; //the side of current element corresponding to combination of ibnd and idir
+
+				if (mesh.elem_neighbor[el].is_on_boundary[elem_side]) { // if this face is on the global boundary:
+					int edge_index = mesh.elem_neighbor[el].boundary_index[elem_side];  // the index of the edge that is on global boundary, which is on the d direction and t side of element el
+					//******************************* The dirichlet BC case: *********************************
+					for (int j = 0; j < Knod; ++j) {
+						for (int i = 0; i < Knod; ++i) {
+							ij = j * Knod + i; //local cumulative sps index in element k
+							for (int m = 0; m < Knod; ++m) {
+								for (int r = 0; r < 2; r++) {
+									a = m * (1 - r) + i * r;
+									b = m * r + j * (1 - r);
+									q = a * d + b * (1 - d);
+									double SNGLB1 = sps_sps_grad_basis[m][i * (1 - r) + j * r];
+									double NGR1 = sps_grad_radau[a * (1 - d) + b * d][t];
+									double A = G[el][b][a][r][d]; //(g_r . g_d)/J at k,a,b
+									tmp2 = 0.;
+									for (int s = 0; s < 2; s++) tmp2 += sps_boundary_basis[m][s] * sps_grad_radau[j * r + i * (1 - r)][s];
+									for (int p = 0; p < Knod; ++p) {
+										j1 = p * d + b * (1 - d);
+										i1 = p * (1 - d) + a * d;
+										rs = j1 * Knod + i1; //cumulative index in the neighbor element
+										laplacian_center[el][ij][rs] -= 0.5 * SNGLB1 * A * sps_boundary_basis[p][t] * NGR1;  //page 1 of my notes 3 Feb 2021
+										laplacian_center[el][ij][rs] += 0.5 * tmp2 * A * sps_boundary_basis[p][t] * NGR1;  //page 2 of my notes 3 Feb 2021
+									}
+									boundary_source[edge_index][ij][(elem_side / 2) * (Knod - 2 * q - 1) + q] += SNGLB1 * A * NGR1; //page 1 on my notes 3 Feb 2021, effect of DBC, according to the edge[edge_index] direction
+									boundary_source[edge_index][ij][(elem_side / 2) * (Knod - 2 * q - 1) + q] -= tmp2 * A * NGR1; //page 2 on my notes 3 Feb 2021, effect of DBC, according to the edge[edge_index] direction
+
+								}
+							}
+						}
+					}
+
+					for (int j = 0; j < Knod; ++j) {
+						for (int i = 0; i < Knod; ++i) {
+							ij = j * Knod + i; //local cumulative sps index in element k
+							int alpha = i * d + j * (1 - d);
+							double A = GB[el][d][t][alpha][d];  //[(g_d . g_d)/J]|k,d,t,alpha
+							double NGR1 = sps_grad_radau[j * d + i * (1 - d)][t];
+							for (int m = 0; m < Knod; ++m) {
+								j1 = m * d + j * (1 - d);
+								i1 = m * (1 - d) + i * d;
+								rs = j1 * Knod + i1;
+								laplacian_center[el][ij][rs] += A * (sps_boundary_grad_basis[m][t] - g_prime[t] * sps_boundary_basis[m][t]) * NGR1; //page 3 of my notes 3 Feb 2021
+							}
+							boundary_source[edge_index][ij][(elem_side / 2) * (Knod - 2 * alpha - 1) + alpha] += A * g_prime[t] * NGR1; //page 3 of my notes 3 Feb 2021
+							double B = GB[el][d][t][alpha][1 - d];
+							for (int m = 0; m < Knod; ++m) {
+								boundary_source[edge_index][ij][(elem_side / 2) * (Knod - 2 * m - 1) + m] += B * sps_sps_grad_basis[m][alpha] * NGR1; //page 3 of my notes 3 Feb 2021
+							}
+						}
+					}
+				} //if face is located on the global boundary
+
+				else { // if this face is not on the global boundary: fill laplacian_neighbor[el][elem_side][][]
+					nnz += K4;
+					eln = mesh.elem_neighbor[el].neighbor[elem_side]; //element number of the neighbor
+					if (problem_type == 10) ijpm = f2i[mesh.elem_neighbor[el].neighbor_common_side[elem_side]];
+					else ijpm = nbr[ijp];  //local ijp of the neighboring element (eln)
+					dn = ijpm / 2;
+					tn = ijpm % 2;
+
+					for (int j = 0; j < Knod; ++j) {
+						for (int i = 0; i < Knod; ++i) {
+							int ij = j * Knod + i; //local cumulative sps index in element k
+							for (int m = 0; m < Knod; ++m) {
+								for (int r = 0; r < 2; r++) {
+									a = m * (1 - r) + i * r;
+									b = m * r + j * (1 - r);
+									q = a * d + b * (1 - d);
+									Mq = ((d + t + dn + tn + 1) % 2) * (Knod - 2 * q - 1) + q; //index of the flux point in the neighbor element
+									double SNGLB1 = sps_sps_grad_basis[m][i * (1 - r) + j * r];
+									double NGR1 = sps_grad_radau[a * (1 - d) + b * d][t];
+									double A = G[el][b][a][r][d]; //(g_r . g_d)/J at k,a,b
+									tmp2 = 0.;
+									for (int s = 0; s < 2; s++) tmp2 += sps_boundary_basis[m][s] * sps_grad_radau[j * r + i * (1 - r)][s];
+									for (int p = 0; p < Knod; ++p) {
+										j1 = p * dn + Mq * (1 - dn); //j of the neighbor element
+										i1 = p * (1 - dn) + Mq * dn; //i of the neighbor element
+										rs = j1 * Knod + i1; //cumulative index in the neighbor element
+										laplacian_neighbor[el][elem_side][ij][rs] += 0.5 * SNGLB1 * A * sps_boundary_basis[p][tn] * NGR1;  //contribution to the L term, page 1 of my notes, 3 Feb 2021
+										laplacian_neighbor[el][elem_side][ij][rs] -= 0.5 * tmp2   * A * sps_boundary_basis[p][tn] * NGR1;  //contribution to the M,N,P,Q term, page 2 of my notes, 3 Feb 2021
+									}
+								}
+							}
+						}
+					}
+					//page 3 of my notes, 3 Feb 2021
+					for (int j = 0; j < Knod; ++j) {
+						for (int i = 0; i < Knod; ++i) {
+							ij = j * Knod + i; //local cumulative sps index in element k
+							int alpha = i * d + j * (1 - d);
+							int Malpha = ((d + t + dn + tn + 1) % 2) * (Knod - 2 * alpha - 1) + alpha;
+							double A = GB[el][d][t][alpha][d];  //[(g_d . g_d)/J]|k,d,t,alpha
+							double B = GB[el][d][t][alpha][1 - d]; //[(g_d . g_1-d)/J]|k,d,t,alpha
+							double An = GB[eln][dn][tn][Malpha][dn]; //[(g_dn . g_dn)/J]|kn,dn,tn,Malpha
+							double Bn = GB[eln][dn][tn][Malpha][1 - dn]; //[(g_dn . g_1-dn)/J]|kn,dn,tn,Malpha
+							double NGR1 = sps_grad_radau[j * d + i * (1 - d)][t];
+							double sign = (t == tn) ? -1. : 1.;
+
+							for (int m = 0; m < Knod; ++m) {
+								int Mm = ((d + t + dn + tn + 1) % 2) * (Knod - 2 * m - 1) + m;
+								j1 = m * d + j * (1 - d);
+								i1 = m * (1 - d) + i * d;
+								rs = j1 * Knod + i1;
+								laplacian_center[el][ij][rs] += (0.5 * A * sps_boundary_grad_basis[m][t] - 0.25 * g_prime[t] * A * sps_boundary_basis[m][t] +
+									0.25 * sign * g_prime[tn] * An * sps_boundary_basis[m][t]) * NGR1;
+
+								j1 = m * dn + Malpha * (1 - dn);
+								i1 = m * (1 - dn) + Malpha * dn;
+								rs = j1 * Knod + i1;
+								laplacian_neighbor[el][elem_side][ij][rs] += (0.5 * sign * An * sps_boundary_grad_basis[m][tn] - 0.25 * sign * g_prime[tn] * An * sps_boundary_basis[m][tn] +
+									0.25 * g_prime[t] * A * sps_boundary_basis[m][tn]) * NGR1;
+
+								for (int p = 0; p < Knod; ++p) {
+									j1 = p * d + m * (1 - d); 
+									i1 = p * (1 - d) + m * d;
+									rs = j1 * Knod + i1; //cumulative index in the neighbor element
+									coeff = 0.25 * (B * sps_sps_grad_basis[m][alpha] + sign * Bn * sps_sps_grad_basis[Mm][Malpha]) * NGR1;
+									laplacian_center[el][ij][rs] += coeff * sps_boundary_basis[p][t];
+									j1 = p * dn + Mm * (1 - dn); //j of the neighbor element
+									i1 = p * (1 - dn) + Mm * dn; //i of the neighbor element
+									rs = j1 * Knod + i1; //cumulative index in the neighbor element
+									laplacian_neighbor[el][elem_side][ij][rs] += coeff * sps_boundary_basis[p][tn];
+								}
+							}
+						}
+					}
+				}  //else if the face is not on global boundary
+			} //for t
+		} //for d
+	}  //for el
+
+	
+	if (LHS_type==1) Poisson_solver_Eigen_setup(laplacian_center, laplacian_neighbor);
+	else if (LHS_type==2) Poisson_solver_Hypre_setup(laplacian_center, laplacian_neighbor);
 
 }
 
@@ -730,7 +1008,84 @@ char HO_2D::Euler_time_integrate() {
 }
 
 char HO_2D::solve_Poisson() {
-	//solves the Poisson's equation for the stream function field
+	//This subroutine solves the Poisson's equation for the stream function field
+	int Ksq = Knod * Knod;
+	std::fill(BC_switch, BC_switch + mesh.N_edges_boundary, /*NeumannBC*/ DirichletBC);
+	int N_el = mesh.N_el;
+	double* RHS = new double[N_el * Ksq];
+	for (int el_b = 0; el_b < mesh.N_edges_boundary; ++el_b)
+		for (int m = 0; m < Knod; ++m) {
+			//set the proper normal_vel[el_b][m] and BC_parl_vel[el_b][m] to construct proper Neuman BC for sai
+			Cmpnts2 coor(0., 0.); //coordinate of sps[j][i]
+			for (int n = 0; n < mesh.Lnod; ++n) {
+				int node_index = mesh.edges[el_b].nodes[n];
+				coor.plus(gps_sps_basis[n][m], mesh.nodes[node_index].coor);
+			}
+
+			//BC_values[el_b][m] = coor.x + coor.y; //set the Dirichlet value for the sai values at the flux points on the boundary  
+			BC_values[el_b][m] = 0.; //set the Dirichlet value for the sai values at the flux points on the boundary  
+		}
+	
+	for (int el = 0; el < N_el; ++el) {
+		for (int j = 0; j < Knod; ++j) {
+			for (int i = 0; i < Knod; ++i) {
+				int ij = j * Knod + i;
+				RHS[el * Ksq + ij] = -vorticity[el][j][i] * vol_jac[el][j][i];
+				//RHS[el * Ksq + ij] = 0.; //temporary to just test the code for poisson
+			}
+		}
+	}
+
+	for (int el_b = 0; el_b < mesh.N_edges_boundary; ++el_b) {
+		for (int j = 0; j < Knod; ++j) {
+			for (int i = 0; i < Knod; ++i) {
+				int ij = j * Knod + i;
+				int el = mesh.boundary_elem_ID[el_b].element_index;
+				for (int alpha = 0; alpha < Knod; ++alpha)
+					RHS[el * Ksq + ij] -= boundary_source[el_b][ij][alpha] * BC_values[el_b][alpha];
+			}
+		}
+	}
+
+
+	if (LHS_type == 1) {  //Eigen then construct the RHS by Eigen too
+		//RHS_Eigen = Eigen::VectorXd::Constant(N_el*Knod*Knod, 0.);
+		//RHS_Eigen = Eigen::VectorXd::Zero(N_el*Knod*Knod);// // Initiate the RHS to zero
+		for (int el = 0; el < N_el; ++el)
+			for (int ij = 0; ij < Ksq; ++ij) RHS_Eigen(el * Ksq + ij) = RHS[el * Ksq + ij];
+
+		/*
+		Eigen::VectorXd poisson_sol = cg_Eigen.solve(RHS_Eigen); // Conjugate gradient method
+		std::cout << "#iterations:     " << cg_Eigen.iterations() << std::endl;
+		std::cout << "estimated error: " << cg_Eigen.error() << std::endl;
+		*/
+
+		
+		Eigen::VectorXd poisson_sol = bicg_Eigen.solve(RHS_Eigen);  //biCGstab method
+		std::cout << "#iterations:     " << bicg_Eigen.iterations() << std::endl;
+		std::cout << "estimated error: " << bicg_Eigen.error() << std::endl;
+		
+
+		/*
+		Eigen::VectorXd poisson_sol = LU_Eigen.solve(RHS_Eigen); //sparseLU method
+		*/
+
+		for (int el = 0; el < N_el; ++el)
+			for (int j = 0; j < Knod; ++j)
+				for (int i = 0; i < Knod; ++i) {
+					int index = el * Ksq + j * Knod + i;
+					stream_function[el][j][i] = poisson_sol(index);
+				}
+
+
+
+	}  //if LHS_type==1 (Eigen)
+
+
+
+
+
+	delete[] RHS;
 
 	return 0;
 }
@@ -1218,4 +1573,163 @@ void HO_2D::calc_boundary_comm_vals_meth2(int el, int el_b, int ijp, int ibnd, d
 	delete[] NeuRHS;
 	for (int i = 0; i < Knod; ++i) delete[] NeuMatrix[i];
 	delete[] NeuMatrix;
+}
+
+void HO_2D::Poisson_solver_Hypre_setup(double*** laplacian_center, double**** laplacian_neighbor) {
+	// sets up the LHS of the Poisson equation via the HYPRE library
+	//Create_Hypre_Matrix(laplacian_center, laplacian_neighbor);
+	//Create_Hypre_Vector();
+
+}
+
+void HO_2D::Create_Hypre_Matrix () {
+	//int localsize_p;
+	//VecGetLocalSize(user->Phi2, &localsize_p);
+
+	//int p_lower = user->p_global_begin;
+	//int p_upper = p_lower + localsize_p - 1;
+
+	//std::vector<int> nz_p(localsize_p);
+	//std::fill(nz_p.begin(), nz_p.end(), 19);
+
+	//PetscPrintf(TE_comm, "\nbegin HYPRE_IJMatrixCreate gap(%d)\n", user->gap_index);
+	//HYPRE_IJMatrixCreate(TE_comm, p_lower, p_upper, p_lower, p_upper, &Ap);
+	//HYPRE_IJMatrixSetObjectType(Ap, HYPRE_PARCSR);
+	//HYPRE_IJMatrixSetRowSizes(Ap, &nz_p[0]);
+	////HYPRE_IJMatrixSetMaxOffProcElmts (Ap, 10);
+	//HYPRE_IJMatrixInitialize(Ap);
+	//PetscPrintf(TE_comm, "end HYPRE_IJMatrixCreate for gap (%d)\n\n", user->gap_index);
+}
+
+void HO_2D::Poisson_solver_Eigen_setup(double*** laplacian_center, double**** laplacian_neighbor) {
+	// sets up the LHS of the Poisson equation via the Eigen library
+	int N_el = mesh.N_el;
+	int Ksq = Knod * Knod, K4 = Ksq * Ksq;;
+	std::vector<Trplet> coefficientsVec;            // list of non-zeros coefficients in the LHS matrix
+	coefficientsVec.reserve(nnz);  //maximum number of triplets
+	nnz = 0;
+	for (int el = 0; el < N_el; ++el)
+		for (int ij = 0; ij < Ksq; ++ij)
+			for (int rs = 0; rs < Ksq; ++rs)
+				if (std::fabs(laplacian_center[el][ij][rs]) > 1.e-14) {
+					coefficientsVec.push_back(Trplet(el * Ksq + ij, el * Ksq + rs, laplacian_center[el][ij][rs]));
+					nnz++;
+				}
+
+	for (int el = 0; el < N_el; ++el)
+		for (int elem_side = south; elem_side <= west; elem_side++)
+			if (!(mesh.elem_neighbor[el].is_on_boundary[elem_side])) {
+				int eln = mesh.elem_neighbor[el].neighbor[elem_side]; //element number of the neighbor
+				for (int ij = 0; ij < Ksq; ++ij)
+					for (int rs = 0; rs < Ksq; ++rs)
+						if (std::fabs(laplacian_neighbor[el][elem_side][ij][rs]) > 1.e-14) {
+							coefficientsVec.push_back(Trplet(el * Ksq + ij, eln * Ksq + rs, laplacian_neighbor[el][elem_side][ij][rs]));
+							nnz++;
+						}
+
+
+
+
+			}
+
+	LHS_Eigen.resize(N_el * Ksq, N_el * Ksq);
+	LHS_Eigen.data().squeeze();
+	LHS_Eigen.setFromTriplets(coefficientsVec.begin(), coefficientsVec.end());
+	LHS_Eigen.makeCompressed();
+
+	// ************************ The Conjugate gradient method ******************
+	/*
+	cg_Eigen.analyzePattern(LHS_Eigen); 
+	cg_Eigen.factorize(LHS_Eigen);
+	*/
+	 
+	//****************** the BICG method ****************
+	
+	bicg_Eigen.compute(LHS_Eigen);
+	
+	// ****************** Sparse LU **********************
+	/*
+	LU_Eigen.analyzePattern(LHS_Eigen);
+	LU_Eigen.factorize(LHS_Eigen);
+	*/
+	//***************************************************
+
+	RHS_Eigen.resize(N_el * Ksq);
+}
+
+void HO_2D::save_output(int n) {
+	std::string file_name = "problem";
+	file_name.append(std::to_string(problem_type));
+	file_name.append("_timestep");
+	file_name.append(std::to_string(n));
+	file_name.append(".dat");
+
+	std::string file_name_norm = "Norms_timesteps_";
+	file_name_norm.append(std::to_string(n));
+	file_name_norm.append(".dat");
+	std::cout << "     Writing the results after " << n << "  timesteps into the file:  " << file_name << std::endl;
+
+
+	double time = n * dt;
+	std::ofstream file_handle(file_name);
+	std::ofstream file_handle_norm(file_name_norm);
+	double u_exact = 0.;
+	double Linf_Norm = -1.0, L1_Norm = 0.0, L2_Norm = 0.0;
+	for (int el = 0; el < mesh.N_el; ++el) {
+		for (int j = 0; j < Knod; ++j) {
+			for (int i = 0; i < Knod; ++i) {
+				Cmpnts2 coor(0., 0.); //coordinate of sps[j][i]
+				for (int ny = 0; ny < mesh.Lnod; ++ny)
+					for (int nx = 0; nx < mesh.Lnod; ++nx) {
+						int node_index = mesh.elements[el].nodes[tensor2FEM(nx, ny)];
+						coor.plus(gps_sps_basis[ny][j] * gps_sps_basis[nx][i], mesh.nodes[node_index].coor);
+					}
+
+				if (problem_type == 3)
+					u_exact = 0.25 * (3. * std::sin(M_PI * coor.x) * std::exp(-M_PI * M_PI * time) - std::sin(3. * M_PI * coor.x) * std::exp(-9.0 * M_PI * M_PI * time))
+					* (3. * std::sin(M_PI * coor.y) * std::exp(-M_PI * M_PI * time) - std::sin(3. * M_PI * coor.y) * std::exp(-9.0 * M_PI * M_PI * time));
+
+				else if (problem_type == 2) {
+					u_exact = 0.0;
+					double error = 1.0;
+					for (int iter = 1; iter <= 200; ++iter) {
+						double tmp = 0.50 * (2. * iter - 1.) * M_PI;
+						u_exact += 2.0 * minus_one_to_power(iter + 1) * std::cos(tmp * coor.x) * exp(-tmp * tmp * time) / tmp;
+						if (std::fabs(error) < 1.E-10) break;
+					}
+				}
+
+				else if (problem_type == 8) {//heat conduction on cylinder (periodic BC)
+					double r = coor.norm2();
+					double beta[] = { 1., 2.,3. }; //temporary fixation
+
+					double tmp = 0.;
+					for (int iter = 0; iter < 45; ++iter) {
+						tmp = tmp + exp(-beta[iter] * beta[iter] * time) * _j0(0.5 * beta[iter]) *
+							(_j0(beta[iter] * r) * _y0(beta[iter]) - _j0(beta[iter]) * _y0(beta[iter] * r)) /
+							(_j0(0.5 * beta[iter]) + _j0(beta[iter]));
+					}
+					u_exact = M_PI * tmp;
+				}
+
+				else if (problem_type == 10) {
+					//u_exact = coor.x + coor.y;
+					double ym = 1. - coor.y;
+					u_exact = ym * (1. + std::cos(M_PI * ym)) * sin(M_PI * coor.x);
+				}
+
+				Linf_Norm = std::max(Linf_Norm, fabs(u_exact - /*vorticity*/stream_function[el][j][i]));
+				L1_Norm = L1_Norm + fabs(u_exact - /*vorticity*/stream_function[el][j][i]);
+				L2_Norm = L2_Norm + std::pow(u_exact - /*vorticity*/stream_function[el][j][i], 2);
+
+				file_handle << el << " \t " << j << " \t " << i << " \t " << coor.x << " \t " << coor.y << " \t " << /*vorticity*/stream_function[el][j][i] << " \t " << u_exact << " \t " << 100. * (u_exact - /*vorticity*/stream_function[el][j][i]) / u_exact << std::endl;
+			}
+		}
+	}
+	L1_Norm /= ((double)mesh.N_el * Knod * Knod);
+	L2_Norm = std::sqrt(L2_Norm / ((double)mesh.N_el * Knod * Knod));
+	file_handle_norm << L1_Norm << " \t " << L2_Norm << " \t " << Linf_Norm;
+	std::cout << "Done writing to file" << std::endl;
+	file_handle.close();
+	file_handle_norm.close();
 }
