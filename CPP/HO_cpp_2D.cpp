@@ -758,7 +758,11 @@ char HO_2D::solve_vorticity_streamfunction() {
 							coor.plus(gps_sps_basis[ny][j] * gps_sps_basis[nx][i], mesh.nodes[node_index].coor);
 						}
 					double ym = M_PI * (1. - coor.y);
-					vorticity[el][j][i] = M_PI * std::sin(M_PI * coor.x) * (ym * (1. + 2. * std::cos(ym)) + 2. * std::sin(ym));
+					//vorticity[el][j][i] = M_PI * std::sin(M_PI * coor.x) * (ym * (1. + 2. * std::cos(ym)) + 2. * std::sin(ym));
+					//vorticity[el][j][i] = std::sin(M_PI * coor.y);
+					//vorticity[el][j][i] = M_PI*std::sin(M_PI*coor.x)*(2.*std::sin(M_PI*coor.y) + 2.*M_PI*coor.y*std::cos(M_PI*coor.y) + M_PI*coor.y);
+					vorticity[el][j][i] = -4. * (coor.x * coor.x + coor.y * coor.y + 1.) * std::exp(coor.x * coor.x + coor.y * coor.y);
+					//vorticity[el][j][i] = -4.;
 				}
 			}
 		}
@@ -790,6 +794,26 @@ void HO_2D:: form_Laplace_operator_matrix() {
 	unsigned int Ksq = Knod * Knod, Km1 = Knod - 1, K4 = Ksq * Ksq;
 	double*** laplacian_center = new double** [N_el]; //The coefficients in the left hand side matrix that has contribution from the element itself. it has the coefficients for element el, sps ij=j*Knod+i and rs=r*Knod+s, so laplacian_center[el][ij][rs]
 	double**** laplacian_neighbor = new double*** [N_el]; //The coefficients in the left hand side matrix that has contribution from the 4 neighboring element (if are not located on the global boundary). it has the coefficients for element el per cell side, sps ij=j*Knod+i and rs=r*Knod+s of the neighbor element, so laplacian_center[el][4][ij][rs]
+	//double** NeuMatrix_Orig = new double* [Knod], **NeuMatrix = new double* [Knod]; //small dense matrix to obtain comx(per element) for a given Neumann BC
+	Eigen::MatrixXd NeuMatrix_Orig(Knod, Knod), NeuMatrix(Knod, Knod); //I am using Eigen here to save energy and time
+
+	std::fill(BC_switch, BC_switch + mesh.N_edges_boundary, /*NeumannBC*/ DirichletBC); //to test the poisson solver
+	for (int el_b = 0; el_b<mesh.N_edges_boundary; ++el_b) {
+		double x1 = mesh.nodes[mesh.edges[el_b].nodes[0]].coor.x;
+		double x2 = mesh.nodes[mesh.edges[el_b].nodes[1]].coor.x;
+		double y1 = mesh.nodes[mesh.edges[el_b].nodes[0]].coor.y;
+		double y2 = mesh.nodes[mesh.edges[el_b].nodes[1]].coor.y;
+
+		if (std::sqrt(x1*x1+y1*y1)<0.5101 && std::sqrt(x2 * x2 + y2 * y2) < 0.501) BC_switch[el_b] = NeumannBC;
+
+		/*
+		if (mesh.nodes[mesh.edges[el_b].nodes[0]].coor.y < 1e-6 && mesh.nodes[mesh.edges[el_b].nodes[1]].coor.y < 1e-6) BC_switch[el_b] = NeumannBC;
+		else if (mesh.nodes[mesh.edges[el_b].nodes[0]].coor.y > 9.99e-1 && mesh.nodes[mesh.edges[el_b].nodes[1]].coor.y > 9.99e-1) BC_switch[el_b] = DirichletBC;
+		else if (mesh.nodes[mesh.edges[el_b].nodes[0]].coor.x < 1e-6 && mesh.nodes[mesh.edges[el_b].nodes[1]].coor.x < 1e-6) BC_switch[el_b] = NeumannBC;
+		else BC_switch[el_b] = NeumannBC;
+		*/
+	}
+
 
 	for (int i = 0; i < N_el; ++i) {
 		laplacian_center[i] = new double* [Ksq];
@@ -842,7 +866,7 @@ void HO_2D:: form_Laplace_operator_matrix() {
 								tmp2 = 0.;
 								for (int t = 0; t < 2; ++t) tmp2 += 0.5 * sps_boundary_basis[p][t] * sps_grad_radau[tmp1][t];
 								laplacian_center[el][ij][rs] += A * SNGLB1 * (sps_sps_grad_basis[p][tmp1] - tmp2);  //from the L term on page 7 of Adrin's note; page 1 of my notes, 3 feb 2021
-								laplacian_center[el][ij][rs] +=  A * (-sps_sps_grad_basis[p][tmp1] * tmp3 + tmp2 * tmp3); //from the M,N,P,Q of Adrin's note: page 2 of my notes 3 feb 2021
+								laplacian_center[el][ij][rs] +=  A * tmp3 * (-sps_sps_grad_basis[p][tmp1] + tmp2); //from the M,N,P,Q of Adrin's note: page 2 of my notes 3 feb 2021
 							}
 						}
 					}
@@ -859,54 +883,114 @@ void HO_2D:: form_Laplace_operator_matrix() {
 
 				if (mesh.elem_neighbor[el].is_on_boundary[elem_side]) { // if this face is on the global boundary:
 					int edge_index = mesh.elem_neighbor[el].boundary_index[elem_side];  // the index of the edge that is on global boundary, which is on the d direction and t side of element el
-					//******************************* The dirichlet BC case: *********************************
-					for (int j = 0; j < Knod; ++j) {
-						for (int i = 0; i < Knod; ++i) {
-							ij = j * Knod + i; //local cumulative sps index in element k
-							for (int m = 0; m < Knod; ++m) {
-								for (int r = 0; r < 2; r++) {
-									a = m * (1 - r) + i * r;
-									b = m * r + j * (1 - r);
-									q = a * d + b * (1 - d);
-									double SNGLB1 = sps_sps_grad_basis[m][i * (1 - r) + j * r];
-									double NGR1 = sps_grad_radau[a * (1 - d) + b * d][t];
-									double A = G[el][b][a][r][d]; //(g_r . g_d)/J at k,a,b
-									tmp2 = 0.;
-									for (int s = 0; s < 2; s++) tmp2 += sps_boundary_basis[m][s] * sps_grad_radau[j * r + i * (1 - r)][s];
-									for (int p = 0; p < Knod; ++p) {
-										j1 = p * d + b * (1 - d);
-										i1 = p * (1 - d) + a * d;
-										rs = j1 * Knod + i1; //cumulative index in the neighbor element
-										laplacian_center[el][ij][rs] -= 0.5 * SNGLB1 * A * sps_boundary_basis[p][t] * NGR1;  //page 1 of my notes 3 Feb 2021
-										laplacian_center[el][ij][rs] += 0.5 * tmp2 * A * sps_boundary_basis[p][t] * NGR1;  //page 2 of my notes 3 Feb 2021
-									}
-									boundary_source[edge_index][ij][(elem_side / 2) * (Knod - 2 * q - 1) + q] += SNGLB1 * A * NGR1; //page 1 on my notes 3 Feb 2021, effect of DBC, according to the edge[edge_index] direction
-									boundary_source[edge_index][ij][(elem_side / 2) * (Knod - 2 * q - 1) + q] -= tmp2 * A * NGR1; //page 2 on my notes 3 Feb 2021, effect of DBC, according to the edge[edge_index] direction
+					if (BC_switch[edge_index] == DirichletBC) { // Dirichlet boundary condition
+						//******************************* The dirichlet BC case: *********************************
+						for (int j = 0; j < Knod; ++j) {
+							for (int i = 0; i < Knod; ++i) {
+								ij = j * Knod + i; //local cumulative sps index in element k
+								for (int m = 0; m < Knod; ++m) {
+									for (int r = 0; r < 2; r++) {
+										a = m * (1 - r) + i * r;
+										b = m * r + j * (1 - r);
+										q = a * d + b * (1 - d);
+										double SNGLB1 = sps_sps_grad_basis[m][i * (1 - r) + j * r];
+										double NGR1 = sps_grad_radau[a * (1 - d) + b * d][t];
+										double A = G[el][b][a][r][d]; //(g_r . g_d)/J at k,a,b
+										tmp2 = 0.;
+										for (int s = 0; s < 2; s++) tmp2 += sps_boundary_basis[m][s] * sps_grad_radau[j * r + i * (1 - r)][s];
+										for (int p = 0; p < Knod; ++p) {
+											j1 = p * d + b * (1 - d);
+											i1 = p * (1 - d) + a * d;
+											rs = j1 * Knod + i1; //cumulative index
+											laplacian_center[el][ij][rs] -= 0.5 * SNGLB1 * A * sps_boundary_basis[p][t] * NGR1;  //page 1 of my notes 3 Feb 2021
+											laplacian_center[el][ij][rs] += 0.5 * tmp2 * A * sps_boundary_basis[p][t] * NGR1;  //page 2 of my notes 3 Feb 2021
+										}
+										boundary_source[edge_index][ij][(elem_side / 2) * (Knod - 2 * q - 1) + q] += SNGLB1 * A * NGR1; //page 1 on my notes 3 Feb 2021, effect of DBC, according to the edge[edge_index] direction
+										boundary_source[edge_index][ij][(elem_side / 2) * (Knod - 2 * q - 1) + q] -= tmp2 * A * NGR1; //page 2 on my notes 3 Feb 2021, effect of DBC, according to the edge[edge_index] direction
 
+									}
 								}
 							}
 						}
-					}
 
-					for (int j = 0; j < Knod; ++j) {
-						for (int i = 0; i < Knod; ++i) {
-							ij = j * Knod + i; //local cumulative sps index in element k
-							int alpha = i * d + j * (1 - d);
-							double A = GB[el][d][t][alpha][d];  //[(g_d . g_d)/J]|k,d,t,alpha
-							double NGR1 = sps_grad_radau[j * d + i * (1 - d)][t];
-							for (int m = 0; m < Knod; ++m) {
-								j1 = m * d + j * (1 - d);
-								i1 = m * (1 - d) + i * d;
-								rs = j1 * Knod + i1;
-								laplacian_center[el][ij][rs] += A * (sps_boundary_grad_basis[m][t] - g_prime[t] * sps_boundary_basis[m][t]) * NGR1; //page 3 of my notes 3 Feb 2021
-							}
-							boundary_source[edge_index][ij][(elem_side / 2) * (Knod - 2 * alpha - 1) + alpha] += A * g_prime[t] * NGR1; //page 3 of my notes 3 Feb 2021
-							double B = GB[el][d][t][alpha][1 - d];
-							for (int m = 0; m < Knod; ++m) {
-								boundary_source[edge_index][ij][(elem_side / 2) * (Knod - 2 * m - 1) + m] += B * sps_sps_grad_basis[m][alpha] * NGR1; //page 3 of my notes 3 Feb 2021
+						for (int j = 0; j < Knod; ++j) {
+							for (int i = 0; i < Knod; ++i) {
+								ij = j * Knod + i; //local cumulative sps index in element k
+								int alpha = i * d + j * (1 - d);
+								double A = GB[el][d][t][alpha][d];  //[(g_d . g_d)/J]|k,d,t,alpha
+								double NGR1 = sps_grad_radau[j * d + i * (1 - d)][t];
+								for (int m = 0; m < Knod; ++m) {
+									j1 = m * d + j * (1 - d);
+									i1 = m * (1 - d) + i * d;
+									rs = j1 * Knod + i1;
+									laplacian_center[el][ij][rs] += A * (sps_boundary_grad_basis[m][t] - g_prime[t] * sps_boundary_basis[m][t]) * NGR1; //page 3 of my notes 3 Feb 2021
+								}
+								boundary_source[edge_index][ij][(elem_side / 2) * (Knod - 2 * alpha - 1) + alpha] += A * g_prime[t] * NGR1; //page 3 of my notes 3 Feb 2021
+								double B = GB[el][d][t][alpha][1 - d];
+								for (int m = 0; m < Knod; ++m) {
+									boundary_source[edge_index][ij][(elem_side / 2) * (Knod - 2 * m - 1) + m] += B * sps_sps_grad_basis[m][alpha] * NGR1; //page 3 of my notes 3 Feb 2021
+								}
 							}
 						}
-					}
+					} // if the edge is located on the Dirichlet-type global boundary
+
+					else if (BC_switch[edge_index] == NeumannBC) { //if the edge is located on Neumann type boundary
+						//******************************* The Neumann BC case: *********************************
+						// find NeuMatrix = inverse(NeuMatrix_Orig)
+						for (int i = 0; i < Knod; ++i) { // row index
+							for (int j = 0; j < Knod; ++j) //column index of the matrix
+								NeuMatrix_Orig(i,j) = -GB[el][d][t][i][1 - d] * sps_sps_grad_basis[j][i];
+							NeuMatrix_Orig(i,i) += -GB[el][d][t][i][d] * g_prime[t];
+						}
+
+						NeuMatrix = NeuMatrix_Orig.inverse();
+
+						double sign = t ? 1. : -1.;
+
+						for (int j = 0; j < Knod; ++j) {
+							for (int i = 0; i < Knod; ++i) {
+								ij = j * Knod + i; //local cumulative sps index in element k
+								
+								int alpha = i * d + j * (1 - d);
+								boundary_source[edge_index][ij][(elem_side / 2) * (Knod - 2 * alpha - 1) + alpha] += sign * sps_grad_radau[j * d + i * (1 - d)][t] 
+									 * std::sqrt(GB[el][d][t][alpha][d]*face_jac[el][ijp][alpha]); //page 9 on my notes 17 Feb 2021, effect of NBC, according to the edge[edge_index] direction
+
+								for (int m = 0; m < Knod; ++m) {
+									for (int r = 0; r < 2; r++) {
+										a = m * (1 - r) + i * r;
+										b = m * r + j * (1 - r);
+										q = a * d + b * (1 - d);
+										double SNGLB1 = sps_sps_grad_basis[m][i * (1 - r) + j * r];
+										double NGR1 = sps_grad_radau[a * (1 - d) + b * d][t];
+										double A = G[el][b][a][r][d]; //(g_r . g_d)/J at k,a,b
+										tmp2 = 0.;
+										for (int s = 0; s < 2; s++) tmp2 += sps_boundary_basis[m][s] * sps_grad_radau[j * r + i * (1 - r)][s];
+										for (int p = 0; p < Knod; ++p) {
+											j1 = p * d + b * (1 - d);
+											i1 = p * (1 - d) + a * d;
+											rs = j1 * Knod + i1; //cumulative index
+											laplacian_center[el][ij][rs] -= 0.5 * SNGLB1 * A * sps_boundary_basis[p][t] * NGR1;  //last term of page 8 of my notes 17 Feb 2021
+											laplacian_center[el][ij][rs] += 0.5 * tmp2 * A * sps_boundary_basis[p][t] * NGR1;  //last term of page 9 of my notes 17 Feb 2021
+
+											boundary_source[edge_index][ij][(elem_side / 2) * (Knod - 2 * p - 1) + p] += A * NGR1 * sign * NeuMatrix(q, p) *
+												std::sqrt(GB[el][d][t][p][d] * face_jac[el][ijp][p]) * (tmp2 - SNGLB1); //NBC terms on page 8,9 of mu notes 17 Feb 2021
+
+											double tmp4 = sps_boundary_grad_basis[p][t] - g_prime[t] * sps_boundary_basis[p][t]; //SNGLB(p,t)-gLp(t)*SBLB(p,t)
+											for (int c = 0; c < Knod; ++c) {
+												j1 = p * d + c * (1 - d);
+												i1 = p * (1 - d) + c * d;
+												rs = j1 * Knod + i1; //cumulative index
+												laplacian_center[el][ij][rs] += SNGLB1 * A * NGR1 * tmp4 * NeuMatrix(q,c) * GB[el][d][t][c][d]; //page 8 of my notes 17 Feb 2021
+												laplacian_center[el][ij][rs] -= tmp2 * A * NGR1 * tmp4 * NeuMatrix(q, c) * GB[el][d][t][c][d];  //page 9 of my notes 17 Feb 2021
+											}
+										}
+									}
+								}
+							}
+						}
+					} //if the edge is located on the Neumann - type global boundary
+
+
 				} //if face is located on the global boundary
 
 				else { // if this face is not on the global boundary: fill laplacian_neighbor[el][elem_side][][]
@@ -992,6 +1076,25 @@ void HO_2D:: form_Laplace_operator_matrix() {
 	if (LHS_type==1) Poisson_solver_Eigen_setup(laplacian_center, laplacian_neighbor);
 	else if (LHS_type==2) Poisson_solver_Hypre_setup(laplacian_center, laplacian_neighbor);
 
+	
+	//  **************** free unnecessary memory ****************
+	for (int i = 0; i < N_el; ++i) {
+		for (int j = 0; j < Ksq; ++j)
+			delete[] laplacian_center[i][j];
+		delete[] laplacian_center[i];
+	}
+	delete[] laplacian_center;
+	
+	for (int i = 0; i < N_el; ++i) {
+		for (int j = 0; j < 4; ++j) {
+			for (int k = 0; k < Ksq; ++k) 
+				delete[] laplacian_neighbor[i][j][k];
+			delete[] laplacian_neighbor[i][j];
+		}
+		delete[] laplacian_neighbor[i];
+	}
+	delete[] laplacian_neighbor;
+
 }
 
 char HO_2D::Euler_time_integrate() {
@@ -1010,7 +1113,7 @@ char HO_2D::Euler_time_integrate() {
 char HO_2D::solve_Poisson() {
 	//This subroutine solves the Poisson's equation for the stream function field
 	int Ksq = Knod * Knod;
-	std::fill(BC_switch, BC_switch + mesh.N_edges_boundary, /*NeumannBC*/ DirichletBC);
+
 	int N_el = mesh.N_el;
 	double* RHS = new double[N_el * Ksq];
 	for (int el_b = 0; el_b < mesh.N_edges_boundary; ++el_b)
@@ -1018,12 +1121,26 @@ char HO_2D::solve_Poisson() {
 			//set the proper normal_vel[el_b][m] and BC_parl_vel[el_b][m] to construct proper Neuman BC for sai
 			Cmpnts2 coor(0., 0.); //coordinate of sps[j][i]
 			for (int n = 0; n < mesh.Lnod; ++n) {
-				int node_index = mesh.edges[el_b].nodes[n];
+				int node_index = mesh.edges[el_b].nodes[tensor2FEM(n)];
 				coor.plus(gps_sps_basis[n][m], mesh.nodes[node_index].coor);
 			}
 
 			//BC_values[el_b][m] = coor.x + coor.y; //set the Dirichlet value for the sai values at the flux points on the boundary  
 			BC_values[el_b][m] = 0.; //set the Dirichlet value for the sai values at the flux points on the boundary  
+			double r = std::sqrt(coor.x * coor.x + coor.y * coor.y);
+			if (r < 0.5101) BC_values[el_b][m] = -2. * r * std::exp(r * r); //cylinder surface
+			//else if (mesh.nodes[mesh.edges[el_b].nodes[0]].coor.y < -1.999 && mesh.nodes[mesh.edges[el_b].nodes[1]].coor.y < -1.999) BC_values[el_b][m] = std::exp(coor.x*coor.x+4.); //set the Dirichlet value for the sai values at the flux points on the boundary  
+			//else if (mesh.nodes[mesh.edges[el_b].nodes[0]].coor.y > 1.999 && mesh.nodes[mesh.edges[el_b].nodes[1]].coor.y > 1.999) BC_values[el_b][m] = std::exp(coor.x * coor.x + 4.); //set the Dirichlet value for the sai values at the flux points on the boundary  
+			//else if (mesh.nodes[mesh.edges[el_b].nodes[0]].coor.x < -1.999 && mesh.nodes[mesh.edges[el_b].nodes[1]].coor.x < -1.999) BC_values[el_b][m] = std::exp(coor.y * coor.y + 4.);
+			else BC_values[el_b][m] = std::exp(coor.y * coor.y + coor.x*coor.x);
+			//BC_values[el_b][m] = std::exp(r * r);
+			//BC_values[el_b][m] = coor.x * coor.x + coor.y * coor.y;
+			//if (r < 0.501) BC_values[el_b][m] = -2. * r;
+			//double DelY = mesh.nodes[mesh.edges[el_b].nodes[1]].coor.y - mesh.nodes[mesh.edges[el_b].nodes[0]].coor.y;
+			//double DelX = mesh.nodes[mesh.edges[el_b].nodes[1]].coor.x - mesh.nodes[mesh.edges[el_b].nodes[0]].coor.x;
+			//double nx = DelY / std::sqrt(DelY*DelY + DelX*DelX);
+			//double ny = - DelX / std::sqrt(DelY * DelY + DelX * DelX);
+			//if (r < 0.501) BC_values[el_b][m] = 2. * std::exp(r * r) * (coor.x * nx + coor.y * ny);//2.*(coor.x*nx + coor.y*ny);
 		}
 	
 	for (int el = 0; el < N_el; ++el) {
@@ -1716,6 +1833,13 @@ void HO_2D::save_output(int n) {
 					//u_exact = coor.x + coor.y;
 					double ym = 1. - coor.y;
 					u_exact = ym * (1. + std::cos(M_PI * ym)) * sin(M_PI * coor.x);
+					u_exact = std::sin(M_PI * coor.y) / (M_PI*M_PI);
+					u_exact = 2. * coor.x * coor.x - coor.y * coor.y - coor.x + coor.y + coor.x * coor.y;
+					u_exact = 3.*coor.x + coor.y-1;
+					u_exact = 3. * coor.x * coor.x * coor.y - 2. * coor.x * coor.x * coor.x + coor.x * coor.y * coor.y + coor.y * coor.y * coor.y + 1.0;
+					u_exact = coor.y * (1.+std::cos(M_PI*coor.y)) * std::sin(M_PI*coor.x);
+					u_exact = std::exp(coor.x * coor.x + coor.y * coor.y);
+					//u_exact = coor.x * coor.x + coor.y * coor.y;
 				}
 
 				Linf_Norm = std::max(Linf_Norm, fabs(u_exact - /*vorticity*/stream_function[el][j][i]));
