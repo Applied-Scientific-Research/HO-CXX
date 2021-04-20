@@ -251,6 +251,8 @@ void Mesh::process_mesh() {
 				if ((edges[edg].nodes == _edge.nodes) || 
 					(edges[edg].nodes[1] == _edge.nodes[0] && edges[edg].nodes[0] == _edge.nodes[1])) { //this edge already exists in the list
 					elements[el].edges[s] = edg; // the index of the edge that exists
+					// This is added on April 8, 2021: noticed the boundary edges may rotate in CW or CCW depending on how they are created. Lets adopt a standard. As we march on the boundary edges, the domain should be on our left. 
+					edges[edg].nodes = _edge.nodes; //making sure that the edges are oriented in the same CCW orientation of the element attach to the boundary edge.
 					found = true;
 					break;
 				}
