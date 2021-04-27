@@ -7,6 +7,8 @@
 #include <cassert>
 #include <cmath>
 #include <algorithm>
+#include <ctime> //for the random generator for slope of casted ray
+#include <cstdlib> //for the random generator for slope of casted ray
 
 
 //enum edges_types {_2Node_edge = 1, _3Node_edge = 8, _4Node_edge = 26, _5Node_edge = 27, _6Node_edge = 28};

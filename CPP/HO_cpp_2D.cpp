@@ -84,6 +84,11 @@ int HO_2D::read_input_file(const std::string const filename) {
 		// read in the type of matrix formation for poisson equation (1=Eigen, 2=Hypre)
 		getline(file_handle, temp_string);
 		file_handle >> LHS_type; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+		// read in the name of the sample points file
+		getline(file_handle, temp_string);
+		getline(file_handle, temp_string);
+		file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+		sample_points_file = temp_string.c_str();
 		// Later add to read in the type of solver and preconditioner. for now dont worry about it
 
 		std::cout << "         Done" << std::endl;
@@ -96,7 +101,163 @@ int HO_2D::read_input_file(const std::string const filename) {
 	}
 
 	return retval;
+}
 
+void HO_2D::read_process_sample_points() {
+	//This method reads the sample points file and process the data inside the file, then finds the element number that contains each sample point
+	int N_el = mesh.N_el;
+	int Lnod = mesh.Lnod;
+	// *********** First read in the sample points coordinates, if it exists ***********
+	std::ifstream file_handle(sample_points_file);
+	if (file_handle.fail())
+		return;
+
+	Cmpnts2 tmp_coor;
+	do {
+		file_handle >> tmp_coor.x >> tmp_coor.y; //file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+		sample_points_coor.push_back(tmp_coor);
+		file_handle >> std::skipws;
+	} while (!file_handle.eof());
+	tmp_coor.subtract(sample_points_coor.back(), sample_points_coor.rbegin()[1]); // the subtract of last and second to the last element. This is to check if the last element is not repeated
+	if (tmp_coor.norm2() < 1e-6) sample_points_coor.pop_back();
+	N_sample_points = sample_points_coor.size();
+	sample_points_containing_elements.resize(N_sample_points); // the vector to store the element index that contains each sample point
+	gps_shapefunc_on_sample_points = new double* [Lnod*Lnod]; //the shape function value of the gps nodes on the sample points
+	for (int i = 0; i < Lnod * Lnod; ++i) gps_shapefunc_on_sample_points[i] = new double[N_sample_points];
+
+	//  ***** Now find and save the elements min-max of coordinates and store in min_coor and max_coor *****
+	std::vector<Cmpnts2> min_coor(N_el), max_coor(N_el);
+	for (int el = 0; el < N_el; el++) {
+		max_coor[el] = min_coor[el] = mesh.nodes[mesh.elements[el].nodes[south]].coor; // assume the SW corner node (node index 0) is the min and max (just to fill in values)
+		for (int edge_index : mesh.elements[el].edges) { //loop over the 4 edges of each element. doing this because the element may be higher order.
+			for (int node_index : mesh.edges[edge_index].nodes) { //loop over the Lnod nodes of the edge edge_index
+				if (mesh.nodes[node_index].coor.x < min_coor[el].x) min_coor[el].x = mesh.nodes[node_index].coor.x;
+				if (mesh.nodes[node_index].coor.x > max_coor[el].x) max_coor[el].x = mesh.nodes[node_index].coor.x;
+				if (mesh.nodes[node_index].coor.y < min_coor[el].y) min_coor[el].y = mesh.nodes[node_index].coor.y;
+				if (mesh.nodes[node_index].coor.y > max_coor[el].y) max_coor[el].y = mesh.nodes[node_index].coor.y;
+			}
+		}
+	}
+
+	// **************** Now find the element index that contains each sample point ******************
+	std::srand(time(0)); //initiate the randon number generation
+	for (int sp = 0; sp < N_sample_points; ++sp) { //loop over all sample points
+		bool found_element = false;
+		for (int el = 0; el < N_el; ++el) {
+			if (sample_points_coor[sp].x < min_coor[el].x || sample_points_coor[sp].x > max_coor[el].x ||
+				sample_points_coor[sp].y < min_coor[el].y || sample_points_coor[sp].y > max_coor[el].y) continue; //the point is not inside this element for sure
+
+			// *********** test the casted ray against all sides of the element ***********
+			double slope = 2.* static_cast <double> (std::rand()) / static_cast <double> (RAND_MAX) -1.; //generate a random slope between -1 and 1
+			int intersections = 0;
+			for (int edge_index : mesh.elements[el].edges) { // check if current side intersects with ray. if yes, intersections++;
+				for (int segment = 0; segment < mesh.Lnod_in; segment++) { //number of segments is one less than the number of nodes on the edge. This is basically loop over sub-edges on each edge: straight lines
+					Cmpnts2 node1 = mesh.nodes[mesh.edges[edge_index].nodes[tensor2FEM(segment)]].coor;  //node index of the start of the sub-edge (straight line in an edge between two consecutive nodes)
+					Cmpnts2 node2 = mesh.nodes[mesh.edges[edge_index].nodes[tensor2FEM(segment+1)]].coor;//node index of the end of the sub-edge (straight line in an edge between two consecutive nodes)
+					intersections += are_intersecting(sample_points_coor[sp], slope, node1, node2);
+				}
+			}
+			if ((intersections & 1) == 1) { //odd number of intersections
+				sample_points_containing_elements[sp] = el;
+				found_element = true;
+				break;
+			}
+		}
+
+		if (!found_element) { //no element is found to contain the sampling point sp. so loop over all nodes of all elements and take element with the closest node distance to sampling point sp
+			tmp_coor.subtract(sample_points_coor[sp], mesh.nodes[mesh.elements[0].nodes[0]].coor);
+			double distance = tmp_coor.norm2()+1.;  //initiated distance as distance between sp and node 0 of the element 0 +1. +1 is to make sure it will change in the search process below
+			int containing_element;
+			for (int el = 0; el < N_el; ++el) {
+				for (int i = 0; i < mesh.Lnod * mesh.Lnod; ++i) {
+					tmp_coor.subtract(sample_points_coor[sp], mesh.nodes[mesh.elements[el].nodes[i]].coor);
+					if (distance > tmp_coor.norm2()) {
+						distance = tmp_coor.norm2();
+						containing_element = el;
+					}
+				}
+			}
+			sample_points_containing_elements[sp] = containing_element;
+		}
+	}
+
+	// ******* Now find the local coordinate of each sample point in xsi and eta direction, using Newton method *********
+	// ******************************************************************************************************************
+	std::vector<int> loc_ID;//sweeping the cell indices row by row in the eta direction
+	if (mesh.Lnod == 4) loc_ID = { 0, 4, 5, 1, 11, 12, 13, 6, 10, 15, 14, 7, 3, 9, 8, 2 };
+	else if (mesh.Lnod == 3) loc_ID = { 0, 4, 1, 7, 8, 5, 3, 6, 2 };
+	else if (mesh.Lnod == 2) loc_ID = { 0, 1, 3, 2 };
+	std::vector<double> gps_sp_grad_basis_xsi(Lnod), gps_sp_basis_xsi(Lnod), gps_sp_grad_basis_eta(Lnod), gps_sp_basis_eta(Lnod);
+	std::vector<Cmpnts2> sample_points_local_coor(N_sample_points); //temporary vector to store the local coordinate (xsi, eta) of the sampling points
+	double del_xsi, del_eta; //the increment in xsi and eta in the Newton method
+	for (int sp = 0; sp < N_sample_points; ++sp) {
+		int el = sample_points_containing_elements[sp];
+		double xsi = 0.08;
+		double eta = 0.08; //initial guess for the xsi and eta (located at the cell center)
+
+		do {
+			for (int k = 0; k < Lnod; ++k) { //find the shape function of all the gps in an element on the sampling points
+				gps_sp_grad_basis_xsi[k] = gps_sp_grad_basis_eta[k] = 0.0;
+				gps_sp_basis_xsi[k] = gps_sp_basis_eta[k] = 1.;
+
+				double denominator = 1.;
+				for (int j = 0; j < Lnod; ++j) {
+					if (j == k) continue;
+					denominator *= gps_local_coor[k] - gps_local_coor[j];
+					gps_sp_basis_xsi[k] *= xsi - gps_local_coor[j];
+					gps_sp_basis_eta[k] *= eta - gps_local_coor[j];
+
+					double sp_grad_numerator_xsi = 1.;
+					double sp_grad_numerator_eta = 1.;
+
+					for (int i = 0; i < Lnod; ++i) {
+						if (i == k || i == j) continue;
+						sp_grad_numerator_xsi *= xsi - gps_local_coor[i];
+						sp_grad_numerator_eta *= eta - gps_local_coor[i];
+					}
+					gps_sp_grad_basis_xsi[k] += sp_grad_numerator_xsi;
+					gps_sp_grad_basis_eta[k] += sp_grad_numerator_eta;
+				}
+
+				gps_sp_grad_basis_xsi[k] /= denominator;
+				gps_sp_basis_xsi[k] /= denominator;
+				gps_sp_grad_basis_eta[k] /= denominator;
+				gps_sp_basis_eta[k] /= denominator;
+			}
+
+			double f = sample_points_coor[sp].x;
+			double g = sample_points_coor[sp].y;
+			double df_dxsi=0.,df_deta=0., dg_dxsi=0., dg_deta = 0.;
+			for (int j = 0; j < Lnod; j++) {
+				for (int i = 0; i < Lnod; ++i) {
+					int gps_index = loc_ID[j*Lnod + i];
+					int node_index = mesh.elements[el].nodes[gps_index];
+					f -= gps_sp_basis_xsi[i] * gps_sp_basis_eta[j] * mesh.nodes[node_index].coor.x;
+					g -= gps_sp_basis_xsi[i] * gps_sp_basis_eta[j] * mesh.nodes[mesh.elements[el].nodes[gps_index]].coor.y;
+					df_dxsi -= gps_sp_basis_eta[j] * gps_sp_grad_basis_xsi[i] * mesh.nodes[node_index].coor.x;
+					dg_dxsi -= gps_sp_basis_eta[j] * gps_sp_grad_basis_xsi[i] * mesh.nodes[node_index].coor.y;
+					df_deta -= gps_sp_grad_basis_eta[j] * gps_sp_basis_xsi[i] * mesh.nodes[node_index].coor.x;
+					dg_deta -= gps_sp_grad_basis_eta[j] * gps_sp_basis_xsi[i] * mesh.nodes[node_index].coor.y;
+				}
+			}
+
+			del_xsi = -1. / (df_dxsi * dg_deta - df_deta * dg_dxsi) * (f * dg_deta - g * df_deta);
+			del_eta = -1. / (df_dxsi * dg_deta - df_deta * dg_dxsi) * (g * df_dxsi - f * dg_dxsi);
+
+			xsi += del_xsi;
+			eta += del_eta;
+		} while (std::fabs(del_xsi) > 0.001 || std::fabs(del_eta) > 0.001);
+
+		sample_points_local_coor[sp].set_coor(xsi, eta);
+
+		// **************** Now that the local coor is found, then find the shape function values of all the gps nodes on this sp point and save it in gps_shapefunc_on_sample_points ***************
+		for (int j = 0; j < Lnod; j++) {
+			for (int i = 0; i < Lnod; ++i) {
+				int gps_index = loc_ID[j * Lnod + i]; //the gps indices are the same as Gmsh indices
+				gps_shapefunc_on_sample_points[gps_index][sp] = gps_sp_basis_xsi[i] * gps_sp_basis_eta[j];
+			}
+		}
+	}  //for sp
 }
 
 char HO_2D::setup_mesh() {
@@ -168,8 +329,8 @@ void HO_2D::setup_sps_gps() {
 	}
 
 	if (HuynhSolver_type == 2) { //g = g_DG
-		g_prime[0] = -0.5 * Knod * Knod;
-		g_prime[1] = 0.5 * Knod * Knod; //0.5 * minus_one_to_power(Knod) * Knod;
+		g_prime[0] = -0.5 * Knod * (Knod);
+		g_prime[1] = 0.5 * Knod * (Knod); //0.5 * minus_one_to_power(Knod) * Knod;
 	}
 
 }
@@ -496,6 +657,7 @@ void HO_2D::setup_IC_BC_SRC() {
 			if (std::fabs(mesh.nodes[mesh.edges[el_b].nodes[0]].coor.y - 1.) < 1.e-6 && std::fabs(mesh.nodes[mesh.edges[el_b].nodes[1]].coor.y - 1.) < 1.e-6) //top boundary
 			//if (std::fabs(mesh.nodes[mesh.edges[el_b].nodes[0]].coor.y) < 1.e-6 && std::fabs(mesh.nodes[mesh.edges[el_b].nodes[1]].coor.y) < 1.e-6) //bottom boundary
 			//if (std::fabs(mesh.nodes[mesh.edges[el_b].nodes[0]].coor.x) < 1.e-6 && std::fabs(mesh.nodes[mesh.edges[el_b].nodes[1]].coor.x) < 1.e-6) //left boundary
+			//if (std::fabs(mesh.nodes[mesh.edges[el_b].nodes[0]].coor.x-1.) < 1.e-6 && std::fabs(mesh.nodes[mesh.edges[el_b].nodes[1]].coor.x-1.) < 1.e-6) //left boundary
 				for (int m = 0; m < Knod; ++m) BC_parl_vel[el_b][m] = -1.0; //top wall parallel velocity, going to the right, so negative the local boundary direction which is CCW
 		}
 	}
@@ -794,12 +956,10 @@ char HO_2D::solve_vorticity_streamfunction() {
 				vorticity[el][j][i] = initial_vorticity[el][j][i];
 		
 
-	save_output(0);
+	//save_output(0);  // for validtaion of cases, it exports the quantities and calculates the error norm versus analytical results. 
 
 	for (ti = 0; ti <= num_time_steps; ++ti) {
 		std::cout << "timestep  " << ti << std::endl;
-
-		
 		
 		solve_advection_diffusion();
 
@@ -1213,9 +1373,8 @@ char HO_2D::Euler_time_integrate(double*** vort_in, double*** vort_out, double c
 	update_BCs(current_time);
 	solve_Poisson(vort_in); //calculate the streamfunction corresponding to the vort_in, i.e. Laplacian(psi)=-vort_in. solves for stream_function
 	calc_velocity_vector_from_streamfunction(); //calculate the Cartesian velocity field velocity_cart from psi (u_
-
 	calc_RHS_diffusion(vort_in);  //stores Laplace(w) in RHS_diffusive[el][Knod][Knod]
-	calc_RHS_advection(vort_in); //stores -div(vw) in RHS_advective[el][Knod][Knod]
+	calc_RHS_advection_continuous(vort_in); //stores -div(vw) in RHS_advective[el][Knod][Knod]
 	
 	
 	//update the vorticity field now
@@ -1370,10 +1529,9 @@ void HO_2D::update_BCs(double time) {
 			//if (std::fabs(mesh.nodes[mesh.edges[el_B].nodes[0]].coor.x) < 1.E-4 && std::fabs(mesh.nodes[mesh.edges[el_B].nodes[1]].coor.x) < 1.E-4) {//left wall
 			//if (std::fabs(mesh.nodes[mesh.edges[el_B].nodes[0]].coor.x-1.) < 1.E-4 && std::fabs(mesh.nodes[mesh.edges[el_B].nodes[1]].coor.x-1.) < 1.E-4) {//right wall
 				for (int i = 0; i < Knod; ++i) BC_cart_vel[el_B][i].x = 1.; //horizontal velocity of the top wall
-				//for (int i = 0; i < Knod; ++i) BC_u_vel[el_B][i] = 1.; //top wall
-				//for (int i = 0; i < Knod; ++i) BC_u_vel[el_B][i] = -1.; //bottom wall
-				//for (int i = 0; i < Knod; ++i) BC_v_vel[el_B][i] = 1.; //left wall
-				//for (int i = 0; i < Knod; ++i) BC_v_vel[el_B][i] = -1.; //right wall
+				//for (int i = 0; i < Knod; ++i) BC_cart_vel[el_B][i].x = -1.; //bottom wall
+				//for (int i = 0; i < Knod; ++i) BC_cart_vel[el_B][i].y = 1.; //left wall
+				//for (int i = 0; i < Knod; ++i) BC_cart_vel[el_B][i].y = -1.; //right wall
 			}
 }
 
@@ -1549,6 +1707,318 @@ char HO_2D::calc_RHS_advection(double*** vort_in) {
 
 	// ********************** free memory on the heap*****************
 	for (int i = 0; i < 4; ++i) 
+		delete[] bndr_disc_flx[i];
+	delete[] bndr_disc_flx;
+
+	for (int i = 0; i < mesh.N_el; ++i) {
+		for (int j = 0; j < 2; j++) {
+			for (int k = 0; k < Knod; k++)
+				delete[] disc_flx[i][j][k];
+			delete[] disc_flx[i][j];
+		}
+		delete[] disc_flx[i];
+	}
+	delete[] disc_flx;
+
+	for (int i = 0; i < mesh.N_el; ++i) {
+		for (int j = 0; j < 4; ++j) {
+			delete[] bndr_vort[i][j];
+			delete[] bndr_flx[i][j];
+			delete[] upwnd_flx[i][j];
+		}
+		delete[] bndr_vort[i];
+		delete[] bndr_flx[i];
+		delete[] upwnd_flx[i];
+	}
+	delete[] bndr_vort;
+	delete[] bndr_flx;
+	delete[] upwnd_flx;
+
+	for (int i = 0; i < Knod; ++i) {
+		delete[] local_vort[i];
+		delete[] local_vel[i];
+	}
+	delete[] local_vort;
+	delete[] local_vel;
+	return 0;
+}
+
+char HO_2D::calc_RHS_advection_continuous(double*** vort_in) {
+	// ********* This subroutine calculates the - div(VW), V is Cartesian velocity vector, W is vorticity *********
+	// ************************ form the BC_advection *************************
+	std::fill(BC_switch_advection, BC_switch_advection + mesh.N_edges_boundary, DirichletBC); //pick Dirichlet BC for advection term based on the Fortran code
+	for (int edge_index = 0; edge_index < mesh.N_edges_boundary; ++edge_index) {
+		int element_index = mesh.boundary_elem_ID[edge_index].element_index; //index of the element that has a face on the global boundary
+		int elem_side = mesh.boundary_elem_ID[edge_index].side; //side of the element that has the edge on the global boundary
+		int ijp = f2i[elem_side];
+		int direction = ijp / 2; //0 means xsi, 1 means eta direction
+
+		for (int i = 0; i < Knod; ++i) {
+			int edge_flux_point_index = (elem_side / 2) * (Knod - 2 * i - 1) + i;
+			double volumetric_flux_boundary[2] = {
+							BC_cart_vel[edge_index][edge_flux_point_index].x * face_Dy_Dxsi[element_index][ijp][i].y - BC_cart_vel[edge_index][edge_flux_point_index].y * face_Dx_Dxsi[element_index][ijp][i].y,
+							-BC_cart_vel[edge_index][edge_flux_point_index].x * face_Dy_Dxsi[element_index][ijp][i].x + BC_cart_vel[edge_index][edge_flux_point_index].y * face_Dx_Dxsi[element_index][ijp][i].x };
+
+			BC_advection[edge_index][edge_flux_point_index] = BC_vorticity[edge_index][edge_flux_point_index] * volumetric_flux_boundary[direction];
+		}
+	}
+	// *********************************************************************
+
+
+	int ijp, ijpm, eln, neighbor_side, jn;
+	double bndr_vel;
+	double** local_vort = new double* [Knod]; //local array to hold the vorticity along a row of csi [0], and row of eta [1] direction
+	for (int i = 0; i < Knod; ++i) local_vort[i] = new double[2];
+	double** local_vel = new double* [Knod]; //local array to hold the contravariant flux on a row of csi [0] (xsi dir), and row of eta [1] direction (eta dir)
+	for (int i = 0; i < Knod; ++i) local_vel[i] = new double[2];
+
+	double*** bndr_vort, *** bndr_flx, *** upwnd_flx; //quantities per element, per ijp face per sps index
+	bndr_vort = new double** [mesh.N_el]; //interpolated vorticity from a row/column of K nodes on the ijp faces
+	bndr_flx = new double** [mesh.N_el]; //interpolated flux of uw and vw in ijp faces, i.e. w*f^tilda on ijp=0,1 faces and w*g^tilda on ijp=2,3 faces
+	upwnd_flx = new double** [mesh.N_el]; //flux values at el element, in idir direction, at row_col row or column at k sps, hence [el][idir][row_col][k]= f^tilda[k] w[k] if idir=0 AND g^tilda[k] w[k] if idir=1
+
+	for (int i = 0; i < mesh.N_el; ++i) {
+		bndr_vort[i] = new double* [4];
+		bndr_flx[i] = new double* [4];
+		upwnd_flx[i] = new double* [4];
+		for (int j = 0; j < 4; ++j) {
+			bndr_vort[i][j] = new double[Knod];
+			bndr_flx[i][j] = new double[Knod];
+			upwnd_flx[i][j] = new double[Knod];
+		}
+	}
+
+	double**** disc_flx = new double*** [mesh.N_el];
+	for (int i = 0; i < mesh.N_el; ++i) {
+		disc_flx[i] = new double** [2]; //0 for xsi and 1: eta directions, so 0 means f^tilda and 1 means g^tilda
+		for (int j = 0; j < 2; j++) {
+			disc_flx[i][j] = new double* [Knod];
+			for (int k = 0; k < Knod; k++) disc_flx[i][j][k] = new double[Knod];
+		}
+	}
+
+	double**** disc_vol_flux = new double*** [mesh.N_el]; //the volumetric flux in xsi and eta directions in all elements at i,j sps
+	double**** cont_vol_flux = new double*** [mesh.N_el]; //the continuous volumetric flux in xsi and eta directions in all elements at i,j sps
+	for (int el = 0; el < mesh.N_el; el++) {
+		disc_vol_flux[el] = new double** [Knod];
+		cont_vol_flux[el] = new double** [Knod];
+		for (int j = 0; j < Knod; ++j) {
+			disc_vol_flux[el][j] = new double* [Knod];
+			cont_vol_flux[el][j] = new double* [Knod];
+			for (int i = 0; i < Knod; ++i) {
+				disc_vol_flux[el][j][i] = new double[2]; //in the xsi and eta directions
+				cont_vol_flux[el][j][i] = new double[2]; //in the xsi and eta directions
+			}
+		}
+	}
+
+	for (int i = 0; i < mesh.N_el; ++i)
+		for (int j = 0; j < 2; j++)
+			for (int k = 0; k < Knod; k++)
+				for (int m = 0; m < Knod; m++) disc_flx[i][j][k][m] = 0.;
+
+	double** bndr_disc_flx = new double* [4];  //4 side of a cells
+	for (int i = 0; i < 4; ++i) bndr_disc_flx[i] = new double[Knod];
+
+	// Here I am using the continuous volumetric flux field for the advective term
+	double*** bndr_vol_flux; //volumetric flux at sps of the L/R (0:1) and S/N (2:3) boundaries of all elements
+	double*** comm_vol_flux; //common volumetric flux per element, per face (west, east, south, north) per sps index
+	bndr_vol_flux = new double** [mesh.N_el];
+	comm_vol_flux = new double** [mesh.N_el];
+
+	for (int i = 0; i < mesh.N_el; ++i) {
+		bndr_vol_flux[i] = new double* [4];
+		comm_vol_flux[i] = new double* [4];
+		for (int j = 0; j < 4; ++j) {
+			bndr_vol_flux[i][j] = new double[Knod];
+			comm_vol_flux[i][j] = new double[Knod];
+		}
+	}
+
+	// ****************************************************************
+	// ******* calculate the original discontinuous volumetric flux at the sps of all elements ********
+	for (int el = 0; el < mesh.N_el; el++)
+		for (int j = 0; j < Knod; ++j)
+			for (int i = 0; i < Knod; ++i) {
+				disc_vol_flux[el][j][i][0] = velocity_cart[el][j][i].x * vol_Dy_Dxsi[el][j][i].y - velocity_cart[el][j][i].y * vol_Dx_Dxsi[el][j][i].y;  //U^1/J = volumetric flux  = contravariant xsi FLUX component, based on eq. 2.11 in fotis class notes
+				disc_vol_flux[el][j][i][1] = -velocity_cart[el][j][i].x * vol_Dy_Dxsi[el][j][i].x + velocity_cart[el][j][i].y * vol_Dx_Dxsi[el][j][i].x;  //U^2/J = volumetric flux = contravariant eta FLUX component
+			}
+	// *************************************************************************
+	// ******* calculate the disc_vol_flux on the elements faces by extrapolation, store in bndr_vol_flux *******
+	for (int el = 0; el < mesh.N_el; el++) {
+		ijp = 0; //ijp=0 (ibnd=idir=0)
+		for (int idir = 0; idir < 2; ++idir) { //idir=0 (xsi); idir=1: eta direction
+			for (int ibnd = 0; ibnd < 2; ++ibnd) { //ibnd=0: left/south); ibnd=1: right/north
+				for (int alpha = 0; alpha < Knod; ++alpha) {  //alpha is either i or j, depending on the direction idir
+					bndr_vol_flux[el][ijp][alpha] = 0.;
+					for (int m = 0; m < Knod; ++m)
+						bndr_vol_flux[el][ijp][alpha] += disc_vol_flux[el][alpha * (1 - idir) + m * idir][alpha * idir + m * (1 - idir)][idir] 
+						* sps_boundary_basis[m][ibnd]; //value of discontinuous vol flux on the ijp side of element el at the alpha flux point (alpha measured in the xsi or eta direction)
+				}
+				ijp++;
+			}
+		}
+	}
+	// **********************************************************************************************************
+	// ********* calculate the common flux at the mesh faces **********
+	for (int el = 0; el < mesh.N_el; ++el) {
+		int ijp = 0;
+		for (int idir = 0; idir < 2; idir++) {
+			for (int ibnd = 0; ibnd < 2; ibnd++) {
+				int elem_side = i2f[ijp]; //the side of current element corresponding to combination of ibnd and idir
+				if (mesh.elem_neighbor[el].is_on_boundary[elem_side]) {
+					int edge_index = mesh.elem_neighbor[el].boundary_index[elem_side];
+					for (int m = 0; m < Knod; ++m) {
+						int edge_flux_point_index = (elem_side / 2) * (Knod - 2 * m - 1) + m;
+						double volumetric_flux_boundary[2] = {
+										BC_cart_vel[edge_index][edge_flux_point_index].x * face_Dy_Dxsi[el][ijp][m].y - BC_cart_vel[edge_index][edge_flux_point_index].y * face_Dx_Dxsi[el][ijp][m].y,
+										-BC_cart_vel[edge_index][edge_flux_point_index].x * face_Dy_Dxsi[el][ijp][m].x + BC_cart_vel[edge_index][edge_flux_point_index].y * face_Dx_Dxsi[el][ijp][m].x };
+
+						comm_vol_flux[el][ijp][m] = volumetric_flux_boundary[idir];
+					}
+				}
+				else {
+					eln = mesh.elem_neighbor[el].neighbor[elem_side]; //element number of the neighbor
+					if (problem_type == 10 || problem_type == 3) ijpm = f2i[mesh.elem_neighbor[el].neighbor_common_side[elem_side]];
+					else ijpm = nbr[ijp];  //local ijp of the neighboring element (eln) : face to the left/south of left/south face or right/north of right/north face
+					double sign = 2. * ((ijp + ijpm) % 2) - 1.;  //to see if the normal fluxes are in different orientations
+					int revert_coeff = (ijp + ijpm - ijp / 2 - ijpm / 2 + 1) % 2; //equal to (d+t+dn+tn+1)%2 = (ijp-d+ijpm-dn+1)%2
+					for (int m = 0; m < Knod; ++m) {
+						int mn = revert_coeff * (Knod - 2 * m - 1) + m; // the neighbor side of the common face index (either j or Knod-j-1)
+						comm_vol_flux[el][ijp][m] = 0.5 * (bndr_vol_flux[el][ijp][m] + sign * bndr_vol_flux[eln][ijpm][mn]);
+					}
+				}
+				ijp++;
+			}
+		}
+	}
+	// ****************************************************************
+	// ******* calculate the continuous volumetric flux field *********
+	for (int el = 0; el < mesh.N_el; ++el)
+		for (int j = 0; j < Knod; ++j)
+			for (int i = 0; i < Knod; ++i) {
+				cont_vol_flux[el][j][i][0] = disc_vol_flux[el][j][i][0] + (comm_vol_flux[el][0][j] - bndr_vol_flux[el][0][j]) * sps_radau[i][0] 
+					+ (comm_vol_flux[el][1][j] - bndr_vol_flux[el][1][j]) * sps_radau[i][1];
+				cont_vol_flux[el][j][i][1] = disc_vol_flux[el][j][i][1] + (comm_vol_flux[el][2][i] - bndr_vol_flux[el][2][i]) * sps_radau[j][0] 
+					+ (comm_vol_flux[el][3][i] - bndr_vol_flux[el][3][i]) * sps_radau[j][1];
+			}
+	// ****************************************************************
+	//Extrapolate the unknown, Phi and the Flux to the mesh boundaries using Lagrange polynomials of order Knod - 1
+	for (int el = 0; el < mesh.N_el; el++) { //form flux (U^1w/U^2w on xsi/eta dirs, respectively) on the 4 boundaries (bndr_flx) and all interior sps of all elements (disc_flx)
+		for (int row_col = 0; row_col < Knod; ++row_col) {
+			for (ijp = 0; ijp < 4; ++ijp) bndr_vort[el][ijp][row_col] = upwnd_flx[el][ijp][row_col] = 0.;
+			for (int i = 0; i < Knod; i++) {
+				local_vort[i][0] = vort_in[el][row_col][i];  // xsi direction
+				local_vort[i][1] = vort_in[el][i][row_col];  //eta direction
+				local_vel[i][0] = cont_vol_flux[el][row_col][i][0];
+				local_vel[i][1] = cont_vol_flux[el][i][row_col][1];
+			}
+
+			ijp = 0; //ijp=0 (ibnd=idir=0)
+			for (int idir = 0; idir < 2; ++idir) { //idir=0 (xsi); idir=1: eta direction
+				for (int i = 0; i < Knod; ++i) disc_flx[el][idir][row_col][i] = local_vel[i][idir] * local_vort[i][idir];
+
+				for (int ibnd = 0; ibnd < 2; ++ibnd) { //ibnd=0: left/south); ibnd=1: right/north
+					for (int m = 0; m < Knod; m++) bndr_vort[el][ijp][row_col] += local_vort[m][idir] * sps_boundary_basis[m][ibnd];
+					int elem_side = i2f[ijp]; //the side of current element corresponding to combination of ibnd and idir
+					if (mesh.elem_neighbor[el].is_on_boundary[elem_side]) {
+						int edge_index = mesh.elem_neighbor[el].boundary_index[elem_side];
+						int edge_flux_point_index = (elem_side / 2) * (Knod - 2 * row_col - 1) + row_col; // the local index on the boundary edge
+						bndr_flx[el][ijp][row_col] = BC_advection[edge_index][edge_flux_point_index];
+					}
+					else {
+						bndr_flx[el][ijp][row_col] = comm_vol_flux[el][ijp][row_col] * bndr_vort[el][ijp][row_col];
+					}
+					ijp++;
+				}
+			}
+		}  //for row_col
+	}
+
+	for (int el = 0; el < mesh.N_el; el++) {
+		for (ijp = 0; ijp < 4; ++ijp) {
+			int elem_side = i2f[ijp]; //the side of current element corresponding to combination of ibnd and idir
+			if (mesh.elem_neighbor[el].is_on_boundary[elem_side])
+				for (int j = 0; j < Knod; ++j)
+					upwnd_flx[el][ijp][j] = bndr_flx[el][ijp][j];
+			else {
+				double t = (double)(ijp%2); //the ibnd of the current ijp
+				eln = mesh.elem_neighbor[el].neighbor[elem_side]; //element number of the neighbor
+				if (problem_type == 10 || problem_type == 3) ijpm = f2i[mesh.elem_neighbor[el].neighbor_common_side[elem_side]];
+				else ijpm = nbr[ijp];  //local ijp of the neighboring element (eln) : face to the left/south of left/south face or right/north of right/north face
+				double sign = 2. * ((ijp + ijpm) % 2) - 1.;  //to see if the normal fluxes are in different orientations
+				int revert_coeff = (ijp + ijpm - ijp / 2 - ijpm / 2 + 1) % 2; //equal to (d+t+dn+tn+1)%2 = (ijp-d+ijpm-dn+1)%2
+				for (int j = 0; j < Knod; ++j) {
+					jn = revert_coeff * (Knod - 2 * j - 1) + j; // the neighbor side of the common face index (either j or Knod-j-1)
+					if (comm_vol_flux[el][ijp][j] > 0.)
+						upwnd_flx[el][ijp][j] = comm_vol_flux[el][ijp][j] * (t * bndr_vort[el][ijp][j] + (1. - t) * bndr_vort[eln][ijpm][jn]);
+					else
+						upwnd_flx[el][ijp][j] = comm_vol_flux[el][ijp][j] * ((1.-t) * bndr_vort[el][ijp][j] + t * bndr_vort[eln][ijpm][jn]);
+				}
+			}
+		}
+	}
+
+	for (int el = 0; el < mesh.N_el; el++) {
+		ijp = 0;
+		for (int idir = 0; idir < 2; ++idir) { //idir=0 (xsi); idir=1: eta direction
+			for (int ibnd = 0; ibnd < 2; ++ibnd) { //ibnd=0: left/south); ibnd=1: right/north
+				for (int j = 0; j < Knod; ++j) {
+					bndr_disc_flx[ijp][j] = 0.;
+					for (int m = 0; m < Knod; ++m) bndr_disc_flx[ijp][j] -= cont_vol_flux[el][j * (1 - idir) + m * idir][j * idir + m * (1 - idir)][idir] 
+						* vort_in[el][j * (1 - idir) + m * idir][j * idir + m * (1 - idir)] * sps_boundary_basis[m][ibnd]; // - f(1 or -1))
+					bndr_disc_flx[ijp][j] += upwnd_flx[el][ijp][j];  //f_upw - f(1 or -1))
+				}
+				ijp++;
+			}
+		}
+
+		//Now get the convection
+		for (int j = 0; j < Knod; ++j)
+			for (int i = 0; i < Knod; ++i) {
+				RHS_advective[el][j][i] = 0.;
+				for (int dummy = 0; dummy < Knod; ++dummy) {
+					RHS_advective[el][j][i] -= disc_flx[el][0][j][dummy] * sps_sps_grad_basis[dummy][i];  //xsi direction: -d(U^1w)/dxsi at (j,i)
+					RHS_advective[el][j][i] -= disc_flx[el][1][i][dummy] * sps_sps_grad_basis[dummy][j];	//eta direction: -d(U^2w)/deta at (j,i)
+				}
+				RHS_advective[el][j][i] -= bndr_disc_flx[0][j] * sps_grad_radau[i][0] + bndr_disc_flx[1][j] * sps_grad_radau[i][1];
+				RHS_advective[el][j][i] -= bndr_disc_flx[2][i] * sps_grad_radau[j][0] + bndr_disc_flx[3][i] * sps_grad_radau[j][1];
+				RHS_advective[el][j][i] /= vol_jac[el][j][i]; //confirmed
+			}
+	}
+
+	// ********************** free memory on the heap*****************
+	for (int el = 0; el < mesh.N_el; ++el) {
+		for (int ijp = 0; ijp < 4; ++ijp) {
+			delete[] bndr_vol_flux[el][ijp];
+			delete[] comm_vol_flux[el][ijp];
+		}
+		delete[] bndr_vol_flux[el];
+		delete[] comm_vol_flux[el];
+	}
+	delete[] bndr_vol_flux;
+	delete[] comm_vol_flux;
+
+
+
+	for (int el = 0; el < mesh.N_el; ++el) {
+		for (int j = 0; j < Knod; ++j) {
+			for (int i = 0; i < Knod; ++i) {
+				delete[] disc_vol_flux[el][j][i];
+				delete[] cont_vol_flux[el][j][i];
+			}
+			delete[] disc_vol_flux[el][j];
+			delete[] cont_vol_flux[el][j];
+		}
+		delete[] disc_vol_flux[el];
+		delete[] cont_vol_flux[el];
+	}
+	delete[] disc_vol_flux;
+	delete[] cont_vol_flux;
+
+
+
+	for (int i = 0; i < 4; ++i)
 		delete[] bndr_disc_flx[i];
 	delete[] bndr_disc_flx;
 
@@ -2573,7 +3043,6 @@ void HO_2D::save_output_vtk() {
 	delete[] vv;
 }
 
-
 void HO_2D::save_smooth_vtk() {
 	/*
 	writes the data in VTK format for vorticity and velocity with properly averaging the values from all coincident elements
@@ -2595,7 +3064,7 @@ void HO_2D::save_smooth_vtk() {
 	
 	std::vector<double> nodes_vorticity(mesh.N_nodes, 0.); // to save the vorticity field for each node (save data from elements to nodes), so that we dont have to write the data for all nodes for all elements
 	std::vector<Cmpnts2> nodes_velocity(mesh.N_nodes); // to save the velocity vector for each node (save data from elements to nodes), so that we dont have to write the data for all nodes for all elements
-	std::vector<int> nodes_repition(mesh.N_nodes, 0.); //keeps the number of contributions added on the nodes_vorticity and nodes_velocity
+	std::vector<int> nodes_repetition(mesh.N_nodes, 0.); //keeps the number of contributions added on the nodes_vorticity and nodes_velocity
 	
 
 	std::vector<int> loc_ID, /*su2pv_ID,*/ loc_ID_inv; //sweeping the cell indices row by row in the eta direction
@@ -2652,20 +3121,24 @@ void HO_2D::save_smooth_vtk() {
 		}
 	}
 	// *****************************************************************************************
-	// ******** Now accumulate trhe contributions from all the elements ********
+	// ******** Now accumulate the contributions from all the elements ********
 	for (int el = 0; el < N_el; ++el) {
 		for (int L = 0; L < L2; ++L) {
 			node_index = mesh.elements[el].nodes[L];
 			nodes_vorticity[node_index] += om[el][L];
 			nodes_velocity[node_index].plus(1., vel[el][L]);
-			nodes_repition[node_index]++;
+			nodes_repetition[node_index]++;
+
+			if (nodes_repetition[41] > 2)
+				int st = 1;
+
 		}
 	}
 	// **************************************************************************
 	// ****** Now calculate the average values *******
 	for (int node_id = 0; node_id < mesh.N_nodes; node_id++) {
-		nodes_vorticity[node_index]  /= nodes_repition[node_index];
-		nodes_velocity[node_index].scale(1. / nodes_repition[node_index]);
+		nodes_vorticity[node_id]  /= nodes_repetition[node_id];
+		nodes_velocity[node_id].scale(1. / nodes_repetition[node_id]);
 	}
 	// ***********************************************
 	// ***************************** write omega, and velocity components into a file ****************************
@@ -2725,4 +3198,28 @@ void HO_2D::save_smooth_vtk() {
 	}
 	delete[] om;
 	delete[] vel;
+
+	//***********************************************************************
+	//******** Now write the values for the sample points **********
+	file_name = "sampling_points";
+	file_name.append("_timestep");
+	file_name.append(std::to_string(ti + 1));
+	file_name.append("_L");
+	file_name.append(std::to_string(Lnod));
+	file_name.append("_K");
+	file_name.append(std::to_string(Knod));
+	file_name.append(".dat");
+	
+	file_handle.open(file_name);
+	for (int sp = 0; sp < N_sample_points; ++sp) {
+		double vort = 0.;
+		Cmpnts2 vel;
+		int el = sample_points_containing_elements[sp];
+		for (int L = 0; L < L2; ++L) {
+			node_index = mesh.elements[el].nodes[L];
+			vort += gps_shapefunc_on_sample_points[L][sp] * nodes_vorticity[node_index];
+			vel.plus(gps_shapefunc_on_sample_points[L][sp],	nodes_velocity[node_index]);
+		}
+		file_handle << sample_points_coor[sp].x << " " << sample_points_coor[sp].y << " " << vort << " " << vel.x << " " << vel.y << std::endl;
+	}
 }

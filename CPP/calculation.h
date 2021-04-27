@@ -113,6 +113,11 @@ private:
 	std::vector<double> RHS_AMGCL;
 	std::tuple<int, std::vector<int>, std::vector<int>, std::vector<double>> A_AMGCL;
 	bool get_curl = true; //getCurl is either 0 (for potential velocity) or 1 (for vortical velocity)
+	std::string sample_points_file; //name of the file to read the smaple points x, y coordinates
+	std::vector<Cmpnts2> sample_points_coor; //coordinate of the points that vorticityand velocity vector needs to be calculated for
+	int N_sample_points = 0;
+	std::vector<int> sample_points_containing_elements; // The index of the elements that contain each sample point
+	double** gps_shapefunc_on_sample_points; //The shape function of Lnod*Lnod gps onthe sample point in an element. size is [L*L][N_sp]
 
 public:
 	HO_2D() //default constructor
@@ -160,6 +165,7 @@ public:
 	char Euler_time_integrate(double*** array_in, double*** array_out, double coeff); //use the explicit Euler method to integrate in time the vorticity evolution equation
 	char solve_Poisson(double const* const* const* rhs_vorticity); //solves the Poisson's equation for the streamfunction field
 	char calc_RHS_advection(double*** vorticity_in); //calculates the advective term on the RHS = -div(vw), v is Cartesian velocity vector, w is vorticity. stores in RHS_advective[el][Knod][Knod]
+	char calc_RHS_advection_continuous(double*** vorticity_in); //calculates the advective term on the RHS = -div(vw), v is Cartesian velocity vector, w is vorticity. it uses continuous flux field for v
 	char calc_RHS_diffusion(double*** vorticity_in);  //stores Laplace(w) in RHS_diffusive[el][Knod][Knod]
 	void calc_internal_comm_vals_meth2(int el, int ijp, int ijpm, int ibnd, double* B_vort, double* B_vortm, double* B_G_vort, double* com_vort);
 	void calc_boundary_comm_vals_meth2(int el, int el_b, int ijp, int ibnd, double* vort, double* Dvort, double* com_vort, double* com_grad_vort, const unsigned char BC_type, const double* BC_vals);
@@ -172,4 +178,5 @@ public:
 	void update_BCs(double time); //updates the Cartesian velocity BC(BC_u_vel, BC_v_vel), BC_diffusion. Usually BCs are fixed in time, this is just for cases where the BCs changes in time. time is the current time
 	void save_output_vtk(); //writes the data in VTK format
 	void save_smooth_vtk(); //writes the data in VTK format with averaging of 4 nodes from internal nodes (smoother than save_output_vtk)
+	void read_process_sample_points();
 };
