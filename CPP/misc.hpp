@@ -5,6 +5,7 @@ cell_sides f2i[] = { north,east,west,south }; //(f2i[ijp] is the inverse of i2f,
 unsigned int nbr[] = { east, south, west, north }; //ijpm = nbr[ijp]: neighbor of ijp face, returned in the same ijp ordering
 double sgn[] = { -1., 1., -1., 1. }; //to calculate the upwind flux fronm the two neighboring fluxes at the common face
 double RK4_coeff[] = {0., 0.5, 0.5, 1.};  //the coefficients for the explicit RK4 time integration
+double RK2_coeff[] = {0., 1.}; //the coefficients for the explicit RK2 time integration
 
 inline double minus_one_to_power(int n) {
 	return (n % 2 == 0 ? 1. : -1.);

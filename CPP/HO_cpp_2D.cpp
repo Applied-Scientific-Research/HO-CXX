@@ -654,8 +654,8 @@ void HO_2D::setup_IC_BC_SRC() {
 		//Square Cavity Problem; top velocity is 1
 		//for (int el_b=0; el_b < mesh.N_edges_boundary; el_b++) BC_switch[el_b] = DirichletBC;
 		for (int el_b=0; el_b < mesh.N_edges_boundary; el_b++) {
-			if (std::fabs(mesh.nodes[mesh.edges[el_b].nodes[0]].coor.y - 1.) < 1.e-6 && std::fabs(mesh.nodes[mesh.edges[el_b].nodes[1]].coor.y - 1.) < 1.e-6) //top boundary
-			//if (std::fabs(mesh.nodes[mesh.edges[el_b].nodes[0]].coor.y) < 1.e-6 && std::fabs(mesh.nodes[mesh.edges[el_b].nodes[1]].coor.y) < 1.e-6) //bottom boundary
+			//if (std::fabs(mesh.nodes[mesh.edges[el_b].nodes[0]].coor.y - 1.) < 1.e-6 && std::fabs(mesh.nodes[mesh.edges[el_b].nodes[1]].coor.y - 1.) < 1.e-6) //top boundary
+			if (std::fabs(mesh.nodes[mesh.edges[el_b].nodes[0]].coor.y) < 1.e-6 && std::fabs(mesh.nodes[mesh.edges[el_b].nodes[1]].coor.y) < 1.e-6) //bottom boundary
 			//if (std::fabs(mesh.nodes[mesh.edges[el_b].nodes[0]].coor.x) < 1.e-6 && std::fabs(mesh.nodes[mesh.edges[el_b].nodes[1]].coor.x) < 1.e-6) //left boundary
 			//if (std::fabs(mesh.nodes[mesh.edges[el_b].nodes[0]].coor.x-1.) < 1.e-6 && std::fabs(mesh.nodes[mesh.edges[el_b].nodes[1]].coor.x-1.) < 1.e-6) //left boundary
 				for (int m = 0; m < Knod; ++m) BC_parl_vel[el_b][m] = -1.0; //top wall parallel velocity, going to the right, so negative the local boundary direction which is CCW
@@ -1020,6 +1020,16 @@ char HO_2D::solve_advection_diffusion() {
 	if (time_integration_type == 1) { // first order Euler time integration method
 		Euler_time_integrate(vorticity, k1, 0.); //calculate the RHS terms for the advective term and diffusive terms, i.e. -div(vw) and Laplacian(w)
 		for (int el = 0; el < N_el; ++el) for (int j = 0; j < Knod; ++j) for (int i = 0; i < Knod; ++i) vorticity[el][j][i] += k1[el][j][i]; //vorticity at time step n+1
+	}
+
+	else if (time_integration_type == 2) { // explicit RK2 time integration
+		Euler_time_integrate(vorticity, k1, RK2_coeff[0]); //calculate the RHS terms for the advective term and diffusive terms, i.e. -div(vw) and Laplacian(w)
+
+		for (int el = 0; el < N_el; ++el) for (int j = 0; j < Knod; ++j) for (int i = 0; i < Knod; ++i) vort[el][j][i] = vorticity[el][j][i] + RK2_coeff[1] * k1[el][j][i];
+		Euler_time_integrate(vort, k2, RK2_coeff[1]); //calculate the RHS terms for the advective term and diffusive terms, i.e. -div(vw) and Laplacian(w)
+
+		for (int el = 0; el < N_el; ++el) for (int j = 0; j < Knod; ++j) for (int i = 0; i < Knod; ++i)
+			vorticity[el][j][i] += 0.5 * (k1[el][j][i] + k2[el][j][i]); //calc vorticity at time step n+1
 	}
 
 	else if (time_integration_type == 4) { //explicit RK4 time integration https://lpsa.swarthmore.edu/NumInt/NumIntFourth.html
@@ -1524,12 +1534,12 @@ void HO_2D::update_BCs(double time) {
 	if (problem_type == 3)  //cavity flow
 		for (int el_B = 0; el_B < mesh.N_edges_boundary; ++el_B)
 			//BC_switch_diffusion[el_B] = NeumannBC; //either vorticity or dvorticity/dn
-			if (std::fabs(mesh.nodes[mesh.edges[el_B].nodes[0]].coor.y - 1.) < 1.E-4 && std::fabs(mesh.nodes[mesh.edges[el_B].nodes[1]].coor.y - 1.) < 1.E-4) {//top wall
-			//if (std::fabs(mesh.nodes[mesh.edges[el_B].nodes[0]].coor.y) < 1.E-4 && std::fabs(mesh.nodes[mesh.edges[el_B].nodes[1]].coor.y) < 1.E-4) {//bottom wall
+			//if (std::fabs(mesh.nodes[mesh.edges[el_B].nodes[0]].coor.y - 1.) < 1.E-4 && std::fabs(mesh.nodes[mesh.edges[el_B].nodes[1]].coor.y - 1.) < 1.E-4) {//top wall
+			if (std::fabs(mesh.nodes[mesh.edges[el_B].nodes[0]].coor.y) < 1.E-4 && std::fabs(mesh.nodes[mesh.edges[el_B].nodes[1]].coor.y) < 1.E-4) {//bottom wall
 			//if (std::fabs(mesh.nodes[mesh.edges[el_B].nodes[0]].coor.x) < 1.E-4 && std::fabs(mesh.nodes[mesh.edges[el_B].nodes[1]].coor.x) < 1.E-4) {//left wall
 			//if (std::fabs(mesh.nodes[mesh.edges[el_B].nodes[0]].coor.x-1.) < 1.E-4 && std::fabs(mesh.nodes[mesh.edges[el_B].nodes[1]].coor.x-1.) < 1.E-4) {//right wall
-				for (int i = 0; i < Knod; ++i) BC_cart_vel[el_B][i].x = 1.; //horizontal velocity of the top wall
-				//for (int i = 0; i < Knod; ++i) BC_cart_vel[el_B][i].x = -1.; //bottom wall
+				//for (int i = 0; i < Knod; ++i) BC_cart_vel[el_B][i].x = 1.; //horizontal velocity of the top wall
+				for (int i = 0; i < Knod; ++i) BC_cart_vel[el_B][i].x = -1.; //bottom wall
 				//for (int i = 0; i < Knod; ++i) BC_cart_vel[el_B][i].y = 1.; //left wall
 				//for (int i = 0; i < Knod; ++i) BC_cart_vel[el_B][i].y = -1.; //right wall
 			}
@@ -1552,14 +1562,10 @@ char HO_2D::calc_RHS_advection(double*** vort_in) {
 							BC_cart_vel[edge_index][edge_flux_point_index].x * face_Dy_Dxsi[element_index][ijp][i].y - BC_cart_vel[edge_index][edge_flux_point_index].y * face_Dx_Dxsi[element_index][ijp][i].y,
 							-BC_cart_vel[edge_index][edge_flux_point_index].x * face_Dy_Dxsi[element_index][ijp][i].x + BC_cart_vel[edge_index][edge_flux_point_index].y * face_Dx_Dxsi[element_index][ijp][i].x };
 
-			/*				BC_u_vel[edge_index][edge_flux_point_index] * face_Dy_Dxsi[element_index][ijp][i].y - BC_v_vel[edge_index][edge_flux_point_index] * face_Dx_Dxsi[element_index][ijp][i].y,
-							-BC_u_vel[edge_index][edge_flux_point_index] * face_Dy_Dxsi[element_index][ijp][i].x + BC_v_vel[edge_index][edge_flux_point_index] * face_Dx_Dxsi[element_index][ijp][i].x };*/
-
 			BC_advection[edge_index][edge_flux_point_index] = BC_vorticity[edge_index][edge_flux_point_index] * volumetric_flux_boundary[direction];
 		}
 	}
 	// *********************************************************************
-
 
 	int ijp, ijpm, eln, neighbor_side, jn;
 	double bndr_vel;
@@ -1636,7 +1642,7 @@ char HO_2D::calc_RHS_advection(double*** vort_in) {
 					}
 					else {
 						//value of u* w; ijp = 0: on left boundary at the row_col^th row of sps, ijp = 1 : on right boundary at the row_col^th row of sps, ijp = 2 : on bottom boundary at the row_col^th column of sps, ijp = 3, top at row_col^th column
-						for (int m = 0; m < Knod; ++m) bndr_flx[el][ijp][row_col] += local_vel[m][idir] * sps_boundary_basis[m][ibnd]; //flux at the ibnd boundary in idir direction
+						for (int m = 0; m < Knod; ++m) bndr_flx[el][ijp][row_col] += local_vel[m][idir] * sps_boundary_basis[m][ibnd]; //volumetric flux at the ibnd boundary in idir direction
 						bndr_flx[el][ijp][row_col] *= bndr_vort[el][ijp][row_col];
 					}
 					ijp++;
@@ -1666,7 +1672,7 @@ char HO_2D::calc_RHS_advection(double*** vort_in) {
 					jn = revert_coeff * (Knod - 2 * j - 1) + j; // the neighbor side of the common face index (either j or Knod-j-1)
 					upwnd_flx[el][ijp][j] = 0.5 * (bndr_flx[el][ijp][j] + sign * bndr_flx[eln][ijpm][jn]);
 					double vort_diff = bndr_vort[el][ijp][j] - bndr_vort[eln][ijpm][jn];
-					if (std::fabs(vort_diff) > 1.e-6) {
+					if (std::fabs(vort_diff) > 1.e-4) {
 						bndr_vel = (bndr_flx[el][ijp][j] - sign * bndr_flx[eln][ijpm][jn]) / vort_diff; //a_tilda
 						upwnd_flx[el][ijp][j] += 0.5 * sgn[ijp] * std::fabs(bndr_vel) * vort_diff;
 					}
@@ -1702,9 +1708,6 @@ char HO_2D::calc_RHS_advection(double*** vort_in) {
 			}
 	}
 	
-
-
-
 	// ********************** free memory on the heap*****************
 	for (int i = 0; i < 4; ++i) 
 		delete[] bndr_disc_flx[i];
@@ -2540,6 +2543,7 @@ void HO_2D::Poisson_solver_AMGCL_setup(double*** laplacian_center, double**** la
 }
 
 void HO_2D::save_output(int n) {
+	/*  commented for now, no need for it. It was used to test the code for the diffusion or the Poisson equation separetl.
 	std::string file_name = "problem";
 	file_name.append(std::to_string(problem_type));
 	file_name.append("_timestep");
@@ -2607,11 +2611,11 @@ void HO_2D::save_output(int n) {
 					//u_exact = coor.x * coor.x + coor.y * coor.y;
 				}
 
-				Linf_Norm = std::max(Linf_Norm, fabs(u_exact - /*vorticity*/stream_function[el][j][i]));
-				L1_Norm = L1_Norm + fabs(u_exact - /*vorticity*/stream_function[el][j][i]);
-				L2_Norm = L2_Norm + std::pow(u_exact - /*vorticity*/stream_function[el][j][i], 2);
+				Linf_Norm = std::max(Linf_Norm, fabs(u_exact - stream_function[el][j][i])); //can replace streamfunction with vorticity too
+				L1_Norm = L1_Norm + fabs(u_exact - stream_function[el][j][i]); //can replace streamfunction with vorticity too
+				L2_Norm = L2_Norm + std::pow(u_exact - stream_function[el][j][i], 2);//can replace streamfunction with vorticity too
 
-				file_handle << el << " \t " << j << " \t " << i << " \t " << coor.x << " \t " << coor.y << " \t " << /*vorticity*/stream_function[el][j][i] << " \t " << u_exact << " \t " << 100. * (u_exact - /*vorticity*/stream_function[el][j][i]) / u_exact << std::endl;
+				file_handle << el << " \t " << j << " \t " << i << " \t " << coor.x << " \t " << coor.y << " \t " << stream_function[el][j][i] << " \t " << u_exact << " \t " << 100. * (u_exact - stream_function[el][j][i]) / u_exact << std::endl;
 			}
 		}
 	}
@@ -2621,6 +2625,7 @@ void HO_2D::save_output(int n) {
 	std::cout << "Done writing to file" << std::endl;
 	file_handle.close();
 	file_handle_norm.close();
+	*/
 }
 
 void HO_2D::calc_velocity_vector_from_streamfunction() {
@@ -3082,9 +3087,9 @@ void HO_2D::save_smooth_vtk() {
 
 	// ************ get the u,v field corresponding to vorticity at current time step *************
 	double current_time = (ti + 1) * dt;
-	update_BCs(current_time);
-	solve_Poisson(vorticity); //calculate the streamfunction corresponding to the vort_in, i.e. Laplacian(psi)=-vort_in. solves for stream_function. vorticity is at ti+1 time step
-	calc_velocity_vector_from_streamfunction(); //calculate the Cartesian velocity field velocity_cart from psi corresponding to ti+1 time step
+	//update_BCs(current_time);
+	//solve_Poisson(vorticity); //calculate the streamfunction corresponding to the vort_in, i.e. Laplacian(psi)=-vort_in. solves for stream_function. vorticity is at ti+1 time step
+	//calc_velocity_vector_from_streamfunction(); //calculate the Cartesian velocity field velocity_cart from psi corresponding to ti+1 time step
 	// *********************************************************************************************
 	for (int el = 0; el < N_el; ++el) {
 		for (int Ly = 0; Ly < Lnod; ++Ly)  //gps in the eta direction
@@ -3100,7 +3105,7 @@ void HO_2D::save_smooth_vtk() {
 			}
 	}
 
-	calc_RHS_diffusion(vorticity);  //to get the updated values for BC_vorticity from the vorticity[el][j][i] field (corresponding to ti+1 time step)
+	//calc_RHS_diffusion(vorticity);  //to get the updated values for BC_vorticity from the vorticity[el][j][i] field (corresponding to ti+1 time step)
 	// ************** Now  update the elements adjacent to the global boundary ***************
 	for (int el_B = 0; el_B < mesh.N_edges_boundary; ++el_B) {
 		int el = mesh.boundary_elem_ID[el_B].element_index;  // index of the element whose face is on the global boundary
