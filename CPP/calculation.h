@@ -178,5 +178,6 @@ public:
 	void update_BCs(double time); //updates the Cartesian velocity BC(BC_u_vel, BC_v_vel), BC_diffusion. Usually BCs are fixed in time, this is just for cases where the BCs changes in time. time is the current time
 	void save_output_vtk(); //writes the data in VTK format
 	void save_smooth_vtk(); //writes the data in VTK format with averaging of 4 nodes from internal nodes (smoother than save_output_vtk)
+	void save_vorticity_vtk(); ////writes the data in VTK format for the vorticity
 	void read_process_sample_points();
 };

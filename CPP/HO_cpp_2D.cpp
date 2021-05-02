@@ -329,8 +329,8 @@ void HO_2D::setup_sps_gps() {
 	}
 
 	if (HuynhSolver_type == 2) { //g = g_DG
-		g_prime[0] = -0.5 * Knod * (Knod);
-		g_prime[1] = 0.5 * Knod * (Knod); //0.5 * minus_one_to_power(Knod) * Knod;
+		g_prime[0] = -0.5 * Knod * (Knod+1.);
+		g_prime[1] = 0.5 * Knod * (Knod+1.); //0.5 * minus_one_to_power(Knod) * Knod;
 	}
 
 }
@@ -654,10 +654,10 @@ void HO_2D::setup_IC_BC_SRC() {
 		//Square Cavity Problem; top velocity is 1
 		//for (int el_b=0; el_b < mesh.N_edges_boundary; el_b++) BC_switch[el_b] = DirichletBC;
 		for (int el_b=0; el_b < mesh.N_edges_boundary; el_b++) {
-			//if (std::fabs(mesh.nodes[mesh.edges[el_b].nodes[0]].coor.y - 1.) < 1.e-6 && std::fabs(mesh.nodes[mesh.edges[el_b].nodes[1]].coor.y - 1.) < 1.e-6) //top boundary
-			if (std::fabs(mesh.nodes[mesh.edges[el_b].nodes[0]].coor.y) < 1.e-6 && std::fabs(mesh.nodes[mesh.edges[el_b].nodes[1]].coor.y) < 1.e-6) //bottom boundary
+			if (std::fabs(mesh.nodes[mesh.edges[el_b].nodes[0]].coor.y - 1.) < 1.e-4 && std::fabs(mesh.nodes[mesh.edges[el_b].nodes[1]].coor.y - 1.) < 1.e-4) //top boundary
+			//if (std::fabs(mesh.nodes[mesh.edges[el_b].nodes[0]].coor.y) < 1.e-6 && std::fabs(mesh.nodes[mesh.edges[el_b].nodes[1]].coor.y) < 1.e-6) //bottom boundary
 			//if (std::fabs(mesh.nodes[mesh.edges[el_b].nodes[0]].coor.x) < 1.e-6 && std::fabs(mesh.nodes[mesh.edges[el_b].nodes[1]].coor.x) < 1.e-6) //left boundary
-			//if (std::fabs(mesh.nodes[mesh.edges[el_b].nodes[0]].coor.x-1.) < 1.e-6 && std::fabs(mesh.nodes[mesh.edges[el_b].nodes[1]].coor.x-1.) < 1.e-6) //left boundary
+			//if (std::fabs(mesh.nodes[mesh.edges[el_b].nodes[0]].coor.x-1.) < 1.e-6 && std::fabs(mesh.nodes[mesh.edges[el_b].nodes[1]].coor.x-1.) < 1.e-6) //right boundary
 				for (int m = 0; m < Knod; ++m) BC_parl_vel[el_b][m] = -1.0; //top wall parallel velocity, going to the right, so negative the local boundary direction which is CCW
 		}
 	}
@@ -989,6 +989,7 @@ char HO_2D::solve_vorticity_streamfunction() {
 
 		if (!((ti+1) % dump_frequency)) {
 			//save_output(ti);
+			save_vorticity_vtk();
 			save_smooth_vtk();
 		}
  	}
@@ -1384,7 +1385,7 @@ char HO_2D::Euler_time_integrate(double*** vort_in, double*** vort_out, double c
 	solve_Poisson(vort_in); //calculate the streamfunction corresponding to the vort_in, i.e. Laplacian(psi)=-vort_in. solves for stream_function
 	calc_velocity_vector_from_streamfunction(); //calculate the Cartesian velocity field velocity_cart from psi (u_
 	calc_RHS_diffusion(vort_in);  //stores Laplace(w) in RHS_diffusive[el][Knod][Knod]
-	calc_RHS_advection_continuous(vort_in); //stores -div(vw) in RHS_advective[el][Knod][Knod]
+	calc_RHS_advection(vort_in); //stores -div(vw) in RHS_advective[el][Knod][Knod]
 	
 	
 	//update the vorticity field now
@@ -1534,13 +1535,13 @@ void HO_2D::update_BCs(double time) {
 	if (problem_type == 3)  //cavity flow
 		for (int el_B = 0; el_B < mesh.N_edges_boundary; ++el_B)
 			//BC_switch_diffusion[el_B] = NeumannBC; //either vorticity or dvorticity/dn
-			//if (std::fabs(mesh.nodes[mesh.edges[el_B].nodes[0]].coor.y - 1.) < 1.E-4 && std::fabs(mesh.nodes[mesh.edges[el_B].nodes[1]].coor.y - 1.) < 1.E-4) {//top wall
-			if (std::fabs(mesh.nodes[mesh.edges[el_B].nodes[0]].coor.y) < 1.E-4 && std::fabs(mesh.nodes[mesh.edges[el_B].nodes[1]].coor.y) < 1.E-4) {//bottom wall
+			if (std::fabs(mesh.nodes[mesh.edges[el_B].nodes[0]].coor.y - 1.) < 1.E-4 && std::fabs(mesh.nodes[mesh.edges[el_B].nodes[1]].coor.y - 1.) < 1.E-4) {//top wall
+			//if (std::fabs(mesh.nodes[mesh.edges[el_B].nodes[0]].coor.y) < 1.E-4 && std::fabs(mesh.nodes[mesh.edges[el_B].nodes[1]].coor.y) < 1.E-4) {//bottom wall
 			//if (std::fabs(mesh.nodes[mesh.edges[el_B].nodes[0]].coor.x) < 1.E-4 && std::fabs(mesh.nodes[mesh.edges[el_B].nodes[1]].coor.x) < 1.E-4) {//left wall
 			//if (std::fabs(mesh.nodes[mesh.edges[el_B].nodes[0]].coor.x-1.) < 1.E-4 && std::fabs(mesh.nodes[mesh.edges[el_B].nodes[1]].coor.x-1.) < 1.E-4) {//right wall
-				//for (int i = 0; i < Knod; ++i) BC_cart_vel[el_B][i].x = 1.; //horizontal velocity of the top wall
-				for (int i = 0; i < Knod; ++i) BC_cart_vel[el_B][i].x = -1.; //bottom wall
-				//for (int i = 0; i < Knod; ++i) BC_cart_vel[el_B][i].y = 1.; //left wall
+				for (int i = 0; i < Knod; ++i) BC_cart_vel[el_B][i].x = 1.; //horizontal velocity of the top wall
+				//for (int i = 0; i < Knod; ++i) BC_cart_vel[el_B][i].x = -1.; //bottom wall
+				//for (int i = 0; i < Knod; ++i) BC_cart_vel[el_B][i].y = -1.; //left wall
 				//for (int i = 0; i < Knod; ++i) BC_cart_vel[el_B][i].y = -1.; //right wall
 			}
 }
@@ -2066,8 +2067,8 @@ char HO_2D::calc_RHS_diffusion(double*** vort_in) {
 	for (int Gboundary = 0; Gboundary < mesh.N_Gboundary; ++Gboundary) { //usually 4 in case of square
 		if (BC_no_slip[Gboundary]) {  //no slip condition on the global boundary element Gboundary, so if no slip wall then
 			for (int edge_index : mesh.boundaries[Gboundary].edges) {  //loop over edges on the Gboundary global boundary
-				double sign = (f2i[mesh.boundary_elem_ID[edge_index].side] % 2)*2. - 1.; //it gives +1 if the edge_index belongs to west and south of element, other wise -1
-				for (int m = 0; m < Knod; ++m) velocity_jump[edge_index][m] += sign * BC_parl_vel[edge_index][m]; //if E and N of the element is located on the global boundary the sign is negative
+				double sign = (f2i[mesh.boundary_elem_ID[edge_index].side] % 2)*2. - 1.; //it gives -1 if the edge_index belongs to west and south of element, other wise +1
+				for (int m = 0; m < Knod; ++m) velocity_jump[edge_index][m] += sign * BC_parl_vel[edge_index][m]; //if S and W of the element is located on the global boundary the sign is negative
 				for (int m = 0; m < Knod; ++m) BC_diffusion[edge_index][m] = velocity_jump[edge_index][m] / (dt * Reyn_inv);
 			}
 		}
@@ -2521,9 +2522,9 @@ void HO_2D::Poisson_solver_AMGCL_setup(double*** laplacian_center, double**** la
 	//AMGCL_solver.prm.solver.maxiter = 500;
 	//AMGCL_solver.prm.solver.tol = 1.e-6;
 	AMGCL_Solver::params prm;
-	double tol = 1e-6;
+	double tol = 1e-15;
 	prm.solver.tol = tol;
-	prm.solver.maxiter = 100;
+	prm.solver.maxiter = 150;
 	
 	A_AMGCL = std::make_tuple(N_el*Ksq, ptr, col, val);
 	AMGCL_solver = new AMGCL_Solver(A_AMGCL, prm);
@@ -2724,8 +2725,9 @@ void HO_2D::calc_velocity_vector_from_streamfunction() {
 								//velocity_jump[el_B][boundary_flux_point_index] /= face_Anorm[el][ijp][k];
 								//if (get_curl && idir) velocity_jump[el_B][boundary_flux_point_index] *= -1.;
 								BC_normal_vel[el_B][boundary_flux_point_index] = 0.;
+								double sign = 1. - 2. * (ijp % 2);// gives +1 for west and east faces, -1 for south and north faces
 								for (int dummy = 0; dummy < Knod; ++dummy)
-									BC_normal_vel[el_B][boundary_flux_point_index] += comm_psi[el][ijp][dummy] * sps_sps_grad_basis[dummy][k];
+									BC_normal_vel[el_B][boundary_flux_point_index] += sign*comm_psi[el][ijp][dummy] * sps_sps_grad_basis[dummy][k]; //the normal component of velocity. The normal is in the local h direction (g1, g2) of element
 							}
 					}
 					
@@ -3130,13 +3132,9 @@ void HO_2D::save_smooth_vtk() {
 	for (int el = 0; el < N_el; ++el) {
 		for (int L = 0; L < L2; ++L) {
 			node_index = mesh.elements[el].nodes[L];
-			nodes_vorticity[node_index] += om[el][L];
 			nodes_velocity[node_index].plus(1., vel[el][L]);
+			nodes_vorticity[node_index] += om[el][L];
 			nodes_repetition[node_index]++;
-
-			if (nodes_repetition[41] > 2)
-				int st = 1;
-
 		}
 	}
 	// **************************************************************************
@@ -3206,6 +3204,7 @@ void HO_2D::save_smooth_vtk() {
 
 	//***********************************************************************
 	//******** Now write the values for the sample points **********
+	if (!N_sample_points) return;
 	file_name = "sampling_points";
 	file_name.append("_timestep");
 	file_name.append(std::to_string(ti + 1));
@@ -3227,4 +3226,58 @@ void HO_2D::save_smooth_vtk() {
 		}
 		file_handle << sample_points_coor[sp].x << " " << sample_points_coor[sp].y << " " << vort << " " << vel.x << " " << vel.y << std::endl;
 	}
+}
+
+void HO_2D::save_vorticity_vtk() {
+	int N_el = mesh.N_el;
+	std::string file_name = "vorticity";
+	file_name.append(std::to_string(problem_type));
+	file_name.append("_timestep");
+	file_name.append(std::to_string(ti + 1));
+	file_name.append("_K");
+	file_name.append(std::to_string(Knod));
+	file_name.append(".vtk");
+
+	std::cout << "     Writing the results after " << ti + 1 << "  timesteps into the file:  " << file_name << std::endl;
+
+	double time = (ti + 1) * dt;
+	std::ofstream file_handle(file_name);
+
+	file_handle << "# vtk DataFile Version 3.0" << std::endl;
+	file_handle << "2D Unstructured Grid of Quads" << std::endl;
+	file_handle << "ASCII" << std::endl << std::endl;
+	file_handle << "DATASET POLYDATA" << std::endl;
+	file_handle << "POINTS " << Knod * Knod * N_el << " double" << std::endl;
+
+	for (int el = 0; el < N_el; el++)
+		for (int j = 0; j < Knod; j++)
+			for (int i = 0; i < Knod; i++) {
+				Cmpnts2 coor(0., 0.); //coordinate of sps[j][i]
+				for (int ny = 0; ny < mesh.Lnod; ++ny)
+					for (int nx = 0; nx < mesh.Lnod; ++nx) {
+						int node_index = mesh.elements[el].nodes[tensor2FEM(nx, ny)];
+						coor.plus(gps_sps_basis[ny][j] * gps_sps_basis[nx][i], mesh.nodes[node_index].coor);
+					}
+				file_handle << coor.x << " " << coor.y << " " << " 0." << std::endl;
+			}
+
+	file_handle << "POINT_DATA " << Knod * Knod * N_el << std::endl;
+	file_handle << "SCALARS vorticity double 1 " << std::endl;
+	file_handle << "LOOKUP_TABLE default " << std::endl;
+
+	for (int el = 0; el < N_el; el++) {
+		for (int j = 0; j < Knod; j++)
+			for (int i = 0; i < Knod; i++)
+				file_handle << vorticity[el][j][i] << " ";
+		file_handle << std::endl;
+	}
+
+	file_handle << "VECTORS velocity double " << std::endl;
+	for (int el = 0; el < N_el; el++)
+		for (int j = 0; j < Knod; j++)
+			for (int i = 0; i < Knod; i++)
+				file_handle << velocity_cart[el][j][i].x << " " << velocity_cart[el][j][i].y << " 0." << std::endl;
+
+	std::cout << "Done writing to file" << std::endl;
+	file_handle.close();
 }
