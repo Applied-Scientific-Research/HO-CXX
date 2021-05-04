@@ -50,20 +50,24 @@ ELSE()
 ENDIF()
 
 IF( WIN32 )
+  SET (EIGEN_ROOT "C:/Lib/eigen-3.3.7" CACHE STRING "Eigen root" )
+  INCLUDE_DIRECTORIES ( "${EIGEN_ROOT}" )
 ELSEIF( APPLE )
 ELSEIF( UNIX )
-  INCLUDE_DIRECTORIES ( "/usr/include/eigen3" )
-  INCLUDE_DIRECTORIES ( "/home/mstock/opt/amgcl-1.4.0" )
+  SET (EIGEN_ROOT "/usr/include/eigen3" CACHE STRING "Eigen root" )
+  INCLUDE_DIRECTORIES ( "${EIGEN_ROOT}" )
+  SET (AMGCL_ROOT "/home/mstock/opt/amgcl-1.4.0" CACHE PATH "Location of AMGCL root" )
+  INCLUDE_DIRECTORIES ( "${AMGCL_ROOT}" )
 ENDIF ()
 
-FILE(GLOB HEADERS "*.h" )
+FILE(GLOB HEADERS "src/*.h" )
 SET(SOURCES ${HEADERS}
-            "HO_cpp_2D.cpp"
-            "preprocess.cpp" )
+            "src/HO_cpp_2D.cpp"
+            "src/preprocess.cpp" )
 
 # Define targets
 ADD_LIBRARY ( ${PROJECT_NAME} STATIC ${SOURCES} )
 
 #ADD_EXECUTABLE( "${PROJECT_NAME}.bin" ${SOURCES} "main.cpp" )
-ADD_EXECUTABLE( "${PROJECT_NAME}.bin" "main.cpp" )
+ADD_EXECUTABLE( "${PROJECT_NAME}.bin" "src/main.cpp" )
 TARGET_LINK_LIBRARIES( "${PROJECT_NAME}.bin" LINK_PUBLIC ${PROJECT_NAME} ${LIBS} )
