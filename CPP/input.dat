@@ -1,0 +1,40 @@
+Nel_i , Nel_j:
+5, 9
+Knod quantity:
+3
+Lnod:
+3
+mesh file name:
+/home/mhajit/Cavity_Re10000/mesh2.msh
+Exact
+false
+Reyn
+10000.
+dx ratio : expanding mesh ratio. For Gmsh reading option it is not used.
+1.
+fac:  multiplier to make grids randomly non-uniform; uniform: fac=0
+0.
+Huyn solver: for now only the option 2 is used which is the DG equivalence
+2
+time integration: 1: explicit Euler, 2: explicit RK2, 4: explicit RK4
+2
+advection scheme: 1: original discontinuous, 2: continuous mass flux term
+1
+problem type. For now, number 3 is the Cavity and 10 is the general case
+3
+number of time steps
+100000
+dt: time step size 
+0.001
+dumpfreq: how many time steps are the results saved
+1000
+fast: if it uses large stencil or compact stencil. fast-true means compact. It is not setup yet in the code
+0
+linear solver type: 1:Eigen, 2: Hypre, 3: AMGCL. The HYPRE is not setup yet.
+3
+sample_points file
+sample_points.dat
+solver
+gmres
+AMG
+
