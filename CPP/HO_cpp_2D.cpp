@@ -100,7 +100,7 @@ int HO_2D::read_input_file(const std::string filename) {
 	  std::getline(file_handle, temp_string);
 	  file_handle >> fast; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 
-	  // read in the type of matrix formation for poisson equation (1=Eigen, 2=Hypre)
+	  // read in the type of matrix formation for poisson equation (1=Eigen, 2=Hypre, 3=amgcl)
 	  std::getline(file_handle, temp_string);
 	  file_handle >> LHS_type; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 	  
