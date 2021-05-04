@@ -15,7 +15,7 @@
 
 int main()
 {
-    const std::string input_file_name = "/home/mhajit/Cavity_Re10000/input.dat"; //the file listing all the settings
+    const std::string input_file_name = "input.dat"; //the file listing all the settings
     HO_2D ho_2d;
     ho_2d.read_input_file(input_file_name);
     int success_mesh = ho_2d.setup_mesh(); //if problem type is 10 then read from file, otherwise form a specific predefined mesh based on grid_type
