@@ -20,7 +20,7 @@ void HO_2D::release_memory() { //release the memory as destructor
 	delete[] initial_vorticity;
 }
 
-int HO_2D::read_input_file(const std::string const filename) {
+int HO_2D::read_input_file(const std::string filename) {
 	//reads the essential solver / problem settings form the file filenme
 	int retval=0;
 	std::string temp_string;
@@ -29,77 +29,96 @@ int HO_2D::read_input_file(const std::string const filename) {
 
 	std::ifstream file_handle(filename);
 	if (file_handle.fail()) {
-		std::cout << "Input file opening failed.\n";
-		exit(1);
+	  std::cout << "Input file opening failed.\n";
+	  exit(1);
 	}
-
+	
 	try {
-		//     retrieve number of quadrilateral elements in case of structured mesh (prespecified problem)
-		getline(file_handle, temp_string);
-		file_handle >> mesh.N_el_i >>temp_char>> mesh.N_el_j; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');   // ignore until next line
-		// retrieve Knod: number of solution points in each element in each direction
-		getline(file_handle, temp_string); 
-		file_handle >> Knod; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-		// read on Lnod_in: degree of the polynomial of the geometry edges: number of nodes on the elements edges -1
-		getline(file_handle, temp_string);
-		file_handle >> mesh.Lnod_in; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-		mesh.Lnod = mesh.Lnod_in + 1; //number ofgeometry nodes on each edge
-		// read the name of the mesh file and store it in the mesh.input_msh_file
-		getline(file_handle, temp_string);
-		getline(file_handle,temp_string); file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-		mesh.input_msh_file = temp_string.c_str();
-		//ignore the next 2 lines as they correspond to the exact geometry for concentric cylinders
-		getline(file_handle, temp_string);
-		// read in the Reynolds number and store the inverse of Reynolds number in Reyn_inv
-		getline(file_handle, temp_string);
-		file_handle >> Reyn_inv; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-		Reyn_inv = Reyn_inv > 1.e-3 ? 1. / Reyn_inv : -1.; //if negative then ignore the vicous term
-		// read inmultiplier to expand the grid geometrically by factor dx_ratio
-		getline(file_handle, temp_string);
-		file_handle >> mesh.dx_ratio; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-		// read in multiplier to make grids randomly non-uniform; uniform: fac=0.
-		getline(file_handle, temp_string);
-		file_handle >> mesh.fac; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-		// read in HuynhSolver_type
-		getline(file_handle, temp_string);
-		file_handle >> HuynhSolver_type; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-		// read in time integration method, 1 = Euler; 2 = Mod.Euler; 4 = RK4
-		getline(file_handle, temp_string);
-		file_handle >> time_integration_type; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-		// read in problem type
-		getline(file_handle, temp_string);
-		file_handle >> problem_type; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-		// read in total number of time steps
-		getline(file_handle, temp_string);
-		file_handle >> num_time_steps; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-		// read in time step size
-		getline(file_handle, temp_string);
-		file_handle >> dt; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-		// read in file saving frequency
-		getline(file_handle, temp_string);
-		file_handle >> dump_frequency; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-		// read in if it uses large stencil or compact stencil. fast-true means compact
-		getline(file_handle, temp_string);
-		file_handle >> fast; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-		// read in the type of matrix formation for poisson equation (1=Eigen, 2=Hypre)
-		getline(file_handle, temp_string);
-		file_handle >> LHS_type; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-		// read in the name of the sample points file
-		getline(file_handle, temp_string);
-		getline(file_handle, temp_string);
-		file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-		sample_points_file = temp_string.c_str();
-		// Later add to read in the type of solver and preconditioner. for now dont worry about it
+	  //     retrieve number of quadrilateral elements in case of structured mesh (prespecified problem)
+	  std::getline(file_handle, temp_string);
+	  file_handle >> mesh.N_el_i >>temp_char>> mesh.N_el_j; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');   // ignore until next line
 
-		std::cout << "         Done" << std::endl;
-		file_handle.close();
+	  // retrieve Knod: number of solution points in each element in each direction
+	  std::getline(file_handle, temp_string); //read stoff explaining Knod
+	  file_handle >> Knod; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+
+	  // read on Lnod_in: degree of the polynomial of the geometry edges: number of nodes on the elements edges -1
+	  getline(file_handle, temp_string);
+	  file_handle >> mesh.Lnod_in; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+	  mesh.Lnod = mesh.Lnod_in + 1; //number of geometry nodes on each edge
+
+	  // read the name of the mesh file and store it in the mesh.input_msh_file
+	  std::getline(file_handle,temp_string);
+	  file_handle >> mesh.input_msh_file; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+
+	  //mesh.input_msh_file = temp_string.c_str();
+	  //ignore the next 2 lines as they correspond to the exact geometry for concentric cylinders
+	  std::getline(file_handle, temp_string); getline(file_handle, temp_string);
+	  
+	  // read in the Reynolds number and store the inverse of Reynolds number in Reyn_inv
+	  std::getline(file_handle, temp_string);
+	  file_handle >> Reyn_inv; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+	  Reyn_inv = Reyn_inv > 1.e-3 ? 1. / Reyn_inv : -1.; //if negative then ignore the vicous term
+	  
+	  // read inmultiplier to expand the grid geometrically by factor dx_ratio
+	  std::getline(file_handle, temp_string);
+	  file_handle >> mesh.dx_ratio; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+	  
+	  // read in multiplier to make grids randomly non-uniform; uniform: fac=0.
+	  std::getline(file_handle, temp_string);
+	  file_handle >> mesh.fac; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+	  
+	  // read in HuynhSolver_type
+	  std::getline(file_handle, temp_string);
+	  file_handle >> HuynhSolver_type; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+	  
+	  // read in time integration method, 1 = Euler; 2 = Mod.Euler; 4 = RK4
+	  std::getline(file_handle, temp_string);
+	  file_handle >> time_integration_type; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+	  
+	  // read in the advective term discretization method, 1 = original discontinuous mass flux field; 2 = Modified continuous mass flux across cell interfaces
+	  std::getline(file_handle, temp_string);
+	  file_handle >> advection_type; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+	  
+	  // read in problem type
+	  std::getline(file_handle, temp_string);
+	  file_handle >> problem_type; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+	  
+	  // read in total number of time steps
+	  std::getline(file_handle, temp_string);
+	  file_handle >> num_time_steps; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+	  
+	  // read in time step size
+	  std::getline(file_handle, temp_string);
+	  file_handle >> dt; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+	  
+	  // read in file saving frequency
+	  std::getline(file_handle, temp_string);
+	  file_handle >> dump_frequency; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+	  
+	  // read in if it uses large stencil or compact stencil. fast-true means compact
+	  std::getline(file_handle, temp_string);
+	  file_handle >> fast; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+
+	  // read in the type of matrix formation for poisson equation (1=Eigen, 2=Hypre)
+	  std::getline(file_handle, temp_string);
+	  file_handle >> LHS_type; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+	  
+	  // read in the name of the sample points file
+	  std::getline(file_handle, temp_string);
+	  file_handle >> sample_points_file; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+
+	  // Later add to read in the type of solver and preconditioner. for now dont worry about it
+
+	  std::cout << "         Done" << std::endl;
+	  file_handle.close();
 	}
-
+	
 	catch (...) {
-		//		error.printError();
-		retval = 2;
+	  //		error.printError();
+	  retval = 2;
 	}
-
+	
 	return retval;
 }
 
@@ -1385,7 +1404,8 @@ char HO_2D::Euler_time_integrate(double*** vort_in, double*** vort_out, double c
 	solve_Poisson(vort_in); //calculate the streamfunction corresponding to the vort_in, i.e. Laplacian(psi)=-vort_in. solves for stream_function
 	calc_velocity_vector_from_streamfunction(); //calculate the Cartesian velocity field velocity_cart from psi (u_
 	calc_RHS_diffusion(vort_in);  //stores Laplace(w) in RHS_diffusive[el][Knod][Knod]
-	calc_RHS_advection(vort_in); //stores -div(vw) in RHS_advective[el][Knod][Knod]
+	if (advection_type==1) calc_RHS_advection(vort_in); //stores -div(vw) in RHS_advective[el][Knod][Knod]
+	else if (advection_type == 2) calc_RHS_advection_continuous(vort_in); //stores -div(vw) in RHS_advective[el][Knod][Knod]
 	
 	
 	//update the vorticity field now
@@ -2973,10 +2993,10 @@ void HO_2D::save_output_vtk() {
 	// ***************************** write omega, and velocity components into a file ****************************
 	std::string file_name = "problem";
 	file_name.append(std::to_string(problem_type));
-	file_name.append("_timestep");
-	file_name.append(std::to_string(ti+1));
 	file_name.append("_K");
 	file_name.append(std::to_string(Knod));
+	file_name.append("_timestep");
+	file_name.append(std::to_string(ti+1));
 	file_name.append(".vtk");
 
 	std::cout << "     Writing the results after " << ti+1 << "  timesteps into the file:  " << file_name << std::endl;
@@ -3232,10 +3252,10 @@ void HO_2D::save_vorticity_vtk() {
 	int N_el = mesh.N_el;
 	std::string file_name = "vorticity";
 	file_name.append(std::to_string(problem_type));
-	file_name.append("_timestep");
-	file_name.append(std::to_string(ti + 1));
 	file_name.append("_K");
 	file_name.append(std::to_string(Knod));
+	file_name.append("_timestep");
+	file_name.append(std::to_string(ti + 1));
 	file_name.append(".vtk");
 
 	std::cout << "     Writing the results after " << ti + 1 << "  timesteps into the file:  " << file_name << std::endl;

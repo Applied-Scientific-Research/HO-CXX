@@ -68,6 +68,7 @@ private:
 	unsigned int num_time_steps; //total number of time steps to march in time
 	double dt; //time step size
 	int ti; //time step
+	int advection_type=1; //1 is for original advctive flux based on discontinuous mass flux across cells, 1 is for continuous version
 	unsigned int dump_frequency; //the frequency of time saving
 	bool fast; //0 for original, 1 for compact formulation (use gLB, gRB)
 	unsigned int N_gps; //number of geometry nodes in the domain

@@ -1,34 +1,40 @@
-Nx, Ny             ! num. of meshes/elements  
-2,2
-K                  ! nodes per elem
+Nel_i , Nel_j:
+5, 9
+Knod quantity:
 3
-L                  ! geometry parametric order
+Lnod:
+3
+mesh file name:
+/home/mhajit/Cavity_Re10000/mesh2.msh
+Exact
+false
+Reyn
+10000.
+dx ratio : expanding mesh ratio. For Gmsh reading option it is not used.
+1.
+fac:  multiplier to make grids randomly non-uniform; uniform: fac=0
+0.
+Huyn solver: for now only the option 2 is used which is the DG equivalence
 2
-SU Mesh File       ! For now, use prob_type >=10 for this; <10 for internal mesh problems
-Ellipse_Mesh_L3.su2
-Exact              ! Exact geometry for concentric cylinders, prob_type=7,8
-false  
-Reyn               ! Reynolds number
-5000.0d0
-dxrat              ! multiplier to make geometrically expanding grids uniform: dxrat = 1.
-1.00d0
-fac                ! multiplier to make grids randomly non-uniform; uniform: fac=0.
-0.0d0
-HuynhSolver_type   ! Huynh's scheme types: 2=std DG; 11=higher order
+time integration: 1: explicit Euler, 2: explicit RK2, 4: explicit RK4
 2
-tIntegrator_type   ! time integration method; 1=Euler; 2=Mod. Euler; 4=RK4
+advection scheme: 1: original discontinuous, 2: continuous mass flux term
 1
-prob_type          ! Solve different problems
-8 
-numStep            ! num. of timesteps
-1000000
-dt                 ! timestep size
-0.00001
-dumpFreq           ! dump output at every dumpFreq steps; (= 0 will dump only the last step)
+problem type. For now, number 3 is the Cavity and 10 is the general case
+3
+number of time steps
+100000
+dt: time step size 
+0.001
+dumpfreq: how many time steps are the results saved
 1000
-Fast               ! Enter 0 for original diffusion
+fast: if it uses large stencil or compact stencil. fast-true means compact. It is not setup yet in the code
 0
-solver/precon      ! Solver and Preconditioner methods
-fgmres  
-amg   
+linear solver type: 1:Eigen, 2: Hypre, 3: AMGCL. The HYPRE is not setup yet.
+3
+sample_points file
+sample_points.dat
+solver
+gmres
+AMG
 

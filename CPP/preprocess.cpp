@@ -6,11 +6,11 @@ char Mesh::read_msh_file() {
 	std::string filename = input_msh_file;
 	std::cout << "     Gmsh file   ***** " << filename << " *****   opened for reading ..." << std::endl << std::endl;
 	int retval = 1, tmp, tmp1, tmp2;
-	unsigned int index;
-	unsigned int nodes_min_index, nodes_max_index, raw_N_nodes, tag_N_nodes, nodes_total_entities, group_tag, entity_dim, unorganized_node_index = 0;
-	unsigned int elements_min_index, elements_max_index, tag_N_elements, elements_total_entities, element_type;
-	unsigned int node_index;
-	unsigned int entities_N_points, entities_N_curves, entities_N_faces;
+	int index;
+	int nodes_min_index, nodes_max_index, raw_N_nodes, tag_N_nodes, nodes_total_entities, group_tag, entity_dim, unorganized_node_index = 0;
+	int elements_min_index, elements_max_index, tag_N_elements, elements_total_entities, element_type;
+	int node_index;
+	int entities_N_points, entities_N_curves, entities_N_faces;
 	bool found = false;
 	double double_field, coorX, coorY, coorZ;
 	std::string temp_string;
@@ -21,6 +21,7 @@ char Mesh::read_msh_file() {
 	std::vector<Cmpnts2> unorganized_nodes_coor; //store all the raw read coordinartes of all nodes
 	std::vector<unsigned int> unorganized_node_mapping; // maps the node numbers read from the msh file into the unorganized indices (helps to remove the indices gap)
 	std::vector<char> unorganized_node_type; //0 for corner, 1 for edge and 2 for nodes on the faces
+
 	std::ifstream mshfile(filename);
 	if (mshfile.fail()) {
 		std::cout << "Input file opening failed.\n";
@@ -34,7 +35,7 @@ char Mesh::read_msh_file() {
 	boundaries.resize(N_Gboundary);
 	std::vector<unsigned int> tmp_boundary_tag(N_Gboundary); //temporary vector to store the boundary indices in MSH file (it is often irregular)
 	for (int i = 0; i < N_Gboundary; ++i) {
-		mshfile >> tmp >> tmp_boundary_tag[i] >> boundaries[i].name;
+		mshfile >> tmp >> tmp_boundary_tag[i] >> boundaries[i].name; std::getline(mshfile, temp_string);
 		boundaries[i].name.erase(boundaries[i].name.size() - 1); //get rid of the "" that are in the name field read from MSH file
 		boundaries[i].name.erase(0, 1);
 	}
@@ -43,27 +44,27 @@ char Mesh::read_msh_file() {
 	//-----------------------------------------------------------------------------------------
 	tmp = locate_in_file(mshfile, "$Entities");
 	mshfile >> entities_N_points >> entities_N_curves >> entities_N_faces >> tmp; //tmp is number of vols which is 0 for 2D problem
+	std::getline(mshfile, temp_string);
 	assert(!tmp); //double check that there is no volume in the domain, so 2D problem
 
 	for (int i = 0; i < entities_N_points; ++i) //skip the points
-		do
-			getline(mshfile, temp_string);
-	while (temp_string.length() == 0);
+	  do
+	    std::getline(mshfile, temp_string);
+	  while (temp_string.length() == 0);
 
 
 	std::vector<unsigned int> tmp_curve_entity_tag(entities_N_curves); //temporary vector to store the curves entity tag in MSH file
 	std::vector<unsigned int> tmp_curves_boundary_tag(entities_N_curves); //writes the boundry tag of curves
 	for (int i = 0; i < entities_N_curves; ++i) { //read in the curves entity tag and the boundry tag
-		mshfile >> tmp_curve_entity_tag[i] >> double_field >> double_field >> double_field >> double_field >> double_field >> double_field
-			>> tmp >> tmp_curves_boundary_tag[i];
-		getline(mshfile, temp_string); //read in the rst of data which are not needed at this point
+	  mshfile >> tmp_curve_entity_tag[i] >> double_field >> double_field >> double_field >> double_field >> double_field >> double_field >> tmp >> tmp_curves_boundary_tag[i];
+	  std::getline(mshfile, temp_string); //read in the rst of data which are not needed at this point
 	}
 
 	// *************** Now read in the NODES field: locate the keyword $Nodes *****************
 	//-----------------------------------------------------------------------------------------
 	tmp = locate_in_file(mshfile, "$Nodes");
-
 	mshfile >> nodes_total_entities >> raw_N_nodes >> nodes_min_index >> nodes_max_index;
+	std::getline(mshfile, temp_string);
 	unorganized_nodes_coor.resize(raw_N_nodes);
 	unorganized_node_type.resize(raw_N_nodes);
 	tmp = nodes_max_index - nodes_min_index + 1;
@@ -73,16 +74,18 @@ char Mesh::read_msh_file() {
 	for (unsigned int node_entity = 0; node_entity < nodes_total_entities; ++node_entity) {
 		mshfile >> entity_dim >> group_tag; //entity_dim=0(corners), 1(edge nodes) , 2(surface nodes); group_tag: tag of group for each entity
 		mshfile >> tmp >> tag_N_nodes; //tmp=0,1 means No parametric or with parametric; NNodes: number of nodes in this tag
+		std::getline(mshfile, temp_string);
 		std::fill(unorganized_node_type.begin() + unorganized_node_index, unorganized_node_type.begin() + unorganized_node_index + tag_N_nodes, entity_dim);
 		for (unsigned int node = 0; node < tag_N_nodes; ++node) { //store the indices
-			mshfile >> index;
+		  mshfile >> index; std::getline(mshfile, temp_string);
 			index -= nodes_min_index; //shift all indices s.t. the indices start from zero
 			unorganized_node_mapping[index] = unorganized_node_index++;	//shifting all indices, such that min_index becomes zero index
 		}
 		unorganized_node_index -= tag_N_nodes; //restore to read the coordinates
 		for (unsigned int node = 0; node < tag_N_nodes; ++node) { //now store the coordinates
-			mshfile >> unorganized_nodes_coor[unorganized_node_index].x;
-			mshfile >> unorganized_nodes_coor[unorganized_node_index++].y >> coorZ;
+		  double a,b,c;
+		  mshfile >> a >>b >>c; std::getline(mshfile, temp_string); // The x,y,z coordinates of the nodes
+		  unorganized_nodes_coor[unorganized_node_index++].set_coor(a,b);
 		}
 	}
 
@@ -91,16 +94,19 @@ char Mesh::read_msh_file() {
 	unsigned int edge_index = 0; //to store in the boundaries, the edges that form each boundary curve
 	//std::vector<std::vector<unsigned int>> tmp_curves_edges_tag(entities_N_curves); //store the tags for the edges forming each curve (curve is an entity, edgeis discretized form of curves)
 	tmp = locate_in_file(mshfile, "$Elements");
-
 	mshfile >> elements_total_entities >> N_elements >> elements_min_index >> elements_max_index; //N_element= total number of nodes, edges and 2d elements, ignore the 0d elements
+	std::getline(mshfile, temp_string);
 	assert(elements_total_entities == entities_N_points + entities_N_curves + entities_N_faces);
 	for (unsigned int element_entity = 0; element_entity < elements_total_entities; ++element_entity) {
 		mshfile >> entity_dim >> group_tag; ////entity_dim=0(0d), 1(1d) , 2(2d) features; group_tag: tag of entity
 		mshfile >> element_type >> tag_N_elements; //1,8,26,27,28: 2-node, 3-node, 4-node, 5-node and 6-node lines; 3,10,16,36,37: 4-node, 9-node, 8-node, 16-node, 25-node 2D elements
+		std::getline(mshfile, temp_string);
 		if (entity_dim == 0 /*element_type==15*/)  //single-node point
-			for (unsigned int element = 0; element < tag_N_elements; ++element) //skip the nodes definitions
-				mshfile >> tmp1 >> tmp2;
-
+		  for (unsigned int element = 0; element < tag_N_elements; ++element) { //skip the nodes definitions
+		    mshfile >> tmp1 >> tmp2;
+		    std::getline(mshfile, temp_string);
+		  }
+		
 		else if (entity_dim == 1) { // element_type corresponds to edge
 			its = std::find(edge_type_node_number[0].begin(), edge_type_node_number[0].end(), element_type);
 			check_start = its != edge_type_node_number[0].end(); //true means the element is of edge type
@@ -116,7 +122,6 @@ char Mesh::read_msh_file() {
 			// in general group_tag (curve_tag here) forming edges can be written NOT in the same order as in the entity section. So, find the tmp_curve_entity_tag index that has group_tag
 			its = std::find(tmp_curve_entity_tag.begin(), tmp_curve_entity_tag.end(), group_tag);
 			index = its - tmp_curve_entity_tag.begin();  //index of the curve_tag (group_tag) in the vector tmp_curve_entity_tag (to find the corresponding boundary tag)
-
 
 			int curve_boundary_tag = tmp_curves_boundary_tag[index];
 			its = std::find(tmp_boundary_tag.begin(), tmp_boundary_tag.end(), curve_boundary_tag);
@@ -136,6 +141,7 @@ char Mesh::read_msh_file() {
 					mshfile >> node_index;
 					_edge.nodes.push_back(node_index - nodes_min_index);
 				}
+				std::getline(mshfile, temp_string);
 				edges.push_back(_edge);
 			}
 		}
@@ -156,11 +162,14 @@ char Mesh::read_msh_file() {
 					mshfile >> index;
 					_face.nodes.push_back(index - nodes_min_index);
 				}
+				std::getline(mshfile, temp_string);
 				elements.push_back(_face);
 			}
 		}
 	}
-
+	std::cout << "here";
+	mshfile.close();
+	//std::cout << elements[elements.size()-1].nodes[0]<< " "<<elements[elements.size()-1].nodes[1]<< " " << elements[elements.size()-1].nodes[2]<< " " << elements[elements.size()-1].nodes[3]<<std::endl;
 	Lnod = _edge.N_nodes;
 	Lnod_in = Lnod - 1;
 
@@ -201,10 +210,11 @@ char Mesh::read_msh_file() {
 			elements[i].nodes[j] = second_mapping[tmp1];  //redistributing the indices
 		}
 	}
-
-	std::cout << "         Done" << std::endl;
-	mshfile.close();
-
+	
+	//std::cout << "         Done" << std::endl;
+	//	std::cout << elements.size();
+	//std::cout << "out of the loop" << elements[10].nodes[5] << " "<<elements[20].nodes[6] << " "<< elements[30].nodes[4] << " ";
+	
 	process_mesh();
 
 	return retval;
@@ -350,17 +360,20 @@ int Mesh::locate_in_file(std::ifstream& filestream, const std::string& searchnam
 	//to find a specific keyword in the MSH file and return the file stream
 	std::string temp;
 	bool found = false;
-	while (!filestream.eof()) {
-		getline(filestream, temp);
-		found = false;
-		if (temp == searchname) {
-			found = true;
-			break;
-		}
+	while (filestream.good()) {
+	  std::getline(filestream, temp);
+	  //temp.erase(temp.size() - 1); //get rid of the "" that are in the name field read from MSH file (is only the case in windows)
+	  // temp.erase(0, 1); // get rid of the first character
+	  std::cout << temp << std::endl;
+	  found = false;
+	  if (temp==searchname) {
+	    found = true;
+	    break;
+	  }
 	}
 	if (!found) {
-		std::cout << "The  " << searchname << "  Field Not Found! " << std::endl;
-		return 10;
+	  std::cout << "The  " << searchname << "  Field Not Found! " << std::endl;
+	  return 10;
 	}
 	return 0;
 }
@@ -689,5 +702,6 @@ char Mesh::setup_mesh_problem(unsigned int prob_type) {
 		}  //for i < N_el_i , for j < N_el_j
 
 	N_edges_boundary = nb; //the corrected number of edges on the boundary (it exclude the edge woth periodic BC)
+	return 1;
 }
 
