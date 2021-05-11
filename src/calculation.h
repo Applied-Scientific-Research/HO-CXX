@@ -1,20 +1,28 @@
+/*
+ * calculation.h - Class definition for HO_2D
+ *
+ * (c)2020-1 Applied Scientific Research, Inc.
+ *           Mohammad Hajit
+ */
+
 #pragma once
+
 #define _USE_MATH_DEFINES
+#include "preprocess.h"
 //#include "stdafx.h"
-#include <stdlib.h> 
+#include <cstdlib> 
 #include <iostream>
 #include <fstream>
 #include <string>
 #include <tuple>
-#include "preprocess.h"
 #include <Eigen/Eigenvalues> 
-#include<Eigen/Dense>
+#include <Eigen/Dense>
 #include <Eigen/Core>
 #include <Eigen/Sparse>
 #include <Eigen/Cholesky>
 #include <Eigen/LU>
 #include <Eigen/OrderingMethods>
-#include<Eigen/IterativeLinearSolvers>
+#include <Eigen/IterativeLinearSolvers>
 #include <amgcl/backend/eigen.hpp>
 #include <amgcl/make_solver.hpp>
 #include <amgcl/solver/bicgstab.hpp>

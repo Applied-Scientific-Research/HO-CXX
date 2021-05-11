@@ -1,7 +1,7 @@
 /*
  * main.cpp - Driver code for HO-CXX, a high-order solver in vorticity variables
  *
- * (c)2018-20 Applied Scientific Research, Inc.
+ * (c)2018-21 Applied Scientific Research, Inc.
  *            Mohammad Haji <mhajit@gmail.com>
  *            Based on work by
  *            Adrin Gharakhani <adrin@applied-scientific.com>

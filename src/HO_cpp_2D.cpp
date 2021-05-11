@@ -1,3 +1,10 @@
+/*
+ * HO_cpp_2D.cpp - Class methods for HO_2D
+ *
+ * (c)2020-1 Applied Scientific Research, Inc.
+ *           Mohammad Hajit
+ */
+
 #include "calculation.h"
 #include "misc.hpp"
 #include <cmath>
