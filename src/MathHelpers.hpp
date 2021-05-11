@@ -1,5 +1,5 @@
 /*
- * misc.hpp - Useful mathematical helper functions
+ * MathHelpers.hpp - Useful mathematical helper functions
  *
  * (c)2020-1 Applied Scientific Research, Inc.
  *           Mohammad Hajit

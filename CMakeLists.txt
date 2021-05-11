@@ -60,10 +60,10 @@ ELSEIF( UNIX )
   INCLUDE_DIRECTORIES ( "${AMGCL_ROOT}" )
 ENDIF ()
 
-FILE(GLOB HEADERS "src/*.h" )
+FILE(GLOB HEADERS "src/*.hpp" )
 SET(SOURCES ${HEADERS}
-            "src/HO_cpp_2D.cpp"
-            "src/preprocess.cpp" )
+            "src/HO_2D.cpp"
+            "src/Mesh.cpp" )
 
 # Define targets
 ADD_LIBRARY ( ${PROJECT_NAME} STATIC ${SOURCES} )

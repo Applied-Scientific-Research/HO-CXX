@@ -8,8 +8,9 @@
  *            Christoper Stone <cpstone@gmail.com>
  */
 
-#include "calculation.h"
-#include "preprocess.h"
+#include "HO_2D.hpp"
+#include "Mesh.hpp"
+
 #include <iostream>
 
 

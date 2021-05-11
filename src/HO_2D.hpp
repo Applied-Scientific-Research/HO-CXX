@@ -1,5 +1,5 @@
 /*
- * calculation.h - Class definition for HO_2D
+ * HO_2D.hpp - Class definition for HO_2D
  *
  * (c)2020-1 Applied Scientific Research, Inc.
  *           Mohammad Hajit
@@ -8,13 +8,15 @@
 #pragma once
 
 #define _USE_MATH_DEFINES
-#include "preprocess.h"
+#include "Mesh.hpp"
+
 //#include "stdafx.h"
 #include <cstdlib> 
 #include <iostream>
 #include <fstream>
 #include <string>
 #include <tuple>
+
 #include <Eigen/Eigenvalues> 
 #include <Eigen/Dense>
 #include <Eigen/Core>

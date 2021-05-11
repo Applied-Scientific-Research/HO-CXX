@@ -1,12 +1,12 @@
 /*
- * HO_cpp_2D.cpp - Class methods for HO_2D
+ * HO_2D.cpp - Class methods for HO_2D
  *
  * (c)2020-1 Applied Scientific Research, Inc.
  *           Mohammad Hajit
  */
 
-#include "calculation.h"
-#include "misc.hpp"
+#include "HO_2D.hpp"
+#include "MathHelpers.hpp"
 #include <cmath>
 
 void HO_2D::release_memory() { //release the memory as destructor

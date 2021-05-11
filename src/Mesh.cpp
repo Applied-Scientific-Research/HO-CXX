@@ -1,11 +1,12 @@
 /*
- * preprocess.cpp - Unstructured mesh class implementation
+ * Mesh.cpp - Unstructured mesh class implementation
  *
  * (c)2020-1 Applied Scientific Research, Inc.
  *           Mohammad Hajit
  */
 
-#include "preprocess.h"
+#include "Mesh.hpp"
+
 #include <cmath>
 
 char Mesh::read_msh_file() {
