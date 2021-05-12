@@ -3,6 +3,7 @@
  *
  * (c)2020-1 Applied Scientific Research, Inc.
  *           Mohammad Hajit
+ *           Mark J. Stock <markjstock@gmail.com>
  */
 
 #pragma once
@@ -63,6 +64,7 @@ private:
 	double** BC_diffusion;
 	double** BC_vorticity;  //it is always the dirichlet. it has the vorticity values on the boundary, which are calculated from the BC_diffusion BC values.
 	bool* BC_no_slip; //if the boundary conditions are no slip wall. if yes, then it is true
+	Cmpnts2** BC_cart_vel; //the BC for Cartesian velocity vector
 
 	double*** vorticity; //the vorticity field: first index goes for element, second and third go for j (eta dir) and i (csi dir) sps
 	double*** initial_vorticity; //The initial (t=0) vorticity field
@@ -130,9 +132,22 @@ private:
 	std::vector<int> sample_points_containing_elements; // The index of the elements that contain each sample point
 	double** gps_shapefunc_on_sample_points; //The shape function of Lnod*Lnod gps onthe sample point in an element. size is [L*L][N_sp]
 
+	// data to support hybrid solvers
+
+	bool using_hybrid;
+	// this is where C++ is still terrible: either *** and new[] delete[], or Eigen, or Boost, or templates!
+        // values on the open boundary - relatively easy, can use Eigen matrix or double**
+	// it would be nice to use std::vector<std::array<FTYPE,K>> BC_VelNorm_start;
+	double** BC_VelNorm_start, ** BC_VelNorm_end;
+	double** BC_VelParl_start, ** BC_VelParl_end;
+	double** BC_Vort_start,    ** BC_Vort_end;
+        // values in the volume
+	double*** Vort_start, *** Vort_end, *** Vort_wgt;
+
 public:
 	HO_2D() //default constructor
 	{
+		using_hybrid = false;
 		Knod = 1;
 		dump_frequency = 1000;
 		dt = 0.001;
@@ -159,7 +174,8 @@ public:
 	~HO_2D()
 	{
 		release_memory();
-	}; // desctructor
+	}; // destructor
+
 	void save_output(int time);
 	void release_memory();
 	int read_input_file(const std::string filename);
@@ -191,4 +207,35 @@ public:
 	void read_process_sample_points();
 	void update_advection_BC(); //calculate/update the BC for the advective term
 	void update_diffusion_BC(); //calculate/update the BC for the diffusion term
+
+	// methods to support hybrid solvers (control by an external Lagrangian method)
+
+	// see HO-Fortran/src/hofortran_interface.h for similar prototypes
+	void set_defaults();
+	void enable_hybrid();
+	void set_elemorder(const int32_t);
+	void load_mesh_arrays_d(const int32_t,
+		const int32_t, const double*,
+		const int32_t, const int32_t*,
+		const int32_t, const int32_t*,
+		const int32_t, const int32_t*);
+	// get data from this Eulerian solver
+	int32_t getsolnptlen();
+	void getsolnpts_d(const int32_t, double*);
+	void getsolnareas_d(const int32_t, double*);
+	int32_t getopenptlen();
+	void getopenpts_d(const int32_t, double*);
+	// send vels and vorts to this solver
+	void setopenvels_d(const int32_t, double*);
+	void setopenvort_d(const int32_t, double*);
+	void setsolnvort_d(const int32_t, double*);
+	void setptogweights_d(const int32_t, double*);
+	// march forward
+	void solveto_d(const double, const int32_t, const int32_t, const double);
+	// retrieve results
+	void getallvorts_d(const int32_t, double*);
+	void get_hoquad_weights_d(const int32_t, double*);
+	void trigger_write(const int32_t);
+	// close, finish
+	void clean_up();
 };
