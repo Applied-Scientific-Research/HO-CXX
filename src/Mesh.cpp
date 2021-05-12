@@ -2,7 +2,7 @@
  * Mesh.cpp - Unstructured mesh class implementation
  *
  * (c)2020-1 Applied Scientific Research, Inc.
- *           Mohammad Hajit
+ *           Mohammad Hajit <mhajit@gmail.com>
  */
 
 #include "Mesh.hpp"
