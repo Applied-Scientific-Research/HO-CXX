@@ -1,21 +1,22 @@
 /*
  * main.cpp - Driver code for HO-CXX, a high-order solver in vorticity variables
  *
- * (c)2018-20 Applied Scientific Research, Inc.
+ * (c)2018-21 Applied Scientific Research, Inc.
  *            Mohammad Haji <mhajit@gmail.com>
  *            Based on work by
  *            Adrin Gharakhani <adrin@applied-scientific.com>
  *            Christoper Stone <cpstone@gmail.com>
  */
 
-#include "calculation.h"
-#include "preprocess.h"
+#include "HO_2D.hpp"
+#include "Mesh.hpp"
+
 #include <iostream>
 
 
 int main()
 {
-    const std::string input_file_name = /*"/home/mhajit/Cavity_Re10000/input.dat"*/  "input.dat" ; //the file listing all the settings
+    const std::string input_file_name = "input.dat"; //the file listing all the settings
     HO_2D ho_2d;
     ho_2d.read_input_file(input_file_name); //true means the OCC format. zero means the buildin format of GMSH
     int success_mesh = ho_2d.setup_mesh(); //if problem type is 10 then read from file, otherwise form a specific predefined mesh based on grid_type

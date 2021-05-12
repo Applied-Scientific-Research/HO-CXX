@@ -5,7 +5,7 @@ Knod quantity:
 Lnod:
 3
 mesh file name:
-/home/mhajit/ASR/HO_2D_test_cases/cylinder/mesh_medium.msh
+mesh_medium.msh
 if the file is written in OCC format or orognal gmsh format. zero means original, 1 means OCC format
 1
 Exact

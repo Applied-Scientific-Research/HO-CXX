@@ -1,3 +1,10 @@
+/*
+ * MathHelpers.hpp - Useful mathematical helper functions
+ *
+ * (c)2020-1 Applied Scientific Research, Inc.
+ *           Mohammad Hajit
+ */
+
 #pragma once
 
 cell_sides i2f[] = { west,east,south,north }; //(i2f[ijp] is the local side index (south, east, ... CCW) of the current cell: south =0:ibnd=0,idir=1; east=1:ibnd=1, idir=0, ...

@@ -23,7 +23,7 @@ IF (CMAKE_COMPILER_IS_GNUCXX)
   SET (CMAKE_CXX_FLAGS_RELEASE "-O2 -march=native")
   SET (CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O2 -march=native -g -ggdb3")
 ELSEIF (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-  SET (CMAKE_CXX_FLAGS "-Wall -Wformat -std=c++17")
+  SET (CMAKE_CXX_FLAGS "-Wall -Wformat -std=c++11")
   SET (CMAKE_CXX_FLAGS_DEBUG "-O0 -g -ggdb")
   SET (CMAKE_CXX_FLAGS_RELEASE "-O3")
   SET (CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O3 -g -ggdb")
@@ -50,20 +50,29 @@ ELSE()
 ENDIF()
 
 IF( WIN32 )
+  SET (EIGEN_ROOT "C:\Program Files\eigen-3.3.9" CACHE STRING "Eigen root" )
+  INCLUDE_DIRECTORIES ( "${EIGEN_ROOT}" )
+  SET (AMGCL_ROOT "C:\Program Files\amgcl-master" CACHE PATH "Location of AMGCL root" )
+  INCLUDE_DIRECTORIES ( "${AMGCL_ROOT}" )
+
 ELSEIF( APPLE )
+  # need this
+
 ELSEIF( UNIX )
-  INCLUDE_DIRECTORIES ( "/usr/include/eigen3" )
-  INCLUDE_DIRECTORIES ( "/home/mstock/opt/amgcl-1.4.0" )
+  SET (EIGEN_ROOT "/usr/include/eigen3" CACHE STRING "Eigen root" )
+  INCLUDE_DIRECTORIES ( "${EIGEN_ROOT}" )
+  SET (AMGCL_ROOT "/home/mstock/opt/amgcl-1.4.0" CACHE PATH "Location of AMGCL root" )
+  INCLUDE_DIRECTORIES ( "${AMGCL_ROOT}" )
 ENDIF ()
 
-FILE(GLOB HEADERS "*.h" )
+FILE(GLOB HEADERS "src/*.hpp" )
 SET(SOURCES ${HEADERS}
-            "HO_cpp_2D.cpp"
-            "preprocess.cpp" )
+            "src/HO_2D.cpp"
+            "src/Mesh.cpp" )
 
 # Define targets
 ADD_LIBRARY ( ${PROJECT_NAME} STATIC ${SOURCES} )
 
 #ADD_EXECUTABLE( "${PROJECT_NAME}.bin" ${SOURCES} "main.cpp" )
-ADD_EXECUTABLE( "${PROJECT_NAME}.bin" "main.cpp" )
+ADD_EXECUTABLE( "${PROJECT_NAME}.bin" "src/main.cpp" )
 TARGET_LINK_LIBRARIES( "${PROJECT_NAME}.bin" LINK_PUBLIC ${PROJECT_NAME} ${LIBS} )

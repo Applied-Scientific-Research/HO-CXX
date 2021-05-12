@@ -41,3 +41,8 @@ Test_Package/*.vtk
 
 *.vtk
 *.vtu
+
+# temp and build directories
+build
+Release
+Debug
