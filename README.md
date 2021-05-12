@@ -14,7 +14,9 @@ To run a sample case, perform the following from the `build` directory:
     cp ../input/* ./
     ./HO-CXX.bin
 
-Output will be to vtk-legacy-format files every 1000 steps by default.
+The executable will always read the `input.dat` file in the current working directory. Make sure that the appropriate `*.msh` file is also in the cwd. Output will be to vtk-legacy-format files every 1000 steps by default.
+
+This version makes 3 distinct cases for Cavity, BFS and flow around cylinder. See the `input.dat` file for details, or use the `input` directory for meshes and input files.
 
 ## Credits
 This project is funded by the [National Institutes of Health (NIH)](https://www.nih.gov/) under grant number 1 R01 EB022180-01A1 ("A Fast High-Order CFD for Turbulent Flow Simulation in Cardio-Devices").

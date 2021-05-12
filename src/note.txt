@@ -1,2 +1,0 @@
-this version makes 3 distinct cases for Cavity, BFS and flow around cylinder. made the BC more precise.
-The current input file and mesh_medium.msh file makes the case for the flow around a cylinder.
