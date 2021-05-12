@@ -11,6 +11,13 @@
 
 #include <cmath>
 
+void deallocate_2d_array_d(double** arry, const size_t nx) {
+	for (size_t k = 0; k < nx; ++k) {
+		delete[] arry[k];
+	}
+	delete[] arry;
+}
+
 void deallocate_3d_array_d(double*** arry, const size_t nx, const size_t ny) {
 	for (size_t k = 0; k < nx; ++k) {
 		for (size_t j = 0; j < ny; ++j) {
@@ -21,52 +28,42 @@ void deallocate_3d_array_d(double*** arry, const size_t nx, const size_t ny) {
 	delete[] arry;
 }
 
+void deallocate_3d_array_c2(Cmpnts2*** arry, const size_t nx, const size_t ny) {
+	for (size_t k = 0; k < nx; ++k) {
+		for (size_t j = 0; j < ny; ++j) {
+			delete[] arry[k][j];
+		}
+		delete[] arry[k];
+	}
+	delete[] arry;
+}
+
 void HO_2D::release_memory() { //release the memory as destructor
-	//delete[] vert_coor; delete[] vert_coor_initial; delete[] vert_coor_m1; delete[] Hex_verts_comps; delete[] projected_hex_verts_comps;
-	//delete[] zone_id; delete[] group_regions; delete[] facet_groups; delete[] cell_N_verts; delete[] face_N_verts; delete[] N_connectivity;
 
 	deallocate_3d_array_d(vorticity, mesh.N_el, Knod);
 	deallocate_3d_array_d(stream_function, mesh.N_el, Knod);
 	deallocate_3d_array_d(initial_vorticity, mesh.N_el, Knod);
-
-	for (int k = 0; k < mesh.N_el; ++k) {
-		for (int j = 0; j < Knod; ++j) {
-			delete[] velocity_cart[k][j];
-		}
-		delete[] velocity_cart[k];
-	}
-	delete[] velocity_cart;
+	deallocate_3d_array_c2(velocity_cart, mesh.N_el, Knod);
 
 	delete[] sps_local_coor;
 	delete[] sps_weight;
 	delete[] gps_local_coor;
 
+	deallocate_2d_array_d(sps_boundary_basis, Knod);
+	deallocate_2d_array_d(sps_boundary_grad_basis, Knod);
+	deallocate_2d_array_d(sps_sps_grad_basis, Knod);
+	deallocate_2d_array_d(sps_gps_basis, Knod);
+	deallocate_2d_array_d(sps_radau, Knod);
+	deallocate_2d_array_d(sps_grad_radau, Knod);
 
-	for (int i = 0; i < Knod; ++i) {
-        delete[] sps_boundary_basis[i];
-        delete[] sps_boundary_grad_basis[i];
-        delete[] sps_sps_grad_basis[i];
-        delete[] sps_gps_basis[i];
-        delete[] sps_radau[i];
-        delete[] sps_grad_radau[i];
-	}
-	delete[] sps_boundary_basis;
-	delete[] sps_boundary_grad_basis;
-	delete[] sps_sps_grad_basis;
-	delete[] sps_gps_basis;
-	delete[] sps_radau;
-	delete[] sps_grad_radau;
+	deallocate_2d_array_d(gps_boundary_basis, mesh.Lnod);
+	deallocate_2d_array_d(gps_boundary_grad_basis, mesh.Lnod);
+	deallocate_2d_array_d(gps_sps_basis, mesh.Lnod);
+	deallocate_2d_array_d(gps_sps_grad_basis, mesh.Lnod);
 
-    for (int i = 0; i < mesh.Lnod; ++i) {
-        delete[] gps_boundary_basis[i];
-        delete[] gps_boundary_grad_basis[i];
-        delete[] gps_sps_basis[i];
-        delete[] gps_sps_grad_basis[i];
-    }
-    delete[] gps_boundary_basis;
-    delete[] gps_boundary_grad_basis;
-    delete[] gps_sps_basis;
-    delete[] gps_sps_grad_basis;
+	deallocate_3d_array_c2(vol_Dx_Dxsi, mesh.N_el, Knod);
+	deallocate_3d_array_c2(vol_Dy_Dxsi, mesh.N_el, Knod);
+	deallocate_3d_array_d(vol_jac, mesh.N_el, Knod);
 
     for (int i = 0; i < mesh.N_el; ++i) {
         for (int j = 0; j < Knod; ++j) {
@@ -74,23 +71,11 @@ void HO_2D::release_memory() { //release the memory as destructor
                 for (int s = 0; s < 2; ++s) delete[] G[i][j][r][s];
                 delete[] G[i][j][r];
             }
-
             delete[] G[i][j];
-            delete[] vol_Dx_Dxsi[i][j];
-            delete[] vol_Dy_Dxsi[i][j];
-            delete[] vol_jac[i][j];
         }
-
         delete[] G[i];
-        delete[] vol_Dx_Dxsi[i];
-        delete[] vol_Dy_Dxsi[i];
-        delete[] vol_jac[i];
-
     }
     delete[] G;
-    delete[] vol_Dx_Dxsi;
-    delete[] vol_Dy_Dxsi;
-    delete[] vol_jac;
 
     for (int i = 0; i < mesh.N_el; ++i) {
         for (int r = 0; r < 2; ++r) {
@@ -104,65 +89,31 @@ void HO_2D::release_memory() { //release the memory as destructor
     }
     delete[] GB;
 
-    for (int i = 0; i < mesh.N_el; ++i) {
-        for (int j = 0; j < 4; ++j) {
-            delete[] face_Dx_Dxsi[i][j];
-            delete[] face_Dy_Dxsi[i][j];
-            delete[] face_Acoef[i][j];
-            delete[] face_Bcoef[i][j];
-            delete[] face_jac[i][j];
-            delete[] face_Anorm[i][j];
-        }
-        delete[] face_Dx_Dxsi[i];
-        delete[] face_Dy_Dxsi[i];
-        delete[] face_Acoef[i];
-        delete[] face_Bcoef[i];
-        delete[] face_jac[i];
-        delete[] face_Anorm[i];
-    }
-    delete[] face_Dx_Dxsi;
-    delete[] face_Dy_Dxsi;
-    delete[] face_Acoef;
-    delete[] face_Bcoef;
-    delete[] face_jac;
-    delete[] face_Anorm;
+	deallocate_3d_array_d(face_Acoef, mesh.N_el, 4);
+	deallocate_3d_array_d(face_Bcoef, mesh.N_el, 4);
+	deallocate_3d_array_d(face_jac, mesh.N_el, 4);
+	deallocate_3d_array_d(face_Anorm, mesh.N_el, 4);
 
-    for (int e = 0; e < mesh.N_el; ++e) {
-		for (int i = 0; i < Knod; ++i) {
-            delete[] RHS_advective[e][i];
-            delete[] RHS_diffusive[e][i];
-		}
-		delete[] RHS_advective[e];
-		delete[] RHS_diffusive[e];
-	}
-    delete[] RHS_advective;
-    delete[] RHS_diffusive;
+	deallocate_3d_array_c2(face_Dx_Dxsi, mesh.N_el, 4);
+	deallocate_3d_array_c2(face_Dy_Dxsi, mesh.N_el, 4);
 
-    for (int i = 0; i < mesh.N_edges_boundary; ++i) {
-        for (int j = 0; j < Knod*Knod; ++j) delete[] boundary_source[i][j];
-        delete[] boundary_source[i];
-        delete[] BC_Poisson[i];
-        delete[] BC_advection[i];
-        delete[] BC_diffusion[i];
-        delete[] BC_vorticity[i];
-        delete[] BC_parl_vel[i];
-        delete[] BC_normal_vel[i];
-        delete[] velocity_jump[i];
-    }
+	deallocate_3d_array_d(RHS_advective, mesh.N_el, Knod);
+	deallocate_3d_array_d(RHS_diffusive, mesh.N_el, Knod);
 
-    delete[] BC_no_slip;
-    delete[] boundary_source;
-    delete[] BC_switch_Poisson;
-    delete[] BC_switch_advection;
-    delete[] BC_switch_diffusion;
-    delete[] BC_Poisson;
-    delete[] BC_advection;
-    delete[] BC_diffusion;
-    delete[] BC_vorticity;
-    delete[] BC_parl_vel;
-    delete[] BC_normal_vel;
-    delete[] velocity_jump;
+	deallocate_2d_array_d(BC_Poisson, mesh.N_edges_boundary);
+	deallocate_2d_array_d(BC_advection, mesh.N_edges_boundary);
+	deallocate_2d_array_d(BC_diffusion, mesh.N_edges_boundary);
+	deallocate_2d_array_d(BC_vorticity, mesh.N_edges_boundary);
+	deallocate_2d_array_d(BC_parl_vel, mesh.N_edges_boundary);
+	deallocate_2d_array_d(BC_normal_vel, mesh.N_edges_boundary);
+	deallocate_2d_array_d(velocity_jump, mesh.N_edges_boundary);
 
+	deallocate_3d_array_d(boundary_source, mesh.N_edges_boundary, Knod*Knod);
+
+	delete[] BC_no_slip;
+	delete[] BC_switch_Poisson;
+	delete[] BC_switch_advection;
+	delete[] BC_switch_diffusion;
 }
 
 int HO_2D::read_input_file(const std::string filename) {
