@@ -31,14 +31,9 @@
 *.exe
 *.out
 *.app
-
-# Test problem output
-Test_Package/Problem*.csv
-Test_Package/Problem*.stat
-Test_Package/*.vtk
-
 *.bin
 
+# output
 *.vtk
 *.vtu
 
@@ -46,3 +41,4 @@ Test_Package/*.vtk
 build
 Release
 Debug
+RelDbg
