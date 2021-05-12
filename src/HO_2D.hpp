@@ -55,18 +55,15 @@ private:
 	Mesh mesh;
 	unsigned int Knod; //Number of sps in each direction,i.e. number of gauss point in each cell in each direction
 	double g_prime[2]; //derivative of the correction function g on the [0]: left and [1]: right boundaries
-	unsigned char* BC_switch; //specify if a boundary edge is dirichlet(0 or neumann(1) BC
-	unsigned char* BC_switch_psi, *BC_switch_advection, *BC_switch_diffusion; //BC_switch_advection is always Dirichlet, BC_switch_psi is set once and can not change anymore (because the poisson LHS matrix is set basedon that)
 
-	double** BC_values; // BC values for the Knod points of NelB boundary elements (in terms of velocity or gradient)
-	double** BC_parl_vel, ** BC_normal_vel; //the parallel and normal contravariant flux velocity on all global boundary elements
-	double** BC_psi; // psi BC
+	unsigned char* BC_switch_Poisson, *BC_switch_advection, *BC_switch_diffusion; //BC_switch_advection is always Dirichlet, BC_switch_Poisson is set once and can not change anymore (because the poisson LHS matrix is set based on that)
+	double** BC_parl_vel, ** BC_normal_vel; //the parallel and normal contravariant flux velocity on all global boundary elements. The parallel is CCW and normal is outward to domain
+	double** BC_Poisson; // BC for psi: either dpsi/dn or psi
 	double** BC_advection; //BC for the advection term
 	double** BC_diffusion;
 	double** BC_vorticity;  //it is always the dirichlet. it has the vorticity values on the boundary, which are calculated from the BC_diffusion BC values.
 	bool* BC_no_slip; //if the boundary conditions are no slip wall. if yes, then it is true
-	Cmpnts2** BC_cart_vel;  //the BC for Cartesian velocity vector 
-	//double** BC_u_vel, ** BC_v_vel; //the boundary conditions for the velocity component on all boundary edges
+
 	double*** vorticity; //the vorticity field: first index goes for element, second and third go for j (eta dir) and i (csi dir) sps
 	double*** initial_vorticity; //The initial (t=0) vorticity field
 	double*** stream_function; //The stream function field
@@ -119,11 +116,11 @@ private:
 	//Eigen::BiCGSTAB<Eigen::SparseMatrix<double>> bicg_Eigen;  //BICGSTAB without preconditioner
 	//Eigen::BiCGSTAB<Eigen::SparseMatrix<double,Eigen::RowMajor>, Eigen::IncompleteLUT<double>> bicg_Eigen;  //BICGSTAB with ILU preconditioner
 	Eigen::BiCGSTAB<Eigen::SparseMatrix<double>, Eigen::IncompleteLUT<double>> bicg_Eigen;  //BICGSTAB with ILU preconditioner
-	//Eigen::SparseLU<Eigen::SparseMatrix<double>, Eigen::COLAMDOrdering<int>> LU_Eigen;  //sparseLU method 
+	//Eigen::SparseLU<Eigen::SparseMatrix<double>, Eigen::COLAMDOrdering<int>> LU_Eigen;  //sparseLU method
 	//amgcl::make_solver<amgcl::amg<amgcl::backend::eigen<double>, amgcl::coarsening::smoothed_aggregation, amgcl::relaxation::spai0>, amgcl::solver::bicgstab<amgcl::backend::eigen<double>>>* AMGCL_solver;
 	//typedef amgcl::make_solver<amgcl::amg<Backend, amgcl::coarsening::smoothed_aggregation, amgcl::relaxation::spai0>, amgcl::solver::bicgstab<Backend>> AMGCL_Solver;
 	AMGCL_Solver* AMGCL_solver;
-	//amgcl::backend::crs<double> A_amgcl; // the left hand side matrix 
+	//amgcl::backend::crs<double> A_amgcl; // the left hand side matrix
 	std::vector<double> RHS_AMGCL;
 	std::tuple<int, std::vector<int>, std::vector<int>, std::vector<double>> A_AMGCL;
 	bool get_curl = true; //getCurl is either 0 (for potential velocity) or 1 (for vortical velocity)
@@ -145,7 +142,7 @@ public:
 		HuynhSolver_type = 2;
 		Reyn_inv = 0.001;
 		Knod = 2;
-	}; 
+	};
 	HO_2D(const HO_2D& HO) :
 		vorticity(HO.vorticity), stream_function(HO.stream_function) {}
 
@@ -172,8 +169,6 @@ public:
 	void form_bases(); //form the sps lagrangian shepe function (&derivatives), gps shape functions (&derivatives), form Radau bases
 	void setup_IC_BC_SRC(); //setup initial condition, boundary condition and the source/sink terms
 	void form_metrics();
-	unsigned int tensor2FEM(unsigned int i); // converts the tensor index to the FEM node ordering for 1D case
-	unsigned int tensor2FEM(unsigned int i, unsigned int j); // converts the tensor index to the FEM node ordering for 2D case
 	char solve_vorticity_streamfunction(); //solves the two set of equations: 1) advection diffucion of vorticity + 2) Poisson eq for streamfunction
 	char solve_advection_diffusion(); //solves the advection diffusion equation for the vorticity field
 	char Euler_time_integrate(double*** array_in, double*** array_out, double coeff); //use the explicit Euler method to integrate in time the vorticity evolution equation
@@ -184,7 +179,7 @@ public:
 	void calc_internal_comm_vals_meth2(int el, int ijp, int ijpm, int ibnd, double* B_vort, double* B_vortm, double* B_G_vort, double* com_vort);
 	void calc_boundary_comm_vals_meth2(int el, int el_b, int ijp, int ibnd, double* vort, double* Dvort, double* com_vort, double* com_grad_vort, const unsigned char BC_type, const double* BC_vals);
 	void form_Laplace_operator_matrix(); //forms the left hand side matrix derived form the Laplace discretization. The matrix is sparse and in Eigen format
-	void Poisson_solver_Hypre_setup(double*** laplacian_center, double**** laplacian_neighbor);  //setup and fill the LHS and RHS for Poisson solver via the Hypre 
+	void Poisson_solver_Hypre_setup(double*** laplacian_center, double**** laplacian_neighbor);  //setup and fill the LHS and RHS for Poisson solver via the Hypre
 	void Create_Hypre_Matrix();
 	void Poisson_solver_Eigen_setup(double*** laplacian_center, double**** laplacian_neighbor);  //setup and fill the LHS and RHS for Poisson solver via the Eigen
 	void Poisson_solver_AMGCL_setup(double*** laplacian_center, double**** laplacian_neighbor);  //setup and fill the LHS and RHS for Poisson solver via the AMGCL
@@ -194,4 +189,6 @@ public:
 	void save_smooth_vtk(); //writes the data in VTK format with averaging of 4 nodes from internal nodes (smoother than save_output_vtk)
 	void save_vorticity_vtk(); ////writes the data in VTK format for the vorticity
 	void read_process_sample_points();
+	void update_advection_BC(); //calculate/update the BC for the advective term
+	void update_diffusion_BC(); //calculate/update the BC for the diffusion term
 };

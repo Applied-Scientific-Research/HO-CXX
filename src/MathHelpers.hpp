@@ -9,7 +9,6 @@
 
 cell_sides i2f[] = { west,east,south,north }; //(i2f[ijp] is the local side index (south, east, ... CCW) of the current cell: south =0:ibnd=0,idir=1; east=1:ibnd=1, idir=0, ...
 cell_sides f2i[] = { north,east,west,south }; //(f2i[ijp] is the inverse of i2f, maps the senw to ijp
-unsigned int nbr[] = { east, south, west, north }; //ijpm = nbr[ijp]: neighbor of ijp face, returned in the same ijp ordering
 double sgn[] = { -1., 1., -1., 1. }; //to calculate the upwind flux fronm the two neighboring fluxes at the common face
 double RK4_coeff[] = {0., 0.5, 0.5, 1.};  //the coefficients for the explicit RK4 time integration
 double RK2_coeff[] = {0., 1.}; //the coefficients for the explicit RK2 time integration
@@ -31,7 +30,7 @@ double Legendre(int n, double x) {
 			xn = ((2. * i - 1.) * x * xnm1 - (i - 1.) * xnm2) / i;
 			xnm2 = xnm1;
 			xnm1 = xn;
-		}	
+		}
 		LegendreP = xn;
 	}
 	return LegendreP;
@@ -75,19 +74,19 @@ int are_intersecting_infinite_line(Cmpnts2 point, double slope, Cmpnts2 node1, C
     double d2 = slope * (node2.x - point.x) + point.y - node2.y;
 
     // If d1 and d2 both have the same sign, they are both on the same side of the ray and in that case no intersection is possible.
-    // if any of them is zero then the point is located on the node1-node2 line, which in our case, we can consider it to be inside the element. 
-	//note: since, I limited the slope to be between -1 and 1, it means the x component of the 
+    // if any of them is zero then the point is located on the node1-node2 line, which in our case, we can consider it to be inside the element.
+	//note: since, I limited the slope to be between -1 and 1, it means the x component of the
 
 
 	if (std::fabs(d1 * d2) < 1.e-6 || d1 * d2 < 0) return 1;
 	else return 0;
 }
 
-int are_intersecting(Cmpnts2 point, double slope, Cmpnts2 node1, Cmpnts2 node2) { //checks if a ray casted from point with slope slope intersects the line node1-node2. 
+int are_intersecting(Cmpnts2 point, double slope, Cmpnts2 node1, Cmpnts2 node2) { //checks if a ray casted from point with slope slope intersects the line node1-node2.
 	//The casted ray moves from the point and goes in the slope direction. This is the difference between this method and the method are_intersecting_infinite_line above.
 	// here I used the parametric equations for both the lines. Then solved the system to get the t and s. t is the coeff for ray and s is the coeff for segment:
 	// vector(r) = vector(rp) + t.vector(V), where V is the directional vector for the ray. V = (deltaX, DeltaY). I pick DeltaX=1, so DeltaY=slope. For a valid intersection t>=0
-	// Also, vector(u) = vector(node1) + s.vector(U), where U is node2-node1= (Xnode2-Xnode1, Ynode2-Ynode1). Then intersection is valid when 0=<s<=1. 
+	// Also, vector(u) = vector(node1) + s.vector(U), where U is node2-node1= (Xnode2-Xnode1, Ynode2-Ynode1). Then intersection is valid when 0=<s<=1.
 	// The lines intersect when vector(r) = vector(u), which gives:
 	// s = (slope*(Xnode1-Xp)+Yp-Ynode1)/(Ynode2-Ynode1 - slope*(Xnode2-Xnode1)); t = Xnode1-Xp + s * (Xnode2-Xnode1)
 	Cmpnts2 Delta;
