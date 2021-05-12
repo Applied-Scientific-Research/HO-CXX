@@ -3,10 +3,12 @@
  *
  * (c)2020-1 Applied Scientific Research, Inc.
  *           Mohammad Hajit
+ *           Mark J Stock <markjstock@gmail.com>
  */
 
 #include "HO_2D.hpp"
 #include "MathHelpers.hpp"
+
 #include <cmath>
 
 void HO_2D::release_memory() { //release the memory as destructor
@@ -3308,3 +3310,24 @@ void HO_2D::save_vorticity_vtk() {
 	std::cout << "Done writing to file" << std::endl;
 	file_handle.close();
 }
+
+//
+// Methods to support hybrid operation
+//
+
+void HO_2D::set_defaults() {
+}
+
+void HO_2D::enable_hybrid() {
+}
+
+void HO_2D::set_elemorder(const int32_t _order) {
+}
+
+int32_t HO_2D::getsolnptlen() {
+	return 0;
+}
+
+void HO_2D::clean_up() {
+}
+

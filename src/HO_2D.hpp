@@ -3,6 +3,7 @@
  *
  * (c)2020-1 Applied Scientific Research, Inc.
  *           Mohammad Hajit
+ *           Mark J. Stock <markjstock@gmail.com>
  */
 
 #pragma once
@@ -133,9 +134,22 @@ private:
 	std::vector<int> sample_points_containing_elements; // The index of the elements that contain each sample point
 	double** gps_shapefunc_on_sample_points; //The shape function of Lnod*Lnod gps onthe sample point in an element. size is [L*L][N_sp]
 
+	// data to support hybrid solvers
+
+	bool using_hybrid;
+	// this is where C++ is still terrible: either *** and new[] delete[], or Eigen, or Boost, or templates!
+        // values on the open boundary - relatively easy, can use Eigen matrix or double**
+	// it would be nice to use std::vector<std::array<FTYPE,K>> BC_VelNorm_start;
+	double** BC_VelNorm_start, BC_VelNorm_end;
+	double** BC_VelParl_start, BC_VelParl_end;
+	double** BC_Vort_start,    BC_Vort_end;
+        // values in the volume
+	double*** Vort_start, Vort_end, Vort_wgt;
+
 public:
 	HO_2D() //default constructor
 	{
+		using_hybrid = false;
 		Knod = 1;
 		dump_frequency = 1000;
 		dt = 0.001;
@@ -162,7 +176,8 @@ public:
 	~HO_2D()
 	{
 		release_memory();
-	}; // desctructor
+	}; // destructor
+
 	void save_output(int time);
 	void release_memory();
 	int read_input_file(const std::string filename);
@@ -194,4 +209,18 @@ public:
 	void save_smooth_vtk(); //writes the data in VTK format with averaging of 4 nodes from internal nodes (smoother than save_output_vtk)
 	void save_vorticity_vtk(); ////writes the data in VTK format for the vorticity
 	void read_process_sample_points();
+
+	// methods to support hybrid solvers (control by an external Lagrangian method)
+
+	// see HO-Fortran/src/hofortran_interface.h for similar prototypes
+	void set_defaults();
+	void enable_hybrid();
+	void set_elemorder(const int32_t);
+	// get data from this Eulerian solver
+	int32_t getsolnptlen();
+	// send vels and vorts to this solver
+	// march forward
+	// retrieve results
+	// close, finish
+	void clean_up();
 };
