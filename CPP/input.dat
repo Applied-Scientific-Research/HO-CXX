@@ -5,11 +5,13 @@ Knod quantity:
 Lnod:
 3
 mesh file name:
-/home/mhajit/Cavity_Re10000/mesh2.msh
+/home/mhajit/ASR/HO_2D_test_cases/cylinder/mesh_medium.msh
+if the file is written in OCC format or orognal gmsh format. zero means original, 1 means OCC format
+1
 Exact
 false
 Reyn
-10000.
+20.
 dx ratio : expanding mesh ratio. For Gmsh reading option it is not used.
 1.
 fac:  multiplier to make grids randomly non-uniform; uniform: fac=0
@@ -17,17 +19,17 @@ fac:  multiplier to make grids randomly non-uniform; uniform: fac=0
 Huyn solver: for now only the option 2 is used which is the DG equivalence
 2
 time integration: 1: explicit Euler, 2: explicit RK2, 4: explicit RK4
-2
+4
 advection scheme: 1: original discontinuous, 2: continuous mass flux term
 1
-problem type. For now, number 3 is the Cavity and 10 is the general case
-3
+problem type. For now, number 1 is the Cavity, 2 is BFS, 3 is flow over cylinder
+3 
 number of time steps
-100000
+10000
 dt: time step size 
-0.001
+0.0005
 dumpfreq: how many time steps are the results saved
-1000
+100
 fast: if it uses large stencil or compact stencil. fast-true means compact. It is not setup yet in the code
 0
 linear solver type: 1:Eigen, 2: Hypre, 3: AMGCL. The HYPRE is not setup yet.

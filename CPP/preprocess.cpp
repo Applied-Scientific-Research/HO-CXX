@@ -1,6 +1,73 @@
 #include "preprocess.h"
 #include <cmath>
 
+
+unsigned int Mesh::tensor2FEM(unsigned int i) {
+	// converts the tensor index to the FEM node ordering for 1D case
+	if (!i) return 0;
+	else if (i == Lnod_in) return 1;
+	else return (i + 1);
+}
+
+unsigned int Mesh::tensor2FEM(unsigned int i, unsigned int j) {
+	// converts the tensor index to the FEM node ordering for 2D case
+	unsigned  t2f;
+
+	if (Lnod_in == 1) t2f = i+3*j-2*i*j;   //linear element
+
+	else if (Lnod_in == 2) {
+		if (!j) { //first row
+			if (!i) t2f = 0;
+			else if (i == 1) t2f = 4;
+			else t2f = 1;
+		}
+		else if (j == 1) {
+			if (!i) t2f = 7;
+			else if (i == 1) t2f = 8;
+			else t2f = 5;
+		}
+		else {
+			if (!i) t2f = 3;
+			else if (i == 1) t2f = 6;
+			else t2f = 2;
+		}
+	}
+
+	else if (Lnod_in == 3) {
+		if (!j) { //first row
+			if (!i) t2f = 0;
+			else if (i == 1) t2f = 4;
+			else if (i == 2) t2f = 5;
+			else t2f = 1;
+		}
+		else if (j == 1) {
+			if (!i) t2f = 11;
+			else if (i == 1) t2f = 12;
+			else if (i == 2) t2f = 13;
+			else t2f = 6;
+		}
+
+		else if (j == 2) {
+			if (!i) t2f = 10;
+			else if (i == 1) t2f = 15;
+			else if (i == 2) t2f = 14;
+			else t2f = 7;
+		}
+
+		else {
+			if (!i) t2f = 3;
+			else if (i == 1) t2f = 9;
+			else if (i == 2) t2f = 8;
+			else t2f = 2;
+		}
+	}
+	else {
+		std::cout << "Only up to cubic finite elements (Lnod = 4) are supported!" << std::endl;
+		exit(2);
+	}
+	return t2f;
+}
+
 char Mesh::read_msh_file() {
 	// reads a msh file output from the Gmsh software. The msh file is in ASCII 4.1 version of the Gmsh output
 	std::string filename = input_msh_file;
@@ -31,6 +98,7 @@ char Mesh::read_msh_file() {
 	// *************** Now read in the Boundaries field: locate the keyword $PhysicalNames *****************
 	//-----------------------------------------------------------------------------------------
 	tmp = locate_in_file(mshfile, "$PhysicalNames");
+	if (tmp==10) {std::cout<< "could not find the physicalNames field, check mesh \n"; exit(1);}
 	mshfile >> N_Gboundary;  //number of global boundaries with boundary conditions
 	boundaries.resize(N_Gboundary);
 	std::vector<unsigned int> tmp_boundary_tag(N_Gboundary); //temporary vector to store the boundary indices in MSH file (it is often irregular)
@@ -43,6 +111,7 @@ char Mesh::read_msh_file() {
 	// *************** Now read in the entities field: locate the keyword $Entities *****************
 	//-----------------------------------------------------------------------------------------
 	tmp = locate_in_file(mshfile, "$Entities");
+	if (tmp==10) {std::cout<< "could not find the Entities field, check mesh \n"; exit(1);}
 	mshfile >> entities_N_points >> entities_N_curves >> entities_N_faces >> tmp; //tmp is number of vols which is 0 for 2D problem
 	std::getline(mshfile, temp_string);
 	assert(!tmp); //double check that there is no volume in the domain, so 2D problem
@@ -63,6 +132,7 @@ char Mesh::read_msh_file() {
 	// *************** Now read in the NODES field: locate the keyword $Nodes *****************
 	//-----------------------------------------------------------------------------------------
 	tmp = locate_in_file(mshfile, "$Nodes");
+	if (tmp==10) {std::cout<< "could not find the nodes field, check mesh \n"; exit(1);}
 	mshfile >> nodes_total_entities >> raw_N_nodes >> nodes_min_index >> nodes_max_index;
 	std::getline(mshfile, temp_string);
 	unorganized_nodes_coor.resize(raw_N_nodes);
@@ -94,6 +164,7 @@ char Mesh::read_msh_file() {
 	unsigned int edge_index = 0; //to store in the boundaries, the edges that form each boundary curve
 	//std::vector<std::vector<unsigned int>> tmp_curves_edges_tag(entities_N_curves); //store the tags for the edges forming each curve (curve is an entity, edgeis discretized form of curves)
 	tmp = locate_in_file(mshfile, "$Elements");
+	if (tmp==10) {std::cout<< "could not find the Elements field, check mesh \n"; exit(1);}
 	mshfile >> elements_total_entities >> N_elements >> elements_min_index >> elements_max_index; //N_element= total number of nodes, edges and 2d elements, ignore the 0d elements
 	std::getline(mshfile, temp_string);
 	assert(elements_total_entities == entities_N_points + entities_N_curves + entities_N_faces);
@@ -106,7 +177,7 @@ char Mesh::read_msh_file() {
 		    mshfile >> tmp1 >> tmp2;
 		    std::getline(mshfile, temp_string);
 		  }
-		
+
 		else if (entity_dim == 1) { // element_type corresponds to edge
 			its = std::find(edge_type_node_number[0].begin(), edge_type_node_number[0].end(), element_type);
 			check_start = its != edge_type_node_number[0].end(); //true means the element is of edge type
@@ -167,11 +238,24 @@ char Mesh::read_msh_file() {
 			}
 		}
 	}
-	std::cout << "here";
 	mshfile.close();
-	//std::cout << elements[elements.size()-1].nodes[0]<< " "<<elements[elements.size()-1].nodes[1]<< " " << elements[elements.size()-1].nodes[2]<< " " << elements[elements.size()-1].nodes[3]<<std::endl;
+
 	Lnod = _edge.N_nodes;
 	Lnod_in = Lnod - 1;
+
+	// ******** Reorient in the CCW direction if the mesh file is in OCC format ************
+	std::vector<unsigned int> tmp_node_ids(Lnod*Lnod);
+    if (OCC_format) {
+        for (int el=0; el<elements.size(); ++el) {
+            tmp_node_ids = elements[el].nodes;
+            for (int j_old=0; j_old<Lnod; ++j_old)
+                for (int i_old=0; i_old<Lnod; ++i_old) {
+                    int j_new = Lnod_in - i_old;
+                    int i_new = Lnod_in - j_old;
+                    elements[el].nodes[tensor2FEM(i_new,j_new)] = tmp_node_ids[tensor2FEM(i_old,j_old)];
+                }
+        }
+    }
 
 	// Now that the edge and elements are stored, the nodes constituting them should be renumbered
 	// use only the nodes that are used in the edges and elements vectors
@@ -210,11 +294,11 @@ char Mesh::read_msh_file() {
 			elements[i].nodes[j] = second_mapping[tmp1];  //redistributing the indices
 		}
 	}
-	
+
 	//std::cout << "         Done" << std::endl;
 	//	std::cout << elements.size();
 	//std::cout << "out of the loop" << elements[10].nodes[5] << " "<<elements[20].nodes[6] << " "<< elements[30].nodes[4] << " ";
-	
+
 	process_mesh();
 
 	return retval;
@@ -222,7 +306,7 @@ char Mesh::read_msh_file() {
 
 void Mesh::process_mesh() {
 	/*
-	processes the mesh that is read from file. It finds the elements neighbors and stores it in elem_neighbors, 
+	processes the mesh that is read from file. It finds the elements neighbors and stores it in elem_neighbors,
 	*/
 	std::vector<unsigned int>::iterator its;
 	N_nodes = nodes.size(); //total number of nodes in the domain
@@ -234,7 +318,7 @@ void Mesh::process_mesh() {
 	// *************** detect the total interior edges in the domain and add them to the edges vector (which already has boundary edges) and add them to the elements vector *********************
 	edge _edge;
 	unsigned int N_node; //number of nodes on the edges of an element
-	unsigned int edge_type; 
+	unsigned int edge_type;
 	unsigned int N_edge_nodes;
 	bool found;
 	unsigned int edge_index = edges.size();
@@ -258,10 +342,10 @@ void Mesh::process_mesh() {
 			//search edge _edge in the edges vector to check if it doesnt already exist
 			found = false; //if the _edge exists in the edges list already
 			for (int edg = 0; edg < edges.size(); ++edg) {
-				if ((edges[edg].nodes == _edge.nodes) || 
+				if ((edges[edg].nodes == _edge.nodes) ||
 					(edges[edg].nodes[1] == _edge.nodes[0] && edges[edg].nodes[0] == _edge.nodes[1])) { //this edge already exists in the list
 					elements[el].edges[s] = edg; // the index of the edge that exists
-					// This is added on April 8, 2021: noticed the boundary edges may rotate in CW or CCW depending on how they are created. Lets adopt a standard. As we march on the boundary edges, the domain should be on our left. 
+					// This is added on April 8, 2021: noticed the boundary edges may rotate in CW or CCW depending on how they are created. Lets adopt a standard. As we march on the boundary edges, the domain should be on our left.
 					edges[edg].nodes = _edge.nodes; //making sure that the edges are oriented in the same CCW orientation of the element attach to the boundary edge.
 					found = true;
 					break;
@@ -309,7 +393,7 @@ void Mesh::process_mesh() {
 		}
 	}
 	/*
-	//*********************************************************************************************************************		
+	//*********************************************************************************************************************
 	// ************* rotate the edges of elements so that north of this element is neighboring the south of neighboring element, ... ***************
 	//std::vector<bool> fixed_elements(N_el, false); //the elements that are fixed by rotating the edges are turned into true
 	//fixed_elements[0] = true; //I assume element 0 is fixed, so orient the rest based on element 0
@@ -330,9 +414,9 @@ void Mesh::process_mesh() {
 		// ************ reorient such that the local south edge orients in the to_be_oriented_list[el].side
 		int delta_orient = 4 - (desired_side - south); //old south index should move into this new side: old 0 index of edge should be this new index: new_edge[0] = old_edge[delta_orient], ...
 		if (delta_orient <4) {
-			std::copy(elements[el].edges, elements[el].edges+4, orig_edges);  // copy the edges array to shift them by desired_side amount 
+			std::copy(elements[el].edges, elements[el].edges+4, orig_edges);  // copy the edges array to shift them by desired_side amount
 			orig_elem_neighbor = elem_neighbor[el];
-			for (int s = south; s <= west; ++s) { //reorient the order 
+			for (int s = south; s <= west; ++s) { //reorient the order
 				elements[el].edges[s] = orig_edges[(s + delta_orient) % 4];
 				elem_neighbor[el].boundary_index[s] = orig_elem_neighbor.boundary_index[(s + delta_orient) % 4];
 				elem_neighbor[el].neighbor[s] = orig_elem_neighbor.neighbor[(s + delta_orient) % 4];
@@ -403,7 +487,7 @@ char Mesh::setup_mesh_problem(unsigned int prob_type) {
 	//boundary_node_ID = new unsigned int* [N_edges_boundary];
 	for (int i = 0; i < N_edges_boundary; ++i) {
 		/*boundary_node_ID[i] = new unsigned int[Lnod];*/ //Lnod nodes per boundary edge
-		edges[i].nodes.resize(Lnod); 
+		edges[i].nodes.resize(Lnod);
 		edges[i].N_nodes = Lnod;
 	}
 	elements.resize(N_el); //resize the elements to store the nodes forming each element
@@ -542,7 +626,7 @@ char Mesh::setup_mesh_problem(unsigned int prob_type) {
 			elements[nc].nodes[1] = nd + Lnod_in;  //SE corner
 			elements[nc].nodes[2] = nd + Lnod_in * (Lnod_in * N_el_i + 2); // NE corner (indices go row by row)
 			elements[nc].nodes[3] = nd + Lnod_in * (Lnod_in * N_el_i + 1); //NW corner
-			
+
 			if (grid_type == 3) { //it has one less node in the theta direction, so adjust
 				elements[nc].nodes[2] -= Lnod_in;
 				elements[nc].nodes[3] -= Lnod_in;
@@ -698,7 +782,7 @@ char Mesh::setup_mesh_problem(unsigned int prob_type) {
 			else elem_neighbor[nc].neighbor[east] = nc + 1; //index of the neighboring element in the South
 
 			nc++;
-			//if (std::any_of(std::begin(elem_neighbor[nc].is_on_boundary), std::end(elem_neighbor[nc].is_on_boundary), [](bool i) {return i; } ) ) nb++; //update the 
+			//if (std::any_of(std::begin(elem_neighbor[nc].is_on_boundary), std::end(elem_neighbor[nc].is_on_boundary), [](bool i) {return i; } ) ) nb++; //update the
 		}  //for i < N_el_i , for j < N_el_j
 
 	N_edges_boundary = nb; //the corrected number of edges on the boundary (it exclude the edge woth periodic BC)
