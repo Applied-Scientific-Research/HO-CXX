@@ -11,22 +11,22 @@
 
 #include <cmath>
 
+void deallocate_3d_array_d(double*** arry, const size_t nx, const size_t ny) {
+	for (size_t k = 0; k < nx; ++k) {
+		for (size_t j = 0; j < ny; ++j) {
+			delete[] arry[k][j];
+		}
+		delete[] arry[k];
+	}
+	delete[] arry;
+}
+
 void HO_2D::release_memory() { //release the memory as destructor
 	//delete[] vert_coor; delete[] vert_coor_initial; delete[] vert_coor_m1; delete[] Hex_verts_comps; delete[] projected_hex_verts_comps;
 	//delete[] zone_id; delete[] group_regions; delete[] facet_groups; delete[] cell_N_verts; delete[] face_N_verts; delete[] N_connectivity;
-	for (int k = 0; k < mesh.N_el; ++k) {
-		for (int j = 0; j < Knod; ++j) {
-			delete[] vorticity[k][j];
-			delete[] stream_function[k][j];
-			delete[] initial_vorticity[k][j];
-		}
-		delete[] vorticity[k];
-		delete[] stream_function[k];
-		delete[] initial_vorticity[k];
-	}
-	delete[] vorticity;
-	delete[] stream_function;
-	delete[] initial_vorticity;
+	deallocate_3d_array_d(vorticity, mesh.N_el, Knod);
+	deallocate_3d_array_d(stream_function, mesh.N_el, Knod);
+	deallocate_3d_array_d(initial_vorticity, mesh.N_el, Knod);
 }
 
 int HO_2D::read_input_file(const std::string filename) {
@@ -363,62 +363,90 @@ void HO_2D::setup_sps_gps() {
 
 }
 
+// allocator helpers
+// there is a better way to do this, where all data is held in a contiguous memory chunk
+// and we can even do it in a templated function: allocate_2d_array<double>(nx, ny);
+
+double** allocate_2d_array_d(const size_t nx, const size_t ny) {
+	double** outptr = NULL;
+	outptr = new double* [nx];
+	for (size_t j = 0; j < nx; ++j) {
+		outptr[j] = new double [ny];
+	}
+	return outptr;
+}
+
+double*** allocate_3d_array_d(const size_t nx, const size_t ny, const size_t nz) {
+	double*** outptr = NULL;
+	outptr = new double** [nx];
+	for (size_t j = 0; j < nx; ++j) {
+		outptr[j] = new double* [ny];
+		for (int i = 0; i < ny; ++i) {
+			outptr[j][i] = new double[nz];
+		}
+	}
+	return outptr;
+}
+
+Cmpnts2** allocate_2d_array_c2(const size_t nx, const size_t ny) {
+	Cmpnts2** outptr = NULL;
+	outptr = new Cmpnts2* [nx];
+	for (size_t j = 0; j < nx; ++j) {
+		outptr[j] = new Cmpnts2 [ny];
+	}
+	return outptr;
+}
+
+Cmpnts2*** allocate_3d_array_c2(const size_t nx, const size_t ny, const size_t nz) {
+	Cmpnts2*** outptr = NULL;
+	outptr = new Cmpnts2** [nx];
+	for (size_t j = 0; j < nx; ++j) {
+		outptr[j] = new Cmpnts2* [ny];
+		for (int i = 0; i < ny; ++i) {
+			outptr[j][i] = new Cmpnts2[nz];
+		}
+	}
+	return outptr;
+}
+
 char HO_2D::allocate_arrays() {
 	//allocate the memory for the arrays and resize them.
 	int N_el = mesh.N_el;
 	int Lnod = mesh.Lnod;
-	initial_vorticity = new double** [N_el];
-	vorticity = new double** [N_el];
-	stream_function = new double** [N_el];
-	velocity_cart = new Cmpnts2** [N_el];
-	for (int j = 0; j < N_el; ++j) {
-		initial_vorticity[j] = new double* [Knod];
-		vorticity[j] = new double* [Knod];
-		stream_function[j] = new double* [Knod];
-		velocity_cart[j] = new Cmpnts2* [Knod];
-		for (int i = 0; i < Knod; ++i) {
-			initial_vorticity[j][i] = new double[Knod];
-			vorticity[j][i] = new double[Knod];
-			stream_function[j][i] = new double[Knod];
-			velocity_cart[j][i] = new Cmpnts2[Knod];
-		}
-	}
+
+	initial_vorticity = allocate_3d_array_d(N_el, Knod, Knod);
+	vorticity = allocate_3d_array_d(N_el, Knod, Knod);
+	stream_function = allocate_3d_array_d(N_el, Knod, Knod);
+
+	velocity_cart = allocate_3d_array_c2(N_el, Knod, Knod);
 
 	sps_local_coor = new double[Knod];
 	sps_weight = new double[Knod];
 	gps_local_coor = new double[Lnod];
-	sps_boundary_basis = new double* [Knod]; for (int i = 0; i < Knod; ++i) sps_boundary_basis[i] = new double[2]; //for left and right
-	sps_boundary_grad_basis = new double* [Knod]; for (int i = 0; i < Knod; ++i) sps_boundary_grad_basis[i] = new double[2]; //for left and right
-	sps_sps_grad_basis = new double* [Knod];
-	for (int i = 0; i < Knod; ++i) sps_sps_grad_basis[i] = new double[Knod];
 
-	gps_boundary_basis = new double* [Lnod]; for (int i = 0; i < Lnod; ++i) gps_boundary_basis[i] = new double[2];
-	gps_boundary_grad_basis = new double* [Lnod]; for (int i = 0; i < Lnod; ++i) gps_boundary_grad_basis[i] = new double[2];
-	gps_sps_basis = new double* [Lnod];
-	sps_gps_basis = new double* [Knod];
-	gps_sps_grad_basis = new double* [Lnod];
-	for (int i = 0; i < Lnod; ++i) gps_sps_basis[i] = new double[Knod];
-	for (int i = 0; i < Knod; ++i) sps_gps_basis[i] = new double[Lnod];
-	for (int i = 0; i < Lnod; ++i) gps_sps_grad_basis[i] = new double[Knod];
+	sps_boundary_basis = allocate_2d_array_d(Knod, 2);
+	sps_boundary_grad_basis = allocate_2d_array_d(Knod, 2);
+	sps_sps_grad_basis = allocate_2d_array_d(Knod, Knod);
 
-	sps_radau = new double* [Knod]; for (int i = 0; i < Knod; ++i) sps_radau[i] = new double[2]; //left[0] and right [1] radau functions on sps
-	sps_grad_radau = new double* [Knod]; for (int i = 0; i < Knod; ++i) sps_grad_radau[i] = new double[2];
+	gps_boundary_basis = allocate_2d_array_d(Lnod, 2);
+	gps_boundary_grad_basis = allocate_2d_array_d(Lnod, 2);
+	gps_sps_basis = allocate_2d_array_d(Lnod, Knod);
+	sps_gps_basis = allocate_2d_array_d(Knod, Lnod);
+	gps_sps_grad_basis = allocate_2d_array_d(Lnod, Knod);
 
-	vol_Dx_Dxsi = new Cmpnts2** [N_el];
-	vol_Dy_Dxsi = new Cmpnts2** [N_el];
+	sps_radau = allocate_2d_array_d(Knod, 2);
+	sps_grad_radau = allocate_2d_array_d(Knod, 2);
+
+	vol_Dx_Dxsi = allocate_3d_array_c2(N_el, Knod, Knod);
+	vol_Dy_Dxsi = allocate_3d_array_c2(N_el, Knod, Knod);
+	vol_jac = allocate_3d_array_d(N_el, Knod, Knod);
+
 	G = new double**** [N_el];
 	GB = new double**** [N_el];
-	vol_jac = new double** [N_el];
 	for (int i = 0; i < N_el; ++i) {
-		vol_Dx_Dxsi[i] = new Cmpnts2* [Knod];
-		vol_Dy_Dxsi[i] = new Cmpnts2* [Knod];
-		vol_jac[i] = new double* [Knod];
 		G[i] = new double*** [Knod];
 		GB[i] = new double*** [2]; //for the direction d
 		for (int j = 0; j < Knod; ++j) {
-			vol_Dx_Dxsi[i][j] = new Cmpnts2 [Knod];
-			vol_Dy_Dxsi[i][j] = new Cmpnts2 [Knod];
-			vol_jac[i][j] = new double[Knod];
 			G[i][j] = new double** [Knod];
 			for (int r = 0; r < Knod; ++r) {
 				G[i][j][r] = new double* [2];
@@ -435,76 +463,35 @@ char HO_2D::allocate_arrays() {
 		}
 	}
 
-	face_Dx_Dxsi = new Cmpnts2** [N_el];
-	face_Dy_Dxsi = new Cmpnts2** [N_el];
-	face_Acoef = new double** [N_el];
-	face_Bcoef = new double** [N_el];
-	face_jac = new double** [N_el];
-	face_Anorm = new double** [N_el];
-	for (int i = 0; i < N_el; ++i) {
-		face_Acoef [i] = new double* [4];
-		face_Bcoef [i] = new double* [4];
-		face_jac[i] = new double* [4];
-		face_Anorm[i] = new double* [4];
-		face_Dx_Dxsi[i] = new Cmpnts2* [4];
-		face_Dy_Dxsi[i] = new Cmpnts2* [4];
-		for (int j = 0; j < 4; ++j) {
-			face_Acoef[i][j] = new double [Knod];
-			face_Bcoef[i][j] = new double[Knod];
-			face_jac[i][j] = new double[Knod];
-			face_Anorm[i][j] = new double[Knod];
-			face_Dx_Dxsi[i][j] = new Cmpnts2[Knod];
-			face_Dy_Dxsi[i][j] = new Cmpnts2[Knod];
-		}
+	face_Acoef = allocate_3d_array_d(N_el, 4, Knod);
+	face_Bcoef = allocate_3d_array_d(N_el, 4, Knod);
+	face_jac   = allocate_3d_array_d(N_el, 4, Knod);
+	face_Anorm = allocate_3d_array_d(N_el, 4, Knod);
+	face_Dx_Dxsi = allocate_3d_array_c2(N_el, 4, Knod);
+	face_Dy_Dxsi = allocate_3d_array_c2(N_el, 4, Knod);
 
-	}
-
-	RHS_advective = new double** [mesh.N_el];
-	for (int e = 0; e < mesh.N_el; ++e) {
-		RHS_advective[e] = new double* [Knod];
-		for (int i = 0; i < Knod; ++i)
-			RHS_advective[e][i] = new double[Knod];
-	}
-
-	RHS_diffusive = new double** [N_el];
-	for (int el = 0; el < N_el; ++el) {
-		RHS_diffusive[el] = new double* [Knod];
-		for (int k = 0; k < Knod; ++k)
-			RHS_diffusive[el][k] = new double[Knod];
-	}
+	RHS_advective = allocate_3d_array_d(N_el, Knod, Knod);
+	RHS_diffusive = allocate_3d_array_d(N_el, Knod, Knod);
 	
 	BC_no_slip = new bool[mesh.N_Gboundary]; //Set NoSlip to all walls (as default)
-	boundary_source = new double** [mesh.N_edges_boundary];
+
 	BC_switch = new unsigned char[mesh.N_edges_boundary];
 	BC_switch_psi = new unsigned char[mesh.N_edges_boundary];
 	BC_switch_advection = new unsigned char[mesh.N_edges_boundary];
 	BC_switch_diffusion = new unsigned char[mesh.N_edges_boundary];
-	BC_values = new double* [mesh.N_edges_boundary];
-	BC_psi = new double* [mesh.N_edges_boundary];
-	BC_advection = new double* [mesh.N_edges_boundary];
-	BC_diffusion = new double* [mesh.N_edges_boundary];
-	BC_vorticity = new double* [mesh.N_edges_boundary];
-	velocity_jump = new double* [mesh.N_edges_boundary];
-	BC_parl_vel = new double* [mesh.N_edges_boundary];
-	BC_normal_vel = new double* [mesh.N_edges_boundary];
-	BC_cart_vel = new Cmpnts2* [mesh.N_edges_boundary];
-	//BC_u_vel = new double* [mesh.N_edges_boundary];
-	//BC_v_vel = new double* [mesh.N_edges_boundary];
-	for (int i = 0; i < mesh.N_edges_boundary; ++i) {
-		boundary_source[i] = new double* [Knod*Knod];
-		BC_psi[i] = new double[Knod];
-		BC_advection[i] = new double[Knod];
-		BC_diffusion[i] = new double[Knod];
-		BC_vorticity[i] = new double[Knod];
-		BC_values[i] = new double[Knod];
-		velocity_jump[i] = new double[Knod];
-		BC_parl_vel[i] = new double[Knod];
-		BC_normal_vel[i] = new double[Knod];
-		BC_cart_vel[i] = new Cmpnts2[Knod];
-		//BC_u_vel[i] = new double[Knod];
-		//BC_v_vel[i] = new double[Knod];
-		for (int j = 0; j < Knod*Knod; ++j) boundary_source[i][j] = new double[Knod]; //RHS for streamfunction Poisson's eq.
-	}
+
+	boundary_source = allocate_3d_array_d(mesh.N_edges_boundary, Knod*Knod, Knod);
+
+	BC_values = allocate_2d_array_d(mesh.N_edges_boundary, Knod);
+	BC_psi = allocate_2d_array_d(mesh.N_edges_boundary, Knod);
+	BC_advection = allocate_2d_array_d(mesh.N_edges_boundary, Knod);
+	BC_diffusion = allocate_2d_array_d(mesh.N_edges_boundary, Knod);
+	BC_vorticity = allocate_2d_array_d(mesh.N_edges_boundary, Knod);
+	velocity_jump = allocate_2d_array_d(mesh.N_edges_boundary, Knod);
+	BC_parl_vel = allocate_2d_array_d(mesh.N_edges_boundary, Knod);
+	BC_normal_vel = allocate_2d_array_d(mesh.N_edges_boundary, Knod);
+
+	BC_cart_vel = allocate_2d_array_c2(mesh.N_edges_boundary, Knod);
 
 	return 0;
 }
@@ -3384,5 +3371,8 @@ void trigger_write(const int32_t _indx) {
 // close, finish
 
 void HO_2D::clean_up() {
+	deallocate_3d_array_d(Vort_start, mesh.N_el, Knod);
+	deallocate_3d_array_d(Vort_end, mesh.N_el, Knod);
+	deallocate_3d_array_d(Vort_wgt, mesh.N_el, Knod);
 }
 
