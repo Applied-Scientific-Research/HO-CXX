@@ -95,6 +95,8 @@ private:
 	double*** boundary_source; //Poisson Solver's RHS term to be dotted by BC_Values of the edge that belongs to the element (which has this edge on the global boundary); size is [N_edges_boundary][Knod*Knod][Knod]
 	int LHS_type; //1 is eigen, 2 is hypre
 	int nnz; //number of non-zeros in the LHS matrix of poisson equation
+    // https://eigen.tuxfamily.org/dox/TopicMultiThreading.html says BiCGSTAB is multithreaded using RowMajor, it isn't
+	//Eigen::SparseMatrix<double,Eigen::RowMajor> LHS_Eigen; //to store the poisson LHS in Eigen format
 	Eigen::SparseMatrix<double> LHS_Eigen; //to store the poisson LHS in Eigen format
 	Eigen::VectorXd RHS_Eigen; //the right hand side in the poisson equation discretization
 	//Eigen::ConjugateGradient<Eigen::SparseMatrix<double>, Eigen::Lower | Eigen::Upper, Eigen::IncompleteCholesky<double, Eigen::Lower | Eigen::Upper, Eigen::AMDOrdering<int> > > cg_Eigen;  //for SPD only
@@ -102,6 +104,7 @@ private:
 	//Eigen::ConjugateGradient<Eigen::SparseMatrix<double>, Eigen::Upper, Eigen::IncompleteCholesky<double> > cg_Eigen;  //for SPD only
 	//Eigen::ConjugateGradient<Eigen::SparseMatrix<double>, Eigen::Lower> cg_Eigen;  //for SPD only
 	//Eigen::BiCGSTAB<Eigen::SparseMatrix<double>> bicg_Eigen;  //BICGSTAB without preconditioner
+	//Eigen::BiCGSTAB<Eigen::SparseMatrix<double,Eigen::RowMajor>, Eigen::IncompleteLUT<double>> bicg_Eigen;  //BICGSTAB with ILU preconditioner
 	Eigen::BiCGSTAB<Eigen::SparseMatrix<double>, Eigen::IncompleteLUT<double>> bicg_Eigen;  //BICGSTAB with ILU preconditioner
 	//Eigen::SparseLU<Eigen::SparseMatrix<double>, Eigen::COLAMDOrdering<int>> LU_Eigen;  //sparseLU method
 	//amgcl::make_solver<amgcl::amg<amgcl::backend::eigen<double>, amgcl::coarsening::smoothed_aggregation, amgcl::relaxation::spai0>, amgcl::solver::bicgstab<amgcl::backend::eigen<double>>>* AMGCL_solver;
