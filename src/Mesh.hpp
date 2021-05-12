@@ -120,6 +120,7 @@ private:
 	std::vector<element2d> elements; // types and nodes constituting elements
 	std::vector<boundary> boundaries; // the boundaries of the problem, including the names and the edges that form each boundary
 	std::string input_msh_file; //default name of the mesh file. It can be read from the file too
+	int OCC_format;
 	double dx_ratio; //multiplier to expand the grid geometrically by factor dx_ratio
 	double fac; //multiplier to make grids randomly non-uniform; uniform: fac=0.
 	unsigned int Lnod; //number of geometry nodes on each edge (=Lnod_in + 1)
@@ -145,7 +146,7 @@ public:
 		dx_ratio = 1; //no expanding grid
 		N_edges_boundary = 0;
 		N_Gboundary = 4;
-	} 
+	}
 
 	~Mesh() {}	//destructor define here later
 
@@ -155,6 +156,9 @@ public:
 	int locate_in_file(std::ifstream& filestream, const std::string& searchname); //to find a searchname in the MSH file and return the file stream
 
 	void process_mesh(); //processes the mesh that is read from file, finding the elements neighbors, ...
+
+	unsigned int tensor2FEM(unsigned int i); // converts the tensor index to the FEM node ordering for 1D case
+	unsigned int tensor2FEM(unsigned int i, unsigned int j); // converts the tensor index to the FEM node ordering for 2D case
 
 	friend class HO_2D;
 
