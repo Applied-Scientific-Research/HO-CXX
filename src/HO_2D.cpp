@@ -3316,17 +3316,72 @@ void HO_2D::save_vorticity_vtk() {
 //
 
 void HO_2D::set_defaults() {
+	Knod = 3;
+	using_hybrid = false;
 }
 
 void HO_2D::enable_hybrid() {
+	using_hybrid = true;
 }
 
-void HO_2D::set_elemorder(const int32_t _order) {
+void HO_2D::set_elemorder(const int32_t _eorder) {
+	Knod = (unsigned int)_eorder;
 }
+
+void load_mesh_arrays_d(const int32_t _iorder,
+                        const int32_t _nnodes, const double* _xynodes,
+                        const int32_t _nelems, const int32_t* _idxelems,
+                        const int32_t _nwall,  const int32_t* _idxwall,
+                        const int32_t _nopen,  const int32_t* _idxopen) {
+
+	// Lnod is in Mesh
+	//Lnod = (unsigned int)_iorder + 1;
+}
+
+// get data from this Eulerian solver
 
 int32_t HO_2D::getsolnptlen() {
 	return 0;
 }
+
+void getsolnpts_d(const int32_t _ptlen, double* _xypts) {
+}
+
+void getsolnareas_d(const int32_t _veclen, double* _areas) {
+}
+int32_t getopenptlen() {
+	return 0;
+}
+void getopenpts_d(const int32_t _nopen, double* _xyopen) {
+}
+
+// send vels and vorts to this solver
+
+void setopenvels_d(const int32_t _veclen, double* _xyvel) {
+}
+void setopenvort_d(const int32_t _veclen, double* _invort) {
+}
+void setsolnvort_d(const int32_t _veclen, double* _invort) {
+}
+void setptogweights_d(const int32_t _veclen, double* _inwgt) {
+}
+
+// march forward
+
+void solveto_d(const double _outerdt, const int32_t _numstep,
+		const int32_t _integtype, const double _reyn) {
+}
+
+// retrieve results
+
+void getallvorts_d(const int32_t _veclen, double* _outvort) {
+}
+void get_hoquad_weights_d(const int32_t _veclen, double* _outvec) {
+}
+void trigger_write(const int32_t _indx) {
+}
+
+// close, finish
 
 void HO_2D::clean_up() {
 }

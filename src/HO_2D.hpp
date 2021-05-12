@@ -140,11 +140,11 @@ private:
 	// this is where C++ is still terrible: either *** and new[] delete[], or Eigen, or Boost, or templates!
         // values on the open boundary - relatively easy, can use Eigen matrix or double**
 	// it would be nice to use std::vector<std::array<FTYPE,K>> BC_VelNorm_start;
-	double** BC_VelNorm_start, BC_VelNorm_end;
-	double** BC_VelParl_start, BC_VelParl_end;
-	double** BC_Vort_start,    BC_Vort_end;
+	double** BC_VelNorm_start, ** BC_VelNorm_end;
+	double** BC_VelParl_start, ** BC_VelParl_end;
+	double** BC_Vort_start,    ** BC_Vort_end;
         // values in the volume
-	double*** Vort_start, Vort_end, Vort_wgt;
+	double*** Vort_start, *** Vort_end, *** Vort_wgt;
 
 public:
 	HO_2D() //default constructor
@@ -216,11 +216,28 @@ public:
 	void set_defaults();
 	void enable_hybrid();
 	void set_elemorder(const int32_t);
+	void load_mesh_arrays_d(const int32_t,
+		const int32_t, const double*,
+		const int32_t, const int32_t*,
+		const int32_t, const int32_t*,
+		const int32_t, const int32_t*);
 	// get data from this Eulerian solver
 	int32_t getsolnptlen();
+	void getsolnpts_d(const int32_t, double*);
+	void getsolnareas_d(const int32_t, double*);
+	int32_t getopenptlen();
+	void getopenpts_d(const int32_t, double*);
 	// send vels and vorts to this solver
+	void setopenvels_d(const int32_t, double*);
+	void setopenvort_d(const int32_t, double*);
+	void setsolnvort_d(const int32_t, double*);
+	void setptogweights_d(const int32_t, double*);
 	// march forward
+	void solveto_d(const double, const int32_t, const int32_t, const double);
 	// retrieve results
+	void getallvorts_d(const int32_t, double*);
+	void get_hoquad_weights_d(const int32_t, double*);
+	void trigger_write(const int32_t);
 	// close, finish
 	void clean_up();
 };
