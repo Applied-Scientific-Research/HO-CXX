@@ -130,7 +130,7 @@ int HO_2D::read_input_file(const std::string filename) {
 	}
 
 	try {
-	  //     retrieve number of quadrilateral elements in case of structured mesh (prespecified problem)
+	  // retrieve number of quadrilateral elements in case of structured mesh (prespecified problem)
 	  std::getline(file_handle, temp_string);
 	  file_handle >> mesh.N_el_i >>temp_char>> mesh.N_el_j; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');   // ignore until next line
 
@@ -479,6 +479,21 @@ double*** allocate_3d_array_d(const size_t nx, const size_t ny, const size_t nz)
 	return outptr;
 }
 
+double**** allocate_4d_array_d(const size_t nx, const size_t ny, const size_t nz, const size_t nq) {
+	double**** outptr = NULL;
+	outptr = new double*** [nx];
+	for (size_t i = 0; i < nx; ++i) {
+		outptr[i] = new double** [ny];
+		for (size_t j = 0; j < ny; ++j) {
+			outptr[i][j] = new double* [nz];
+			for (size_t k = 0; k < nz; ++k) {
+				outptr[i][j][k] = new double[nq];
+			}
+		}
+	}
+	return outptr;
+}
+
 Cmpnts2** allocate_2d_array_c2(const size_t nx, const size_t ny) {
 	Cmpnts2** outptr = NULL;
 	outptr = new Cmpnts2* [nx];
@@ -730,18 +745,17 @@ void HO_2D::setup_IC_BC_SRC() {
 	other problems: change the proper boundary conditions as required.
 	*/
 
-	for (int el = 0; el < mesh.N_el; ++el)
-		for (int j = 0; j < Knod; ++j)
+	for (int el = 0; el < mesh.N_el; ++el) {
+		for (int j = 0; j < Knod; ++j) {
 			for (int i = 0; i < Knod; ++i) {
 				initial_vorticity[el][j][i] = 0.;
 				vorticity[el][j][i] = initial_vorticity[el][j][i];
 				stream_function[el][j][i] = 0.;
 			}
+		}
+	}
 
 	if (problem_type==1) { //cavity flow: the mass flux is zero and the slip velocity is -1 on the top plane (lid moves to the right, so CCW)
-//        std::fill(BC_switch_Poisson, BC_switch_Poisson + mesh.N_edges_boundary, DirichletBC);
-//        std::fill(BC_switch_diffusion, BC_switch_diffusion + mesh.N_edges_boundary, NeumannBC);
-//        std::fill(BC_no_slip, BC_no_slip + mesh.N_Gboundary, true); // if a boundary is no-slip wall or not.
 //        for (int el_b = 0; el_b < mesh.N_edges_boundary; ++el_b) {
 //            for (int j = 0; j < Knod; ++j) {
 //                BC_Poisson[el_b][j] = 0.; //psi=0
@@ -750,22 +764,24 @@ void HO_2D::setup_IC_BC_SRC() {
 //            }
 //        }
 
-        std::fill(BC_no_slip, BC_no_slip + mesh.N_Gboundary, true); // if a boundary is no-slip wall or not.
-        std::fill(BC_switch_Poisson, BC_switch_Poisson + mesh.N_edges_boundary, DirichletBC);
-        std::fill(&BC_Poisson[0][0], &BC_Poisson[0][0] + mesh.N_edges_boundary * Knod, 0.); //psi=0
-        std::fill(BC_switch_diffusion, BC_switch_diffusion + mesh.N_edges_boundary, NeumannBC);
-        std::fill(&BC_normal_vel[0][0], &BC_normal_vel[0][0] + mesh.N_edges_boundary * Knod, 0.);
-        std::fill(&BC_parl_vel[0][0], &BC_parl_vel[0][0] + mesh.N_edges_boundary * Knod, 0.);
+		// std::fill works if all the data is contiguous in memory, which is currently is not
+		std::fill(BC_no_slip, BC_no_slip + mesh.N_Gboundary, true); // if a boundary is no-slip wall or not.
+		std::fill(BC_switch_Poisson, BC_switch_Poisson + mesh.N_edges_boundary, DirichletBC);
+		//std::fill(&BC_Poisson[0][0], &BC_Poisson[0][0] + mesh.N_edges_boundary * Knod, 0.); //psi=0
+		std::fill(BC_switch_diffusion, BC_switch_diffusion + mesh.N_edges_boundary, NeumannBC);
+		//std::fill(&BC_normal_vel[0][0], &BC_normal_vel[0][0] + mesh.N_edges_boundary * Knod, 0.);
+		//std::fill(&BC_parl_vel[0][0], &BC_parl_vel[0][0] + mesh.N_edges_boundary * Knod, 0.);
 
-        for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) {
-            if (mesh.boundaries[G_boundary].name == "top") { // the proper boundary is selected
-                for (int edge_index : mesh.boundaries[G_boundary].edges) { //loop over all the edges forming the top boundary
-                    for (int i = 0; i < Knod; ++i) // loop over all sps on each edge on the proper boundary
-                        BC_parl_vel[edge_index][i] = -1.; //the lid moves CW on the global boundary
-                }
-            }
-        }
-    }
+		for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) {
+			if (mesh.boundaries[G_boundary].name == "top") { // the proper boundary is selected
+				for (int edge_index : mesh.boundaries[G_boundary].edges) { //loop over all the edges forming the top boundary
+					for (int i = 0; i < Knod; ++i) { // loop over all sps on each edge on the proper boundary
+						BC_parl_vel[edge_index][i] = -1.; //the lid moves CW on the global boundary
+					}
+				}
+			}
+		}
+	}
 
     else if (problem_type==2) {  //Backward Facing step
         //BFS: inlet: specific normal vel ---> calculate psi based on the mass flux
@@ -1098,14 +1114,14 @@ void HO_2D::form_metrics() {
 }
 
 char HO_2D::solve_vorticity_streamfunction() {
-	//solves the two set of equations: 1) advection diffucion of vorticity + 2) Poisson eq for streamfunction
+	//solves the two set of equations: 1) advection diffusion of vorticity + 2) Poisson eq for streamfunction
 	for (int el = 0; el<mesh.N_el; ++el)
 		for (int j = 0; j < Knod; ++j)
 			for (int i = 0; i < Knod; ++i)
 				vorticity[el][j][i] = initial_vorticity[el][j][i];
 
 
-	//save_output(0);  // for validtaion of cases, it exports the quantities and calculates the error norm versus analytical results.
+	//save_output(0);  // for validation of cases, it exports the quantities and calculates the error norm versus analytical results.
 
 	for (ti = 0; ti <= num_time_steps; ++ti) {
 		std::cout << "timestep  " << ti << std::endl;
@@ -1150,20 +1166,17 @@ char HO_2D::solve_advection_diffusion() {
 	//solves the advection diffusion eq. for the vorticity field: VTE
 
 	int N_el = mesh.N_el;
-	double*** k1=new double** [N_el], *** k2 = new double** [N_el], *** k3= new double** [N_el], *** k4= new double** [N_el], *** vort = new double** [N_el];
-	for (int j = 0; j < N_el; ++j) {
-		k1[j] = new double* [Knod];
-		k2[j] = new double* [Knod];
-		k3[j] = new double* [Knod];
-		k4[j] = new double* [Knod];
-		vort[j] = new double* [Knod];
-		for (int i = 0; i < Knod; ++i) {
-			k1[j][i] = new double[Knod];
-			k2[j][i] = new double[Knod];
-			k3[j][i] = new double[Knod];
-			k4[j][i] = new double[Knod];
-			vort[j][i] = new double[Knod];
-		}
+
+	static bool are_allocated = false;
+	static double*** k1, ***k2, ***k3, ***k4, ***vort;
+
+	if (not are_allocated) {
+		k1 = allocate_3d_array_d(N_el, Knod, Knod);
+		k2 = allocate_3d_array_d(N_el, Knod, Knod);
+		k3 = allocate_3d_array_d(N_el, Knod, Knod);
+		k4 = allocate_3d_array_d(N_el, Knod, Knod);
+		vort = allocate_3d_array_d(N_el, Knod, Knod);
+		are_allocated = true;
 	}
 
 
@@ -1198,26 +1211,12 @@ char HO_2D::solve_advection_diffusion() {
 			vorticity[el][j][i] += (k1[el][j][i] + 2.*k2[el][j][i] + 2.*k3[el][j][i] + k4[el][j][i]) / 6.; //calc vorticity at time step n+1
 	}
 
-	// *********** release memory on the heap ************
-	for (int j = 0; j < N_el; ++j) {
-		for (int i = 0; i < Knod; ++i) {
-			delete[] k1[j][i];
-			delete[] k2[j][i];
-			delete[] k3[j][i];
-			delete[] k4[j][i];
-			delete[] vort[j][i];
-		}
-		delete[] k1[j];
-		delete[] k2[j];
-		delete[] k3[j];
-		delete[] k4[j];
-		delete[] vort[j];
-	}
-	delete[] k1;
-	delete[] k2;
-	delete[] k3;
-	delete[] k4;
-	delete[] vort;
+    // do not delete memory, but if we wanted to, we would do this
+    //deallocate_3d_array_d(k1, N_el, Knod);
+    //deallocate_3d_array_d(k2, N_el, Knod);
+    //deallocate_3d_array_d(k3, N_el, Knod);
+    //deallocate_3d_array_d(k4, N_el, Knod);
+    //deallocate_3d_array_d(vort, N_el, Knod);
 
 	return 0;
 }
@@ -1231,19 +1230,17 @@ void HO_2D:: form_Laplace_operator_matrix() {
 	int dn, tn; // the direction and boundary side of the neighboring element eln, adjacent to d direction and t side of the element el
 	int rs, ij, i1, j1; // temporary indices
 	double coeff, tmp2, tmp3;
-	unsigned int Ksq = Knod * Knod, Km1 = Knod - 1, K4 = Ksq * Ksq;
-	double*** laplacian_center = new double** [N_el]; //The coefficients in the left hand side matrix that has contribution from the element itself. it has the coefficients for element el, sps ij=j*Knod+i and rs=r*Knod+s, so laplacian_center[el][ij][rs]
+	unsigned int Ksq = Knod * Knod;
+	unsigned int Km1 = Knod - 1;
+	unsigned int K4 = Ksq * Ksq;
+	//The coefficients in the left hand side matrix that has contribution from the element itself. it has the coefficients for element el, sps ij=j*Knod+i and rs=r*Knod+s, so laplacian_center[el][ij][rs]
+	double*** laplacian_center = allocate_3d_array_d(N_el, Ksq, Ksq);
 	double**** laplacian_neighbor = new double*** [N_el]; //The coefficients in the left hand side matrix that has contribution from the 4 neighboring element (if are not located on the global boundary). it has the coefficients for element el per cell side, sps ij=j*Knod+i and rs=r*Knod+s of the neighbor element, so laplacian_center[el][4][ij][rs]
 	//double** NeuMatrix_Orig = new double* [Knod], **NeuMatrix = new double* [Knod]; //small dense matrix to obtain comx(per element) for a given Neumann BC
 	Eigen::MatrixXd NeuMatrix_Orig(Knod, Knod), NeuMatrix(Knod, Knod); //I am using Eigen here to save energy and time
 
 	//std::fill(BC_switch, BC_switch + mesh.N_edges_boundary, /*NeumannBC*/ DirichletBC); //to test the poisson solver
 
-	for (int i = 0; i < N_el; ++i) {
-		laplacian_center[i] = new double* [Ksq];
-		for (int j = 0; j < Ksq; ++j)
-			laplacian_center[i][j] = new double[Ksq];
-	}
 	for (int i = 0; i < N_el; ++i) {
 		laplacian_neighbor[i] = new double** [4];
 		for (int j = 0; j < 4; ++j) {
@@ -1500,12 +1497,7 @@ void HO_2D:: form_Laplace_operator_matrix() {
 	else if (LHS_type==3) Poisson_solver_AMGCL_setup(laplacian_center, laplacian_neighbor);//use AMGCL to solve for the linear system
 
 	//  **************** free unnecessary memory ****************
-	for (int i = 0; i < N_el; ++i) {
-		for (int j = 0; j < Ksq; ++j)
-			delete[] laplacian_center[i][j];
-		delete[] laplacian_center[i];
-	}
-	delete[] laplacian_center;
+	deallocate_3d_array_d(laplacian_center, N_el, Ksq);
 
 	for (int i = 0; i < N_el; ++i) {
 		for (int j = 0; j < 4; ++j) {
@@ -1919,43 +1911,30 @@ char HO_2D::calc_RHS_advection(double*** vort_in) {
 
 	int ijp, ijpm, eln, neighbor_side, jn;
 	double bndr_vel;
-	double** local_vort = new double* [Knod]; //local array to hold the vorticity along a row of csi [0], and row of eta [1] direction
-	for (int i = 0; i < Knod; ++i) local_vort[i] = new double[2];
-	double** local_vel  = new double* [Knod]; //local array to hold the contravariant flux on a row of csi [0] (xsi dir), and row of eta [1] direction (eta dir)
-	for (int i = 0; i < Knod; ++i) local_vel[i] = new double[2];
+	double** local_vort; //local array to hold the vorticity along a row of csi [0], and row of eta [1] direction
+	double** local_vel; //local array to hold the contravariant flux on a row of csi [0] (xsi dir), and row of eta [1] direction (eta dir)
 
-	double ***bndr_vort, ***bndr_flx, ***upwnd_flx; //quantities per element, per ijp face per sps index
-	bndr_vort = new double** [mesh.N_el]; //interpolated vorticity from a row/column of K nodes on the ijp faces
-	bndr_flx = new double** [mesh.N_el]; //interpolated flux of uw and vw in ijp faces, i.e. w*f^tilda on ijp=0,1 faces and w*g^tilda on ijp=2,3 faces
-	upwnd_flx = new double** [mesh.N_el]; //flux values at el element, in idir direction, at row_col row or column at k sps, hence [el][idir][row_col][k]= f^tilda[k] w[k] if idir=0 AND g^tilda[k] w[k] if idir=1
+	//quantities per element, per ijp face per sps index
+	double*** bndr_vort; //interpolated vorticity from a row/column of K nodes on the ijp faces
+	double*** bndr_flx; //interpolated flux of uw and vw in ijp faces, i.e. w*f^tilda on ijp=0,1 faces and w*g^tilda on ijp=2,3 faces
+	double*** upwnd_flx; //flux values at el element, in idir direction, at row_col row or column at k sps, hence [el][idir][row_col][k]= f^tilda[k] w[k] if idir=0 AND g^tilda[k] w[k] if idir=1
 
-	for (int i = 0; i < mesh.N_el; ++i) {
-		bndr_vort[i] = new double* [4];
-		bndr_flx[i] = new double* [4];
-		upwnd_flx[i] = new double* [4];
-		for (int j = 0; j < 4; ++j) {
-			bndr_vort[i][j] = new double [Knod];
-			bndr_flx[i][j] = new double[Knod];
-			upwnd_flx[i][j] = new double[Knod];
-		}
-	}
+	local_vort = allocate_2d_array_d(Knod, 2);
+	local_vel  = allocate_2d_array_d(Knod, 2);
+	bndr_vort  = allocate_3d_array_d(mesh.N_el, 4, Knod);
+	bndr_flx   = allocate_3d_array_d(mesh.N_el, 4, Knod);
+	upwnd_flx  = allocate_3d_array_d(mesh.N_el, 4, Knod);
 
-	double**** disc_flx = new double*** [mesh.N_el];
-	for (int i = 0; i < mesh.N_el; ++i) {
-		disc_flx[i] = new double** [2]; //0 for xsi and 1: eta directions, so 0 means f^tilda and 1 means g^tilda
-		for (int j = 0; j < 2; j++) {
-			disc_flx[i][j] = new double* [Knod];
-			for (int k = 0; k < Knod; k++) disc_flx[i][j][k] = new double[Knod];
-		}
-	}
+	//0 for xsi and 1: eta directions, so 0 means f^tilda and 1 means g^tilda
+	double**** disc_flx = allocate_4d_array_d(mesh.N_el, 2, Knod, Knod);
 
 	for (int i = 0; i < mesh.N_el; ++i)
 		for (int j = 0; j < 2; j++)
 			for (int k = 0; k < Knod; k++)
 				for (int m = 0; m < Knod; m++) disc_flx[i][j][k][m] = 0.;
 
-	double** bndr_disc_flx = new double* [4];  //4 side of a cells
-	for (int i = 0; i < 4; ++i) bndr_disc_flx[i] = new double[Knod];
+	double** bndr_disc_flx = allocate_2d_array_d(4,Knod);	//4 side of a cells
+
 	// ****************************************************************
 
 	//Extrapolate the unknown, Phi and the Flux to the mesh boundaries using Lagrange polynomials of order Knod - 1
@@ -2058,9 +2037,7 @@ char HO_2D::calc_RHS_advection(double*** vort_in) {
 	}
 
 	// ********************** free memory on the heap*****************
-	for (int i = 0; i < 4; ++i)
-		delete[] bndr_disc_flx[i];
-	delete[] bndr_disc_flx;
+	deallocate_2d_array_d(bndr_disc_flx, 4);
 
 	for (int i = 0; i < mesh.N_el; ++i) {
 		for (int j = 0; j < 2; j++) {
@@ -2072,26 +2049,13 @@ char HO_2D::calc_RHS_advection(double*** vort_in) {
 	}
 	delete[] disc_flx;
 
-	for (int i = 0; i < mesh.N_el; ++i) {
-		for (int j = 0; j < 4; ++j) {
-			delete[] bndr_vort[i][j];
-			delete[] bndr_flx[i][j];
-			delete[] upwnd_flx[i][j];
-		}
-		delete[] bndr_vort[i];
-		delete[] bndr_flx[i];
-		delete[] upwnd_flx[i];
-	}
-	delete[] bndr_vort;
-	delete[] bndr_flx;
-	delete[] upwnd_flx;
+	deallocate_3d_array_d(bndr_vort, mesh.N_el, 4);
+	deallocate_3d_array_d(bndr_flx, mesh.N_el, 4);
+	deallocate_3d_array_d(upwnd_flx, mesh.N_el, 4);
 
-	for (int i = 0; i < Knod; ++i) {
-		delete[] local_vort[i];
-		delete[] local_vel[i];
-	}
-	delete[] local_vort;
-	delete[] local_vel;
+	deallocate_2d_array_d(local_vort, Knod);
+	deallocate_2d_array_d(local_vel, Knod);
+
 	return 0;
 }
 
