@@ -2,7 +2,7 @@
  * HO_2D.hpp - Class definition for HO_2D
  *
  * (c)2020-1 Applied Scientific Research, Inc.
- *           Mohammad Hajit
+ *           Mohammad Hajit <mhajit@gmail.com>
  *           Mark J. Stock <markjstock@gmail.com>
  */
 

@@ -2,7 +2,7 @@
  * MathHelpers.hpp - Useful mathematical helper functions
  *
  * (c)2020-1 Applied Scientific Research, Inc.
- *           Mohammad Hajit
+ *           Mohammad Hajit <mhajit@gmail.com>
  */
 
 #pragma once

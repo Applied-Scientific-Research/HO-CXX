@@ -6,7 +6,7 @@ Lnod:
 3
 mesh file name:
 mesh_cylinder.msh
-if the file is written in OCC format or orognal gmsh format. zero means original, 1 means OCC format
+if the file is written in OCC format or original gmsh format. zero means original, 1 means OCC format
 1
 Exact
 false
@@ -22,8 +22,8 @@ time integration: 1: explicit Euler, 2: explicit RK2, 4: explicit RK4
 4
 advection scheme: 1: original discontinuous, 2: continuous mass flux term
 1
-problem type. For now, number 1 is the Cavity, 2 is BFS, 3 is flow over cylinder
-3 
+problem type. 1 is lid-driven cavity, 2 is BFS, 3 is flow over cylinder
+3
 number of time steps
 10000
 dt: time step size 

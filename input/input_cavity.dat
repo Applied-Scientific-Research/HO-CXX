@@ -6,6 +6,8 @@ Lnod:
 3
 mesh file name:
 mesh_cavity.msh
+if the file is written in OCC format or original gmsh format. zero means original, 1 means OCC format
+0
 Exact
 false
 Reyn
@@ -17,14 +19,14 @@ fac:  multiplier to make grids randomly non-uniform; uniform: fac=0
 Huyn solver: for now only the option 2 is used which is the DG equivalence
 2
 time integration: 1: explicit Euler, 2: explicit RK2, 4: explicit RK4
-2
+4
 advection scheme: 1: original discontinuous, 2: continuous mass flux term
 1
-problem type. For now, number 3 is the Cavity and 10 is the general case
-3
+problem type. 1 is lid-driven cavity, 2 is BFS, 3 is flow over cylinder
+1
 number of time steps
 100000
-dt: time step size 
+dt: time step size
 0.001
 dumpfreq: how many time steps are the results saved
 1000
