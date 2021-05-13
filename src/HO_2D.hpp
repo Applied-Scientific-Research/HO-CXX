@@ -136,12 +136,12 @@ private:
 
 	bool using_hybrid;
 	// this is where C++ is still terrible: either *** and new[] delete[], or Eigen, or Boost, or templates!
-        // values on the open boundary - relatively easy, can use Eigen matrix or double**
+	// values on the open boundary - relatively easy, can use Eigen matrix or double**
 	// it would be nice to use std::vector<std::array<FTYPE,K>> BC_VelNorm_start;
 	double** BC_VelNorm_start, ** BC_VelNorm_end;
 	double** BC_VelParl_start, ** BC_VelParl_end;
 	double** BC_Vort_start,    ** BC_Vort_end;
-        // values in the volume
+	// values in the volume
 	double*** Vort_start, *** Vort_end, *** Vort_wgt;
 
 public:
@@ -176,7 +176,6 @@ public:
 		release_memory();
 	}; // destructor
 
-	void save_output(int time);
 	void release_memory();
 	int read_input_file(const std::string filename);
 	char allocate_arrays();
@@ -201,9 +200,10 @@ public:
 	void Poisson_solver_AMGCL_setup(double*** laplacian_center, double**** laplacian_neighbor);  //setup and fill the LHS and RHS for Poisson solver via the AMGCL
 	void calc_velocity_vector_from_streamfunction(); //calculate u and v from the streamfunction field
 	void update_BCs(double time); //updates the Cartesian velocity BC(BC_u_vel, BC_v_vel), BC_diffusion. Usually BCs are fixed in time, this is just for cases where the BCs changes in time. time is the current time
-	void save_output_vtk(); //writes the data in VTK format
-	void save_smooth_vtk(); //writes the data in VTK format with averaging of 4 nodes from internal nodes (smoother than save_output_vtk)
-	void save_vorticity_vtk(); ////writes the data in VTK format for the vorticity
+	void save_output(int time);	// debug writing only
+	void save_output_vtk(int indx); //writes the data in VTK format
+	void save_smooth_vtk(int indx); //writes the data in VTK format with averaging of 4 nodes from internal nodes (smoother than save_output_vtk)
+	void save_vorticity_vtk(int indx); //writes the data in VTK format for the vorticity
 	void read_process_sample_points();
 	void update_advection_BC(); //calculate/update the BC for the advective term
 	void update_diffusion_BC(); //calculate/update the BC for the diffusion term

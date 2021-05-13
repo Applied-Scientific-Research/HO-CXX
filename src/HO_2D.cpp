@@ -12,6 +12,7 @@
 #include <cmath>
 
 void deallocate_2d_array_d(double** arry, const size_t nx) {
+	if (arry == nullptr) return;
 	for (size_t k = 0; k < nx; ++k) {
 		delete[] arry[k];
 	}
@@ -19,6 +20,7 @@ void deallocate_2d_array_d(double** arry, const size_t nx) {
 }
 
 void deallocate_3d_array_d(double*** arry, const size_t nx, const size_t ny) {
+	if (arry == nullptr) return;
 	for (size_t k = 0; k < nx; ++k) {
 		for (size_t j = 0; j < ny; ++j) {
 			delete[] arry[k][j];
@@ -29,6 +31,7 @@ void deallocate_3d_array_d(double*** arry, const size_t nx, const size_t ny) {
 }
 
 void deallocate_3d_array_c2(Cmpnts2*** arry, const size_t nx, const size_t ny) {
+	if (arry == nullptr) return;
 	for (size_t k = 0; k < nx; ++k) {
 		for (size_t j = 0; j < ny; ++j) {
 			delete[] arry[k][j];
@@ -459,7 +462,7 @@ void HO_2D::setup_sps_gps() {
 // and we can even do it in a templated function: allocate_2d_array<double>(nx, ny);
 
 double** allocate_2d_array_d(const size_t nx, const size_t ny) {
-	double** outptr = NULL;
+	double** outptr = nullptr;
 	outptr = new double* [nx];
 	for (size_t j = 0; j < nx; ++j) {
 		outptr[j] = new double [ny];
@@ -468,7 +471,7 @@ double** allocate_2d_array_d(const size_t nx, const size_t ny) {
 }
 
 double*** allocate_3d_array_d(const size_t nx, const size_t ny, const size_t nz) {
-	double*** outptr = NULL;
+	double*** outptr = nullptr;
 	outptr = new double** [nx];
 	for (size_t j = 0; j < nx; ++j) {
 		outptr[j] = new double* [ny];
@@ -480,7 +483,7 @@ double*** allocate_3d_array_d(const size_t nx, const size_t ny, const size_t nz)
 }
 
 double**** allocate_4d_array_d(const size_t nx, const size_t ny, const size_t nz, const size_t nq) {
-	double**** outptr = NULL;
+	double**** outptr = nullptr;
 	outptr = new double*** [nx];
 	for (size_t i = 0; i < nx; ++i) {
 		outptr[i] = new double** [ny];
@@ -495,7 +498,7 @@ double**** allocate_4d_array_d(const size_t nx, const size_t ny, const size_t nz
 }
 
 Cmpnts2** allocate_2d_array_c2(const size_t nx, const size_t ny) {
-	Cmpnts2** outptr = NULL;
+	Cmpnts2** outptr = nullptr;
 	outptr = new Cmpnts2* [nx];
 	for (size_t j = 0; j < nx; ++j) {
 		outptr[j] = new Cmpnts2 [ny];
@@ -504,7 +507,7 @@ Cmpnts2** allocate_2d_array_c2(const size_t nx, const size_t ny) {
 }
 
 Cmpnts2*** allocate_3d_array_c2(const size_t nx, const size_t ny, const size_t nz) {
-	Cmpnts2*** outptr = NULL;
+	Cmpnts2*** outptr = nullptr;
 	outptr = new Cmpnts2** [nx];
 	for (size_t j = 0; j < nx; ++j) {
 		outptr[j] = new Cmpnts2* [ny];
@@ -1114,48 +1117,52 @@ void HO_2D::form_metrics() {
 }
 
 char HO_2D::solve_vorticity_streamfunction() {
+
+	const bool debug = false;
+
 	//solves the two set of equations: 1) advection diffusion of vorticity + 2) Poisson eq for streamfunction
 	for (int el = 0; el<mesh.N_el; ++el)
 		for (int j = 0; j < Knod; ++j)
-			for (int i = 0; i < Knod; ++i)
+			for (int i = 0; i < Knod; ++i) {
 				vorticity[el][j][i] = initial_vorticity[el][j][i];
+			}
 
 
-	//save_output(0);  // for validation of cases, it exports the quantities and calculates the error norm versus analytical results.
+	// for validation of cases, it exports the quantities and calculates the error norm versus analytical results.
+	if (debug) save_output(0);
 
+	// perform time integration, note ti is global step count
 	for (ti = 0; ti <= num_time_steps; ++ti) {
 		std::cout << "timestep  " << ti << std::endl;
 
+		// do all the work
 		solve_advection_diffusion();
 
-		/* for debugging purposes and testing only
-		//temporarily set the right hand side (vorticity) of the poisson equation
-		for (int el = 0; el < mesh.N_el; ++el) {
-			for (int j = 0; j < Knod; ++j) {
-				for (int i = 0; i < Knod; ++i) {
-					Cmpnts2 coor(0., 0.); //coordinate of sps[j][i]
-					for (int ny = 0; ny < mesh.Lnod; ++ny)
-						for (int nx = 0; nx < mesh.Lnod; ++nx) {
-							int node_index = mesh.elements[el].nodes[mesh.tensor2FEM(nx, ny)];
-							coor.plus(gps_sps_basis[ny][j] * gps_sps_basis[nx][i], mesh.nodes[node_index].coor);
-						}
-					double ym = M_PI * (1. - coor.y);
-					//vorticity[el][j][i] = M_PI * std::sin(M_PI * coor.x) * (ym * (1. + 2. * std::cos(ym)) + 2. * std::sin(ym));
-					//vorticity[el][j][i] = std::sin(M_PI * coor.y);
-					//vorticity[el][j][i] = M_PI*std::sin(M_PI*coor.x)*(2.*std::sin(M_PI*coor.y) + 2.*M_PI*coor.y*std::cos(M_PI*coor.y) + M_PI*coor.y);
-					vorticity[el][j][i] = -4. * (coor.x * coor.x + coor.y * coor.y + 1.) * std::exp(coor.x * coor.x + coor.y * coor.y);
-					//vorticity[el][j][i] = -4.;
+		// for debugging purposes and testing only
+		if (debug) {
+			//temporarily set the right hand side (vorticity) of the poisson equation
+			for (int el = 0; el < mesh.N_el; ++el) for (int j = 0; j < Knod; ++j) for (int i = 0; i < Knod; ++i) {
+				Cmpnts2 coor(0., 0.); //coordinate of sps[j][i]
+				for (int ny = 0; ny < mesh.Lnod; ++ny) for (int nx = 0; nx < mesh.Lnod; ++nx) {
+					const int node_index = mesh.elements[el].nodes[mesh.tensor2FEM(nx, ny)];
+					coor.plus(gps_sps_basis[ny][j] * gps_sps_basis[nx][i], mesh.nodes[node_index].coor);
 				}
+				double ym = M_PI * (1. - coor.y);
+				//vorticity[el][j][i] = M_PI * std::sin(M_PI * coor.x) * (ym * (1. + 2. * std::cos(ym)) + 2. * std::sin(ym));
+				//vorticity[el][j][i] = std::sin(M_PI * coor.y);
+				//vorticity[el][j][i] = M_PI*std::sin(M_PI*coor.x)*(2.*std::sin(M_PI*coor.y) + 2.*M_PI*coor.y*std::cos(M_PI*coor.y) + M_PI*coor.y);
+				vorticity[el][j][i] = -4. * (coor.x * coor.x + coor.y * coor.y + 1.) * std::exp(coor.x * coor.x + coor.y * coor.y);
+				//vorticity[el][j][i] = -4.;
 			}
 		}
-		*/
 
-		//solve_Poisson(vorticity); //if you would like to calculate the streamfunction at n+1 time step
+		//if you would like to calculate the streamfunction at n+1 time step
+		//solve_Poisson(vorticity);
 
 		if (!((ti+1) % dump_frequency)) {
 			//save_output(ti);
-			save_vorticity_vtk();
-			save_smooth_vtk();
+			save_vorticity_vtk(ti+1);
+			save_smooth_vtk(ti+1);
 		}
  	}
 
@@ -1179,36 +1186,64 @@ char HO_2D::solve_advection_diffusion() {
 		are_allocated = true;
 	}
 
+	// first order Euler time integration method
+	if (time_integration_type == 1) {
 
-	if (time_integration_type == 1) { // first order Euler time integration method
-		Euler_time_integrate(vorticity, k1, 0.); //calculate the RHS terms for the advective term and diffusive terms, i.e. -div(vw) and Laplacian(w)
-		for (int el = 0; el < N_el; ++el) for (int j = 0; j < Knod; ++j) for (int i = 0; i < Knod; ++i) vorticity[el][j][i] += k1[el][j][i]; //vorticity at time step n+1
+		//calculate the RHS terms for the advective term and diffusive terms, i.e. -div(vw) and Laplacian(w)
+		Euler_time_integrate(vorticity, k1, 0.);
+
+		//vorticity at time step n+1
+		for (int el = 0; el < N_el; ++el) for (int j = 0; j < Knod; ++j) for (int i = 0; i < Knod; ++i) {
+			vorticity[el][j][i] += k1[el][j][i];
+		}
 	}
 
-	else if (time_integration_type == 2) { // explicit RK2 time integration
-		Euler_time_integrate(vorticity, k1, RK2_coeff[0]); //calculate the RHS terms for the advective term and diffusive terms, i.e. -div(vw) and Laplacian(w)
+	// explicit RK2 time integration
+	else if (time_integration_type == 2) {
 
-		for (int el = 0; el < N_el; ++el) for (int j = 0; j < Knod; ++j) for (int i = 0; i < Knod; ++i) vort[el][j][i] = vorticity[el][j][i] + RK2_coeff[1] * k1[el][j][i];
-		Euler_time_integrate(vort, k2, RK2_coeff[1]); //calculate the RHS terms for the advective term and diffusive terms, i.e. -div(vw) and Laplacian(w)
+		//calculate the RHS terms for the advective term and diffusive terms, i.e. -div(vw) and Laplacian(w)
+		Euler_time_integrate(vorticity, k1, RK2_coeff[0]);
 
-		for (int el = 0; el < N_el; ++el) for (int j = 0; j < Knod; ++j) for (int i = 0; i < Knod; ++i)
-			vorticity[el][j][i] += 0.5 * (k1[el][j][i] + k2[el][j][i]); //calc vorticity at time step n+1
+		for (int el = 0; el < N_el; ++el) for (int j = 0; j < Knod; ++j) for (int i = 0; i < Knod; ++i) {
+			vort[el][j][i] = vorticity[el][j][i] + RK2_coeff[1] * k1[el][j][i];
+		}
+		//calculate the RHS terms for the advective term and diffusive terms, i.e. -div(vw) and Laplacian(w)
+		Euler_time_integrate(vort, k2, RK2_coeff[1]);
+
+		//calc vorticity at time step n+1
+		for (int el = 0; el < N_el; ++el) for (int j = 0; j < Knod; ++j) for (int i = 0; i < Knod; ++i) {
+			vorticity[el][j][i] += 0.5 * (k1[el][j][i] + k2[el][j][i]);
+		}
 	}
 
-	else if (time_integration_type == 4) { //explicit RK4 time integration https://lpsa.swarthmore.edu/NumInt/NumIntFourth.html
-		Euler_time_integrate(vorticity, k1, RK4_coeff[0]); //calculate the RHS terms for the advective term and diffusive terms, i.e. -div(vw) and Laplacian(w)
+	//explicit RK4 time integration https://lpsa.swarthmore.edu/NumInt/NumIntFourth.html
+	else if (time_integration_type == 4) {
 
-		for (int el = 0; el < N_el; ++el) for (int j = 0; j < Knod; ++j) for (int i = 0; i < Knod; ++i) vort[el][j][i] = vorticity[el][j][i] + RK4_coeff[1] * k1[el][j][i];
-		Euler_time_integrate(vort, k2, RK4_coeff[1]); //calculate the RHS terms for the advective term and diffusive terms, i.e. -div(vw) and Laplacian(w)
+		//calculate the RHS terms for the advective term and diffusive terms, i.e. -div(vw) and Laplacian(w)
+		Euler_time_integrate(vorticity, k1, RK4_coeff[0]);
 
-		for (int el = 0; el < N_el; ++el) for (int j = 0; j < Knod; ++j) for (int i = 0; i < Knod; ++i) vort[el][j][i] = vorticity[el][j][i] + RK4_coeff[2] * k2[el][j][i];
-		Euler_time_integrate(vort, k3, RK4_coeff[2]); //calculate the RHS terms for the advective term and diffusive terms, i.e. -div(vw) and Laplacian(w)
+		for (int el = 0; el < N_el; ++el) for (int j = 0; j < Knod; ++j) for (int i = 0; i < Knod; ++i) {
+			vort[el][j][i] = vorticity[el][j][i] + RK4_coeff[1] * k1[el][j][i];
+		}
+		//calculate the RHS terms for the advective term and diffusive terms, i.e. -div(vw) and Laplacian(w)
+		Euler_time_integrate(vort, k2, RK4_coeff[1]);
 
-		for (int el = 0; el < N_el; ++el) for (int j = 0; j < Knod; ++j) for (int i = 0; i < Knod; ++i) vort[el][j][i] = vorticity[el][j][i] + RK4_coeff[3] * k3[el][j][i];
-		Euler_time_integrate(vort, k4, RK4_coeff[3]); //calculate the RHS terms for the advective term and diffusive terms, i.e. -div(vw) and Laplacian(w)
+		for (int el = 0; el < N_el; ++el) for (int j = 0; j < Knod; ++j) for (int i = 0; i < Knod; ++i) {
+			vort[el][j][i] = vorticity[el][j][i] + RK4_coeff[2] * k2[el][j][i];
+		}
+		//calculate the RHS terms for the advective term and diffusive terms, i.e. -div(vw) and Laplacian(w)
+		Euler_time_integrate(vort, k3, RK4_coeff[2]);
 
-		for (int el = 0; el < N_el; ++el) for (int j = 0; j < Knod; ++j) for (int i = 0; i < Knod; ++i)
-			vorticity[el][j][i] += (k1[el][j][i] + 2.*k2[el][j][i] + 2.*k3[el][j][i] + k4[el][j][i]) / 6.; //calc vorticity at time step n+1
+		for (int el = 0; el < N_el; ++el) for (int j = 0; j < Knod; ++j) for (int i = 0; i < Knod; ++i) {
+			vort[el][j][i] = vorticity[el][j][i] + RK4_coeff[3] * k3[el][j][i];
+		}
+		//calculate the RHS terms for the advective term and diffusive terms, i.e. -div(vw) and Laplacian(w)
+		Euler_time_integrate(vort, k4, RK4_coeff[3]);
+
+		//calc vorticity at time step n+1
+		for (int el = 0; el < N_el; ++el) for (int j = 0; j < Knod; ++j) for (int i = 0; i < Knod; ++i) {
+			vorticity[el][j][i] += (k1[el][j][i] + 2.*k2[el][j][i] + 2.*k3[el][j][i] + k4[el][j][i]) / 6.;
+		}
 	}
 
     // do not delete memory, but if we wanted to, we would do this
@@ -1529,12 +1564,12 @@ char HO_2D::Euler_time_integrate(double*** vort_in, double*** vort_out, double c
 	if (advection_type==1) calc_RHS_advection(vort_in); //stores -div(vw) in RHS_advective[el][Knod][Knod]
 	else if (advection_type == 2) calc_RHS_advection_continuous(vort_in); //stores -div(vw) in RHS_advective[el][Knod][Knod]
 
-
 	//update the vorticity field now
 	for (int el = 0; el < mesh.N_el; ++el)
 		for (int ky = 0; ky < Knod; ++ky)
 			for (int kx = 0; kx < Knod; ++kx)
 				vort_out[el][ky][kx] = dt * (RHS_advective[el][ky][kx] + RHS_diffusive[el][ky][kx]);
+
 	return 0;
 }
 
@@ -3138,7 +3173,7 @@ void HO_2D::calc_velocity_vector_from_streamfunction() {
 
 }
 
-void HO_2D::save_output_vtk() {
+void HO_2D::save_output_vtk(int indx) {
 // The older version of save data to file which uses the boundary values
 /*
 	//writes the data in VTK format for vorticity and velocity
@@ -3331,7 +3366,8 @@ void HO_2D::save_output_vtk() {
 */
 }
 
-void HO_2D::save_smooth_vtk() {
+void HO_2D::save_smooth_vtk(int indx) {
+
 	/*
 	writes the data in VTK format for vorticity and velocity with properly averaging the values from all coincident elements
 	Solution points sps (Gauss Legendre) projected onto ParaView nodes(gps), and extrapolated to bounday, edges and corners
@@ -3369,7 +3405,7 @@ void HO_2D::save_smooth_vtk() {
 	}
 
 	// ************ get the u,v field corresponding to vorticity at current time step *************
-	double current_time = (ti + 1) * dt;
+	//double current_time = (indx + 1) * dt;
 	//update_BCs(current_time);
 	//solve_Poisson(vorticity); //calculate the streamfunction corresponding to the vort_in, i.e. Laplacian(psi)=-vort_in. solves for stream_function. vorticity is at ti+1 time step
 	//calc_velocity_vector_from_streamfunction(); //calculate the Cartesian velocity field velocity_cart from psi corresponding to ti+1 time step
@@ -3471,12 +3507,12 @@ void HO_2D::save_smooth_vtk() {
 	file_name.append("_K");
 	file_name.append(std::to_string(Knod));
 	file_name.append("_timestep");
-	file_name.append(std::to_string(ti + 1));
+	file_name.append(std::to_string(indx));
 	file_name.append(".vtk");
 
-	std::cout << "     Writing the results after " << ti + 1 << "  timesteps into the file:  " << file_name << std::endl;
+	std::cout << "     Writing the results after " << indx << "  timesteps into the file:  " << file_name << std::endl;
 
-	double time = (ti + 1) * dt;
+	//double time = (indx) * dt;
 	std::ofstream file_handle(file_name);
 
 	file_handle << "# vtk DataFile Version 3.0" << std::endl;
@@ -3528,7 +3564,7 @@ void HO_2D::save_smooth_vtk() {
 	if (!N_sample_points) return;
 	file_name = "sampling_points";
 	file_name.append("_timestep");
-	file_name.append(std::to_string(ti + 1));
+	file_name.append(std::to_string(indx));
 	file_name.append("_L");
 	file_name.append(std::to_string(Lnod));
 	file_name.append("_K");
@@ -3552,19 +3588,19 @@ void HO_2D::save_smooth_vtk() {
     //delete[] BC_cart_vel;
 }
 
-void HO_2D::save_vorticity_vtk() {
-	int N_el = mesh.N_el;
+void HO_2D::save_vorticity_vtk(int indx) {
+	const int N_el = mesh.N_el;
 	std::string file_name = "vorticity";
 	file_name.append(std::to_string(problem_type));
 	file_name.append("_K");
 	file_name.append(std::to_string(Knod));
 	file_name.append("_timestep");
-	file_name.append(std::to_string(ti + 1));
+	file_name.append(std::to_string(indx));
 	file_name.append(".vtk");
 
-	std::cout << "     Writing the results after " << ti + 1 << "  timesteps into the file:  " << file_name << std::endl;
+	std::cout << "     Writing the results after " << indx << "  timesteps into the file:  " << file_name << std::endl;
 
-	double time = (ti + 1) * dt;
+	//double time = indx * dt;
 	std::ofstream file_handle(file_name);
 
 	file_handle << "# vtk DataFile Version 3.0" << std::endl;
@@ -3613,6 +3649,16 @@ void HO_2D::save_vorticity_vtk() {
 void HO_2D::set_defaults() {
 	Knod = 3;
 	using_hybrid = false;
+	Reyn_inv = 1.0;
+	HuynhSolver_type = 2;
+	time_integration_type = 2;
+	advection_type = 1;
+	problem_type = 11;
+	num_time_steps = 0;
+	dt = 1.0;
+	dump_frequency = 100;
+	fast = 0;
+	LHS_type = 1;	// 1=Eigen, 3=amgcl
 }
 
 void HO_2D::enable_hybrid() {
@@ -3628,6 +3674,11 @@ void HO_2D::load_mesh_arrays_d(const int32_t _iorder,
 		const int32_t _nelems, const int32_t* _idxelems,
 		const int32_t _nwall,  const int32_t* _idxwall,
 		const int32_t _nopen,  const int32_t* _idxopen) {
+
+	// set some defaults
+	mesh.OCC_format = 0;
+	mesh.dx_ratio = 1.0;
+	mesh.fac = 0.0;
 
 	// Lnod is in Mesh
 	mesh.Lnod_in = (unsigned int)_iorder;
@@ -3655,6 +3706,19 @@ void HO_2D::load_mesh_arrays_d(const int32_t _iorder,
 	}
 
 	// load in the boundaries
+	mesh.N_edges_boundary = 0;
+
+	// allocate the proper space for the calculation
+	allocate_arrays();
+	allocate_hybrid_arrays(mesh.N_el, mesh.N_edges_boundary, Knod);
+
+	// now that the mesh is loaded, prepare everything else
+	setup_sps_gps();
+	//read_process_sample_points();
+	form_bases();
+	form_metrics();
+	setup_IC_BC_SRC();
+	form_Laplace_operator_matrix();
 }
 
 // get data from this Eulerian solver
@@ -3689,6 +3753,29 @@ void HO_2D::setptogweights_d(const int32_t _veclen, double* _inwgt) {
 
 void HO_2D::solveto_d(const double _outerdt, const int32_t _numstep,
 		const int32_t _integtype, const double _reyn) {
+
+	// dt is a global (class) variable
+	dt = _outerdt / (double)_numstep;
+	std::cout << "In solveto_d, marching forward " << _outerdt << " in " << _numstep << " steps" << std::endl;
+
+	// set other class variables
+	problem_type = 11;
+	time_integration_type = (int)_integtype;
+	HuynhSolver_type = 2;
+	Reyn_inv = 1.0 / _reyn;
+
+	// perform time integration, note ti is global step count
+	for (size_t iter = 0; iter < _numstep; ++iter) {
+
+		// refer to the global time step count
+		std::cout << "timestep  " << ti << std::endl;
+
+		// take a time step
+		solve_advection_diffusion();
+
+		// increment ti, the global time counter
+		++ti;
+	}
 }
 
 // retrieve results
@@ -3698,11 +3785,43 @@ void HO_2D::getallvorts_d(const int32_t _veclen, double* _outvort) {
 void HO_2D::get_hoquad_weights_d(const int32_t _veclen, double* _outvec) {
 }
 void HO_2D::trigger_write(const int32_t _indx) {
+	//save_vorticity_vtk((int)_indx);
+	save_smooth_vtk((int)_indx);
 }
 
 // close, finish
 
+void HO_2D::allocate_hybrid_arrays(const size_t _nel, const size_t _neb, const size_t _knod) {
+
+	// first, deallocate if these point to anything
+	clean_up();
+
+	// allocate anew
+	BC_VelNorm_start = allocate_2d_array_d(_neb, _knod);
+	BC_VelNorm_end   = allocate_2d_array_d(_neb, _knod);
+	BC_VelParl_start = allocate_2d_array_d(_neb, _knod);
+	BC_VelParl_end   = allocate_2d_array_d(_neb, _knod);
+	BC_Vort_start    = allocate_2d_array_d(_neb, _knod);
+	BC_Vort_end      = allocate_2d_array_d(_neb, _knod);
+
+	Vort_start = allocate_3d_array_d(_nel, _knod, _knod);
+	Vort_end   = allocate_3d_array_d(_nel, _knod, _knod);
+	Vort_wgt   = allocate_3d_array_d(_nel, _knod, _knod);
+}
+
 void HO_2D::clean_up() {
+
+	// call the existing memory cleanup routine
+	release_memory();
+
+	// and then clean up hybrid arrays
+	deallocate_2d_array_d(BC_VelNorm_start, mesh.N_edges_boundary);
+	deallocate_2d_array_d(BC_VelNorm_end, mesh.N_edges_boundary);
+	deallocate_2d_array_d(BC_VelParl_start, mesh.N_edges_boundary);
+	deallocate_2d_array_d(BC_VelParl_end, mesh.N_edges_boundary);
+	deallocate_2d_array_d(BC_Vort_start, mesh.N_edges_boundary);
+	deallocate_2d_array_d(BC_Vort_end, mesh.N_edges_boundary);
+
 	deallocate_3d_array_d(Vort_start, mesh.N_el, Knod);
 	deallocate_3d_array_d(Vort_end, mesh.N_el, Knod);
 	deallocate_3d_array_d(Vort_wgt, mesh.N_el, Knod);
