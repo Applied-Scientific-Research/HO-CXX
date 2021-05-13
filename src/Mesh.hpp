@@ -135,6 +135,7 @@ private:
 	const std::map<unsigned int, unsigned int> edge_type_node_number_inv{{2,1},{3,8},{4,26},{5,27},{6,28}};
 	//holds the number of nodes on each 2D element type
 	const std::map<unsigned int, unsigned int> face_type_node_number{{3,4},{10,9},{16,8},{36,16},{37,25}};
+	const std::map<unsigned int, unsigned int> face_type_node_number_inv{{4,3},{9,10},{8,16},{16,36},{25,37}};
 	//holds the number of nodes on each edge of a 2D element type
 	const std::map<unsigned int, unsigned int> element_edge_node_number{{3,2},{10,3},{16,3},{36,4},{37,5}};
 

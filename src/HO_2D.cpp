@@ -3711,20 +3711,86 @@ void HO_2D::load_mesh_arrays_d(const int32_t _iorder,
 		mesh.nodes[i].node_type = 9;	// do we care?
 	}
 
-	// load in the elements
-	mesh.N_elements = _nelems / (mesh.Lnod*mesh.Lnod);
+	// load in the elements - all should be the same type
+	const unsigned int nnodeper = mesh.Lnod*mesh.Lnod;
+	mesh.N_elements = _nelems / nnodeper;
+	const unsigned int etype = mesh.face_type_node_number_inv.at(nnodeper);
 	mesh.elements.resize(mesh.N_elements);
 	for (size_t i=0; i<mesh.N_elements; ++i) {
-		mesh.elements[i].element_type = 9;	// do we care?
-		mesh.elements[i].N_nodes = mesh.Lnod*mesh.Lnod;
-		mesh.elements[i].nodes.resize(mesh.elements[i].N_nodes);
+		mesh.elements[i].element_type = etype;
+		mesh.elements[i].N_nodes = nnodeper;
+		mesh.elements[i].nodes.resize(nnodeper);
+		for (size_t j=0; j<nnodeper; ++j) {
+			mesh.elements[i].nodes[j] = (unsigned int)_idxelems[nnodeper*i+j];
+		}
 		for (size_t j=0; j<4; ++j) {
-			mesh.elements[i].edges[j] = 0;	// do we care?
+			mesh.elements[i].edges[j] = 0;	// these are assigned in process_mesh()
 		}
 	}
 
 	// load in the boundaries
-	mesh.N_edges_boundary = 0;
+	mesh.edges.clear();
+	mesh.boundaries.clear();
+
+	// first, the wall boundary
+	if (_nwall > 0) {
+		mesh.boundaries.emplace_back(boundary());
+		boundary& thisbdry = mesh.boundaries.back();
+
+		thisbdry.name == "wall";
+		thisbdry.N_edges = (unsigned int)_nwall / mesh.Lnod;
+		const unsigned int dtype = mesh.face_type_node_number_inv.at(mesh.Lnod);
+		thisbdry.edges.resize(thisbdry.N_edges);
+
+		for (size_t i=0; i<thisbdry.N_edges; ++i) {
+			// stuff
+			mesh.edges.emplace_back(edge());
+
+			edge& thisedge = mesh.edges.back();
+			thisedge.edge_type = dtype;
+			thisedge.N_nodes = mesh.Lnod;
+			thisedge.nodes.resize(mesh.Lnod);
+			for (size_t j=0; j<thisedge.N_nodes; ++j) {
+				thisedge.nodes[j] = (unsigned int)_idxwall[mesh.Lnod*i+j];
+			}
+			
+			thisbdry.edges[i] = (unsigned int)mesh.edges.size();
+		}
+	}
+
+	// then the open boundary
+	if (_nopen > 0) {
+		mesh.boundaries.emplace_back(boundary());
+		boundary& thisbdry = mesh.boundaries.back();
+
+		thisbdry.name == "open";
+		thisbdry.N_edges = (unsigned int)_nopen / mesh.Lnod;
+		const unsigned int dtype = mesh.face_type_node_number_inv.at(mesh.Lnod);
+		thisbdry.edges.resize(thisbdry.N_edges);
+
+		for (size_t i=0; i<thisbdry.N_edges; ++i) {
+			// stuff
+			mesh.edges.emplace_back(edge());
+
+			edge& thisedge = mesh.edges.back();
+			thisedge.edge_type = dtype;
+			thisedge.N_nodes = mesh.Lnod;
+			thisedge.nodes.resize(mesh.Lnod);
+			for (size_t j=0; j<thisedge.N_nodes; ++j) {
+				thisedge.nodes[j] = (unsigned int)_idxwall[mesh.Lnod*i+j];
+			}
+			
+			thisbdry.edges[i] = (unsigned int)mesh.edges.size();
+		}
+	}
+
+	mesh.N_edges_boundary = mesh.edges.size();
+	mesh.N_Gboundary = mesh.boundaries.size();
+
+	// how to deal with inlets and outlets? are they just other "open" boundaries?
+
+	// complete processing of the mesh
+	mesh.process_mesh();
 
 	// allocate the proper space for the calculation
 	allocate_arrays();
@@ -3742,29 +3808,66 @@ void HO_2D::load_mesh_arrays_d(const int32_t _iorder,
 // get data from this Eulerian solver
 
 int32_t HO_2D::getsolnptlen() {
-	return 0;
+	return 2 * mesh.N_el * Knod * Knod;
 }
 
 void HO_2D::getsolnpts_d(const int32_t _ptlen, double* _xypts) {
+
+	double** xloc = allocate_2d_array_d(mesh.Lnod,mesh.Lnod);
+	double** yloc = allocate_2d_array_d(mesh.Lnod,mesh.Lnod);
+
+	// first get the mesh nodes
+	for (size_t i=0; i<mesh.N_el; ++i) {
+		for (size_t j=0; j<mesh.Lnod; ++j) for (size_t k=0; k<mesh.Lnod; ++k) {
+			// NOT DONE
+			xloc[j][k] = 0.0;
+			yloc[j][k] = 0.0;
+		}
+
+		// then convert these into the solution nodes
+		for (size_t j=0; j<Knod; ++j) for (size_t k=0; k<Knod; ++k) {
+			double x = 0.0;
+			double y = 0.0;
+
+			for (size_t l=0; l<mesh.Lnod; ++l) for (size_t m=0; m<mesh.Lnod; ++m) {
+				// NOT DONE
+				x += xloc[l][m];
+				y += yloc[l][m];
+			}
+
+			_xypts[0] = x;
+			_xypts[0] = y;
+		}
+	}
+
+	deallocate_2d_array_d(xloc,mesh.Lnod);
+	deallocate_2d_array_d(yloc,mesh.Lnod);
 }
 
 void HO_2D::getsolnareas_d(const int32_t _veclen, double* _areas) {
+	// NOT DONE
 }
 int32_t HO_2D::getopenptlen() {
+	// NOT DONE
 	return 0;
 }
 void HO_2D::getopenpts_d(const int32_t _nopen, double* _xyopen) {
+	// NOT DONE
 }
 
 // send vels and vorts to this solver
 
 void HO_2D::setopenvels_d(const int32_t _veclen, double* _xyvel) {
+	// NOT DONE
 }
 void HO_2D::setopenvort_d(const int32_t _veclen, double* _invort) {
+	// NOT DONE
 }
 void HO_2D::setsolnvort_d(const int32_t _veclen, double* _invort) {
+	// NOT DONE
 }
 void HO_2D::setptogweights_d(const int32_t _veclen, double* _inwgt) {
+	// NOT DONE
 }
 
 // march forward
@@ -3777,9 +3880,7 @@ void HO_2D::solveto_d(const double _outerdt, const int32_t _numstep,
 	std::cout << "In solveto_d, marching forward " << _outerdt << " in " << _numstep << " steps" << std::endl;
 
 	// set other class variables
-	problem_type = 11;
 	time_integration_type = (int)_integtype;
-	HuynhSolver_type = 2;
 	Reyn_inv = 1.0 / _reyn;
 
 	// perform time integration, note ti is global step count
@@ -3799,8 +3900,10 @@ void HO_2D::solveto_d(const double _outerdt, const int32_t _numstep,
 // retrieve results
 
 void HO_2D::getallvorts_d(const int32_t _veclen, double* _outvort) {
+	// NOT DONE
 }
 void HO_2D::get_hoquad_weights_d(const int32_t _veclen, double* _outvec) {
+	// NOT DONE
 }
 void HO_2D::trigger_write(const int32_t _indx) {
 	//save_vorticity_vtk((int)_indx);
