@@ -3623,14 +3623,38 @@ void HO_2D::set_elemorder(const int32_t _eorder) {
 	Knod = (unsigned int)_eorder;
 }
 
-void load_mesh_arrays_d(const int32_t _iorder,
-                        const int32_t _nnodes, const double* _xynodes,
-                        const int32_t _nelems, const int32_t* _idxelems,
-                        const int32_t _nwall,  const int32_t* _idxwall,
-                        const int32_t _nopen,  const int32_t* _idxopen) {
+void HO_2D::load_mesh_arrays_d(const int32_t _iorder,
+		const int32_t _nnodes, const double* _xynodes,
+		const int32_t _nelems, const int32_t* _idxelems,
+		const int32_t _nwall,  const int32_t* _idxwall,
+		const int32_t _nopen,  const int32_t* _idxopen) {
 
 	// Lnod is in Mesh
-	//Lnod = (unsigned int)_iorder + 1;
+	mesh.Lnod_in = (unsigned int)_iorder;
+	mesh.Lnod = mesh.Lnod_in + 1;
+
+	// load in the nodes
+	mesh.N_nodes = _nnodes/2;
+	mesh.nodes.resize(mesh.N_nodes);
+	for (size_t i=0; i<mesh.N_nodes; ++i) {
+		mesh.nodes[i].coor.x = _xynodes[2*i];
+		mesh.nodes[i].coor.y = _xynodes[2*i+1];
+		mesh.nodes[i].node_type = 9;	// do we care?
+	}
+
+	// load in the elements
+	mesh.N_elements = _nelems / (mesh.Lnod*mesh.Lnod);
+	mesh.elements.resize(mesh.N_elements);
+	for (size_t i=0; i<mesh.N_elements; ++i) {
+		mesh.elements[i].element_type = 9;	// do we care?
+		mesh.elements[i].N_nodes = mesh.Lnod*mesh.Lnod;
+		mesh.elements[i].nodes.resize(mesh.elements[i].N_nodes);
+		for (size_t j=0; j<4; ++j) {
+			mesh.elements[i].edges[j] = 0;	// do we care?
+		}
+	}
+
+	// load in the boundaries
 }
 
 // get data from this Eulerian solver
@@ -3639,41 +3663,41 @@ int32_t HO_2D::getsolnptlen() {
 	return 0;
 }
 
-void getsolnpts_d(const int32_t _ptlen, double* _xypts) {
+void HO_2D::getsolnpts_d(const int32_t _ptlen, double* _xypts) {
 }
 
-void getsolnareas_d(const int32_t _veclen, double* _areas) {
+void HO_2D::getsolnareas_d(const int32_t _veclen, double* _areas) {
 }
-int32_t getopenptlen() {
+int32_t HO_2D::getopenptlen() {
 	return 0;
 }
-void getopenpts_d(const int32_t _nopen, double* _xyopen) {
+void HO_2D::getopenpts_d(const int32_t _nopen, double* _xyopen) {
 }
 
 // send vels and vorts to this solver
 
-void setopenvels_d(const int32_t _veclen, double* _xyvel) {
+void HO_2D::setopenvels_d(const int32_t _veclen, double* _xyvel) {
 }
-void setopenvort_d(const int32_t _veclen, double* _invort) {
+void HO_2D::setopenvort_d(const int32_t _veclen, double* _invort) {
 }
-void setsolnvort_d(const int32_t _veclen, double* _invort) {
+void HO_2D::setsolnvort_d(const int32_t _veclen, double* _invort) {
 }
-void setptogweights_d(const int32_t _veclen, double* _inwgt) {
+void HO_2D::setptogweights_d(const int32_t _veclen, double* _inwgt) {
 }
 
 // march forward
 
-void solveto_d(const double _outerdt, const int32_t _numstep,
+void HO_2D::solveto_d(const double _outerdt, const int32_t _numstep,
 		const int32_t _integtype, const double _reyn) {
 }
 
 // retrieve results
 
-void getallvorts_d(const int32_t _veclen, double* _outvort) {
+void HO_2D::getallvorts_d(const int32_t _veclen, double* _outvort) {
 }
-void get_hoquad_weights_d(const int32_t _veclen, double* _outvec) {
+void HO_2D::get_hoquad_weights_d(const int32_t _veclen, double* _outvec) {
 }
-void trigger_write(const int32_t _indx) {
+void HO_2D::trigger_write(const int32_t _indx) {
 }
 
 // close, finish
