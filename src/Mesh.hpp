@@ -17,16 +17,12 @@
 #include <algorithm>
 #include <ctime> //for the random generator for slope of casted ray
 #include <cstdlib> //for the random generator for slope of casted ray
+#include <map> //for associative arrays
 
-
-//enum edges_types {_2Node_edge = 1, _3Node_edge = 8, _4Node_edge = 26, _5Node_edge = 27, _6Node_edge = 28};
-//std::vector< std::vector<unsigned int>> edge_type_node_number{ {1,8,26,27,28}, {2,3,4,5,6} }; //holds the number of nodes on each edge type
-//std::vector< std::vector<unsigned int>> face_type_node_number{ {3,10,16,36,37}, {4,9,8,16,25} }; //holds the number of nodes on each 2D element type
-
-// class for 2D coordinate system
 
 enum cell_sides { south = 0, east = 1, north = 2, west = 3 }; //the 4 sides of a cell
 
+// class for 2D coordinate system
 struct Cmpnts2 {
 	double x, y; //the components for 2D coordinate system
 
@@ -134,9 +130,13 @@ private:
 	//unsigned int** boundary_node_ID; //The nodes that form each boundary element. redundant, as edges[] and boundaries[] have the information
 
 	//enum edges_types {_2Node_edge = 1, _3Node_edge = 8, _4Node_edge = 26, _5Node_edge = 27, _6Node_edge = 28};
-	std::vector< std::vector<unsigned int>> edge_type_node_number{ {1,8,26,27,28}, {2,3,4,5,6} }; //holds the number of nodes on each edge type
-	std::vector< std::vector<unsigned int>> face_type_node_number{ {3,10,16,36,37}, {4,9,8,16,25} }; //holds the number of nodes on each 2D element type
-	std::vector<std::vector<unsigned int>> element_edge_node_number{ {3,10,16,36,37}, {2,3,3,4,5} }; //holds the number of nodes on each edge of a 2D element type
+	//holds the number of nodes on each edge type, and the inverse map
+	const std::map<unsigned int, unsigned int> edge_type_node_number{{1,2},{8,3},{26,4},{27,5},{28,6}};
+	const std::map<unsigned int, unsigned int> edge_type_node_number_inv{{2,1},{3,8},{4,26},{5,27},{6,28}};
+	//holds the number of nodes on each 2D element type
+	const std::map<unsigned int, unsigned int> face_type_node_number{{3,4},{10,9},{16,8},{36,16},{37,25}};
+	//holds the number of nodes on each edge of a 2D element type
+	const std::map<unsigned int, unsigned int> element_edge_node_number{{3,2},{10,3},{16,3},{36,4},{37,5}};
 
 
 public:

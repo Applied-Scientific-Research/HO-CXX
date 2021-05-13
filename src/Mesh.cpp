@@ -89,7 +89,6 @@ char Mesh::read_msh_file() {
 	bool found = false;
 	double double_field, coorX, coorY, coorZ;
 	std::string temp_string;
-	std::vector<unsigned int>::iterator its;
 	bool check_start;
 	edge _edge;
 	element2d _face;
@@ -187,19 +186,19 @@ char Mesh::read_msh_file() {
 		  }
 
 		else if (entity_dim == 1) { // element_type corresponds to edge
-			its = std::find(edge_type_node_number[0].begin(), edge_type_node_number[0].end(), element_type);
-			check_start = its != edge_type_node_number[0].end(); //true means the element is of edge type
-			if (!check_start) {
-				std::cout << "This edge type " << element_type << " is not supported, remesh" << std::endl;
+			//number of nodes for this edge type element
+			try {
+				_edge.N_nodes = edge_type_node_number.at(element_type);
+			} catch (...) {
+				std::cout << "The element type " << element_type << " is not supported, remesh" << std::endl;
 				return 2;
 			}
 
-			index = its - edge_type_node_number[0].begin();
-			_edge.N_nodes = edge_type_node_number[1][index]; //number of nodes for this edge type element
 			_edge.edge_type = element_type; //type of edge based on the value written in the msh file
 
 			// in general group_tag (curve_tag here) forming edges can be written NOT in the same order as in the entity section. So, find the tmp_curve_entity_tag index that has group_tag
-			its = std::find(tmp_curve_entity_tag.begin(), tmp_curve_entity_tag.end(), group_tag);
+			std::vector<unsigned int>::iterator its =
+				std::find(tmp_curve_entity_tag.begin(), tmp_curve_entity_tag.end(), group_tag);
 			index = its - tmp_curve_entity_tag.begin();  //index of the curve_tag (group_tag) in the vector tmp_curve_entity_tag (to find the corresponding boundary tag)
 
 			int curve_boundary_tag = tmp_curves_boundary_tag[index];
@@ -225,14 +224,14 @@ char Mesh::read_msh_file() {
 			}
 		}
 		else if (entity_dim == 2) { // element_type corresponds to face
-			its = std::find(face_type_node_number[0].begin(), face_type_node_number[0].end(), element_type);
-			check_start = its != face_type_node_number[0].end(); //true means the element is of face type
-			if (!check_start) {
+			//number of nodes for this face type element, throws exception if it does not exist
+			try {
+				_face.N_nodes = face_type_node_number.at(element_type);
+			} catch (...) {
 				std::cout << "The element type " << element_type << " is not supported, remesh" << std::endl;
 				return 3;
 			}
-			index = its - face_type_node_number[0].begin();
-			_face.N_nodes = face_type_node_number[1][index]; //number of nodes for this face type element
+
 			_face.element_type = element_type; //type of face based on the value written in the msh file
 			for (unsigned int i = 0; i < tag_N_elements; ++i) {
 				mshfile >> tmp;
@@ -316,7 +315,6 @@ void Mesh::process_mesh() {
 	/*
 	processes the mesh that is read from file. It finds the elements neighbors and stores it in elem_neighbors,
 	*/
-	std::vector<unsigned int>::iterator its;
 	N_nodes = nodes.size(); //total number of nodes in the domain
 	for (int i = 0; i < boundaries.size(); ++i)
 		N_edges_boundary += boundaries[i].N_edges; //total number of edges on global boundaries
@@ -331,13 +329,12 @@ void Mesh::process_mesh() {
 	bool found;
 	unsigned int edge_index = edges.size();
 	for (int el = 0; el < N_el; ++el) {  //loop over all 2D elements
-		unsigned int element_type = elements[el].element_type;
-		its = std::find(element_edge_node_number[0].begin(), element_edge_node_number[0].end(), element_type);
-		unsigned int index = its - element_edge_node_number[0].begin();
-		N_edge_nodes = element_edge_node_number[1][index];  //number of nodes for this edge type on the edges of the element el
-		its = std::find(edge_type_node_number[1].begin(), edge_type_node_number[1].end(), N_edge_nodes); //find the edge type that has N_edge_nodes number of nodes
-		index = its - edge_type_node_number[1].begin();
-		edge_type = edge_type_node_number[0][index];  //type of edge on the boundary of the element el
+		const unsigned int element_type = elements[el].element_type;
+		//number of nodes for this edge type on the edges of the element el
+		const unsigned int N_edge_nodes = element_edge_node_number.at(element_type);
+		//type of edge on the boundary of the element el
+		edge_type = edge_type_node_number_inv.at(N_edge_nodes);
+
 		_edge.N_nodes = N_edge_nodes;
 		_edge.edge_type = edge_type;
 		_edge.nodes.resize(N_edge_nodes);
