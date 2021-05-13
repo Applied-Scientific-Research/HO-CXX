@@ -19,7 +19,7 @@ fac:  multiplier to make grids randomly non-uniform; uniform: fac=0
 Huyn solver: for now only the option 2 is used which is the DG equivalence
 2
 time integration: 1: explicit Euler, 2: explicit RK2, 4: explicit RK4
-2
+4
 advection scheme: 1: original discontinuous, 2: continuous mass flux term
 1
 problem type. 1 is lid-driven cavity, 2 is BFS, 3 is flow over cylinder
