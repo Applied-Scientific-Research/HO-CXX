@@ -3669,6 +3669,24 @@ void HO_2D::set_elemorder(const int32_t _eorder) {
 	Knod = (unsigned int)_eorder;
 }
 
+void HO_2D::allocate_hybrid_arrays(const size_t _nel, const size_t _neb, const size_t _knod) {
+
+	// first, deallocate if these point to anything
+	clean_up();
+
+	// allocate anew
+	BC_VelNorm_start = allocate_2d_array_d(_neb, _knod);
+	BC_VelNorm_end   = allocate_2d_array_d(_neb, _knod);
+	BC_VelParl_start = allocate_2d_array_d(_neb, _knod);
+	BC_VelParl_end   = allocate_2d_array_d(_neb, _knod);
+	BC_Vort_start    = allocate_2d_array_d(_neb, _knod);
+	BC_Vort_end      = allocate_2d_array_d(_neb, _knod);
+
+	Vort_start = allocate_3d_array_d(_nel, _knod, _knod);
+	Vort_end   = allocate_3d_array_d(_nel, _knod, _knod);
+	Vort_wgt   = allocate_3d_array_d(_nel, _knod, _knod);
+}
+
 void HO_2D::load_mesh_arrays_d(const int32_t _iorder,
 		const int32_t _nnodes, const double* _xynodes,
 		const int32_t _nelems, const int32_t* _idxelems,
@@ -3790,24 +3808,6 @@ void HO_2D::trigger_write(const int32_t _indx) {
 }
 
 // close, finish
-
-void HO_2D::allocate_hybrid_arrays(const size_t _nel, const size_t _neb, const size_t _knod) {
-
-	// first, deallocate if these point to anything
-	clean_up();
-
-	// allocate anew
-	BC_VelNorm_start = allocate_2d_array_d(_neb, _knod);
-	BC_VelNorm_end   = allocate_2d_array_d(_neb, _knod);
-	BC_VelParl_start = allocate_2d_array_d(_neb, _knod);
-	BC_VelParl_end   = allocate_2d_array_d(_neb, _knod);
-	BC_Vort_start    = allocate_2d_array_d(_neb, _knod);
-	BC_Vort_end      = allocate_2d_array_d(_neb, _knod);
-
-	Vort_start = allocate_3d_array_d(_nel, _knod, _knod);
-	Vort_end   = allocate_3d_array_d(_nel, _knod, _knod);
-	Vort_wgt   = allocate_3d_array_d(_nel, _knod, _knod);
-}
 
 void HO_2D::clean_up() {
 
