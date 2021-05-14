@@ -111,10 +111,10 @@ private:
 	int N_elements = 0;  //# of elements read from msh file
 	int N_edges_boundary;  // total number of edges on the boundary
 	int N_Gboundary; //number of global boundaries with boundary conditions: number of boundary conditions (number of different boundaries)
-	std::vector<node> nodes; //coordinates of the nodes
-	std::vector<edge> edges;		 // types and nodes constituting edges of elements
-	std::vector<element2d> elements; // types and nodes constituting elements
-	std::vector<boundary> boundaries; // the boundaries of the problem, including the names and the edges that form each boundary
+	std::vector<struct node> nodes; //coordinates of the nodes
+	std::vector<struct edge> edges;		 // types and nodes constituting edges of elements
+	std::vector<struct element2d> elements; // types and nodes constituting elements
+	std::vector<struct boundary> boundaries; // the boundaries of the problem, including the names and the edges that form each boundary
 	std::string input_msh_file; //default name of the mesh file. It can be read from the file too
 	int OCC_format;
 	double dx_ratio; //multiplier to expand the grid geometrically by factor dx_ratio
