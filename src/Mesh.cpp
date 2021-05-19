@@ -316,11 +316,16 @@ void Mesh::process_mesh() {
 	processes the mesh that is read from file. It finds the elements neighbors and stores it in elem_neighbors,
 	*/
 	N_nodes = nodes.size(); //total number of nodes in the domain
-	for (int i = 0; i < boundaries.size(); ++i)
+	N_edges_boundary = 0;
+	for (int i = 0; i < boundaries.size(); ++i) {
+		std::cout << "adding " << boundaries[i].N_edges << " edges from boundary " << i << std::endl;
 		N_edges_boundary += boundaries[i].N_edges; //total number of edges on global boundaries
+	}
 	N_el = elements.size();  //total number of elements (2d faces)
 	elem_neighbor = new element_neighbor[N_el];
 	boundary_elem_ID = new boundary_element[N_edges_boundary];
+	std::cout << "  edges vector begins with " << edges.size() << " elements" << std::endl;
+
 	// *************** detect the total interior edges in the domain and add them to the edges vector (which already has boundary edges) and add them to the elements vector *********************
 	edge _edge;
 	unsigned int N_node; //number of nodes on the edges of an element
@@ -363,6 +368,8 @@ void Mesh::process_mesh() {
 			}
 		} //for s=south, ...
 	} //for el
+	std::cout << "  after adding interior edges, vector now has " << edges.size() << " elements" << std::endl;
+
 	//*********************************************************************************************************************************************************
 	// ************************************* now detect the neighbors of each element **************************************
 	for (int el = 0; el < N_el; ++el) {

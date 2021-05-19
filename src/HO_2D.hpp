@@ -54,7 +54,7 @@ class HO_2D {
 
 private:
 	Mesh mesh;
-	unsigned int Knod; //Number of sps in each direction,i.e. number of gauss point in each cell in each direction
+	int Knod; //Number of sps in each direction,i.e. number of gauss point in each cell in each direction
 	double g_prime[2]; //derivative of the correction function g on the [0]: left and [1]: right boundaries
 
 	unsigned char* BC_switch_Poisson, *BC_switch_advection, *BC_switch_diffusion; //BC_switch_advection is always Dirichlet, BC_switch_Poisson is set once and can not change anymore (because the poisson LHS matrix is set based on that)
@@ -73,15 +73,15 @@ private:
 	double Reyn_inv; // the inverse of the Reynolds number
 	int HuynhSolver_type; //based on Huynh's scheme type in Table 6.1 of his diffusion paper; types: 2 = stndard DG; 11 = higher order
 	int time_integration_type; //time integration method; 1 = Euler; 2 = Mod.Euler; 4 = RK4
-	unsigned int problem_type; //Solve different problems (types 1 and 2). prob_type=10 reads mesh from file
-	unsigned int num_time_steps; //total number of time steps to march in time
+	int problem_type; //Solve different problems (types 1 and 2). prob_type=10 reads mesh from file
+	int num_time_steps; //total number of time steps to march in time
 	double dt; //time step size
 	int ti; //time step
 	int advection_type=1; //1 is for original advctive flux based on discontinuous mass flux across cells, 1 is for continuous version
-	unsigned int dump_frequency; //the frequency of time saving
+	int dump_frequency; //the frequency of time saving
 	bool fast; //0 for original, 1 for compact formulation (use gLB, gRB)
-	unsigned int N_gps; //number of geometry nodes in the domain
-	unsigned int N_el_boundary; //number of edges on the boundaries
+	int N_gps; //number of geometry nodes in the domain
+	int N_el_boundary; //number of edges on the boundaries
 	double *sps_local_coor, *sps_weight, *gps_local_coor; //the arrays to store the Gauss-Legendre and their weight, geometry points
 	double** sps_boundary_basis; //The value Lagrange shape function of Knod solution points on the left[0](csi=-1) and right[1] (csi=+1) boundaries
 	double** sps_boundary_grad_basis; //The derivative of Lagrange shape function of Knod solution points on the left[0](csi=-1) and right[1] (csi=+1) boundaries
@@ -138,17 +138,21 @@ private:
 	// this is where C++ is still terrible: either *** and new[] delete[], or Eigen, or Boost, or templates!
 	// values on the open boundary - relatively easy, can use Eigen matrix or double**
 	// it would be nice to use std::vector<std::array<FTYPE,K>> BC_VelNorm_start;
-	double** BC_VelNorm_start, ** BC_VelNorm_end;
-	double** BC_VelParl_start, ** BC_VelParl_end;
-	double** BC_Vort_start,    ** BC_Vort_end;
+	double** BC_VelNorm_start = nullptr;
+	double** BC_VelNorm_end = nullptr;
+	double** BC_VelParl_start = nullptr;
+	double** BC_VelParl_end = nullptr;
+	double** BC_Vort_start = nullptr;
+	double** BC_Vort_end = nullptr;
 	// values in the volume
-	double*** Vort_start, *** Vort_end, *** Vort_wgt;
+	double*** Vort_start = nullptr;
+	double*** Vort_end = nullptr;
+	double*** Vort_wgt = nullptr;
 
 public:
 	HO_2D() //default constructor
 	{
 		using_hybrid = false;
-		Knod = 1;
 		dump_frequency = 1000;
 		dt = 0.001;
 		num_time_steps = 10000;

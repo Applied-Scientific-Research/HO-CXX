@@ -30,6 +30,20 @@ void deallocate_3d_array_d(double*** arry, const size_t nx, const size_t ny) {
 	delete[] arry;
 }
 
+void deallocate_4d_array_d(double**** arry, const size_t nx, const size_t ny, const size_t nz) {
+	if (arry == nullptr) return;
+	for (size_t k = 0; k < nx; ++k) {
+		for (size_t j = 0; j < ny; ++j) {
+			for (size_t i = 0; i < nz; ++i) {
+				delete[] arry[k][j][i];
+			}
+			delete[] arry[k][j];
+		}
+		delete[] arry[k];
+	}
+	delete[] arry;
+}
+
 void deallocate_3d_array_c2(Cmpnts2*** arry, const size_t nx, const size_t ny) {
 	if (arry == nullptr) return;
 	for (size_t k = 0; k < nx; ++k) {
@@ -475,7 +489,7 @@ double*** allocate_3d_array_d(const size_t nx, const size_t ny, const size_t nz)
 	outptr = new double** [nx];
 	for (size_t j = 0; j < nx; ++j) {
 		outptr[j] = new double* [ny];
-		for (int i = 0; i < ny; ++i) {
+		for (size_t i = 0; i < ny; ++i) {
 			outptr[j][i] = new double[nz];
 		}
 	}
@@ -511,7 +525,7 @@ Cmpnts2*** allocate_3d_array_c2(const size_t nx, const size_t ny, const size_t n
 	outptr = new Cmpnts2** [nx];
 	for (size_t j = 0; j < nx; ++j) {
 		outptr[j] = new Cmpnts2* [ny];
-		for (int i = 0; i < ny; ++i) {
+		for (size_t i = 0; i < ny; ++i) {
 			outptr[j][i] = new Cmpnts2[nz];
 		}
 	}
@@ -622,7 +636,7 @@ void HO_2D::form_bases() {
 	// calculates the derivative of the Lagrange shape functions of Knod solution points on the local left (-1) and right (+1) boundaries(sps_boundary_grad_basis).
 	// calculates the derivative of Knod solution points on the Knod solution points(sps_sps_grad_basis). the Knod sps is the first index(say i) and other nodes are second index(say j) : sps_sps_grad_basis(i, j)
 
-	unsigned int Lnod = mesh.Lnod;
+	int Lnod = mesh.Lnod;
 	double denominator;
 	double grad_numerator[2];
 	double* sps_grad_numerator = new double [Knod];
@@ -991,7 +1005,7 @@ void HO_2D::form_metrics() {
 	*/
 
 
-	unsigned int Lnod = mesh.Lnod;
+	int Lnod = mesh.Lnod;
 	double dx_dxsi, dy_dxsi, dx_deta, dy_deta;
 	Cmpnts2 g[2]; //to store g_0=(-partial(x)/partial(eta),partial(y)/partial(eta)) and g_1=(partial(x)/partial(csi),-partial(y)/partial(csi))
 	Cmpnts2** local_coor = new Cmpnts2 * [Lnod]; //local array tp store the coor of the gps in an element, dont really need it just for convenience
@@ -1260,29 +1274,20 @@ void HO_2D:: form_Laplace_operator_matrix() {
 	// This subroutine forms the left hand side matrix derived form the Laplace discretization. The matrix is sparse and in Eigen format
 	// The type of BC for the psi are defined in BC_switch_psi which is specified in setup_IC_BC_SRC
 	int N_el = mesh.N_el;
-	int a, b, q, Mq; //temporary indices as in my notes
-	int eln, ijp, ijpm; //neighbor element; element side, neighbor element side
+	int eln, ijpm; //neighbor element; element side, neighbor element side
 	int dn, tn; // the direction and boundary side of the neighboring element eln, adjacent to d direction and t side of the element el
-	int rs, ij, i1, j1; // temporary indices
 	double coeff, tmp2, tmp3;
-	unsigned int Ksq = Knod * Knod;
-	unsigned int Km1 = Knod - 1;
-	unsigned int K4 = Ksq * Ksq;
+	const int Ksq = Knod * Knod;
+	//unsigned int Km1 = Knod - 1;
+	const int K4 = Ksq * Ksq;
 	//The coefficients in the left hand side matrix that has contribution from the element itself. it has the coefficients for element el, sps ij=j*Knod+i and rs=r*Knod+s, so laplacian_center[el][ij][rs]
 	double*** laplacian_center = allocate_3d_array_d(N_el, Ksq, Ksq);
-	double**** laplacian_neighbor = new double*** [N_el]; //The coefficients in the left hand side matrix that has contribution from the 4 neighboring element (if are not located on the global boundary). it has the coefficients for element el per cell side, sps ij=j*Knod+i and rs=r*Knod+s of the neighbor element, so laplacian_center[el][4][ij][rs]
+	//The coefficients in the left hand side matrix that has contribution from the 4 neighboring element (if are not located on the global boundary). it has the coefficients for element el per cell side, sps ij=j*Knod+i and rs=r*Knod+s of the neighbor element, so laplacian_center[el][4][ij][rs]
+	double**** laplacian_neighbor = allocate_4d_array_d(N_el, 4, Ksq, Ksq);
 	//double** NeuMatrix_Orig = new double* [Knod], **NeuMatrix = new double* [Knod]; //small dense matrix to obtain comx(per element) for a given Neumann BC
 	Eigen::MatrixXd NeuMatrix_Orig(Knod, Knod), NeuMatrix(Knod, Knod); //I am using Eigen here to save energy and time
 
 	//std::fill(BC_switch, BC_switch + mesh.N_edges_boundary, /*NeumannBC*/ DirichletBC); //to test the poisson solver
-
-	for (int i = 0; i < N_el; ++i) {
-		laplacian_neighbor[i] = new double** [4];
-		for (int j = 0; j < 4; ++j) {
-			laplacian_neighbor[i][j] = new double* [Ksq];
-			for (int k = 0; k < Ksq; ++k) laplacian_neighbor[i][j][k] = new double [Ksq];
-		}
-	}
 
 	for (int el = 0; el < N_el; ++el) {
 		for (int ij = 0; ij < Ksq; ++ij) {
@@ -1303,22 +1308,22 @@ void HO_2D:: form_Laplace_operator_matrix() {
 		// **************** effect of the all-cases term (unrelated to the element boundaries)*********************
 		for (int j = 0; j < Knod; ++j) {
 			for (int i = 0; i < Knod; ++i) {
-				ij = j * Knod + i; //local cumulative sps index in element k
+				const int ij = j * Knod + i; //local cumulative sps index in element k
 
 				for (int m = 0; m < Knod; ++m) {
 					for (int r = 0; r < 2; r++) {
-						a = m * (1 - r) + i * r;
-						b = m * r + j * (1 - r);
+						const int a = m * (1 - r) + i * r;
+						const int b = m * r + j * (1 - r);
 						tmp3 = 0.;
 						for (int s = 0; s < 2; s++) tmp3 += sps_boundary_basis[m][s] * sps_grad_radau[j * r + i * (1 - r)][s]; //from the M,N,P,Q of ADrins note
 						double SNGLB1 = sps_sps_grad_basis[m][i * (1 - r) + j * r];
 						for (int d = 0; d < 2; ++d) {
-							double A = G[el][b][a][r][d]; //(g_r . g_d)/J at k,a,b
-							int tmp1 = a * (1 - d) + b * d; //the second index for SNGLB
+							const double A = G[el][b][a][r][d]; //(g_r . g_d)/J at k,a,b
+							const int tmp1 = a * (1 - d) + b * d; //the second index for SNGLB
 							for (int p = 0; p < Knod; ++p) {
-								j1 = p * d + b * (1 - d);
-								i1 = p * (1 - d) + a * d;
-								rs = j1 * Knod + i1;
+								const int j1 = p * d + b * (1 - d);
+								const int i1 = p * (1 - d) + a * d;
+								const int rs = j1 * Knod + i1;
 								tmp2 = 0.;
 								for (int t = 0; t < 2; ++t) tmp2 += 0.5 * sps_boundary_basis[p][t] * sps_grad_radau[tmp1][t];
 								laplacian_center[el][ij][rs] += A * SNGLB1 * (sps_sps_grad_basis[p][tmp1] - tmp2);  //from the L term on page 7 of Adrin's note; page 1 of my notes, 3 feb 2021
@@ -1334,30 +1339,32 @@ void HO_2D:: form_Laplace_operator_matrix() {
 		// effect of the elements faces
 		for (int d = 0; d < 2; ++d) {
 			for (int t = 0; t < 2; ++t) {
-				ijp = 2 * d + t;
-				cell_sides elem_side = i2f[ijp]; //the side of current element corresponding to combination of ibnd and idir
+				const int ijp = 2 * d + t;
+				const cell_sides elem_side = i2f[ijp]; //the side of current element corresponding to combination of ibnd and idir
 
 				if (mesh.elem_neighbor[el].is_on_boundary[elem_side]) { // if this face is on the global boundary:
-					int edge_index = mesh.elem_neighbor[el].boundary_index[elem_side];  // the index of the edge that is on global boundary, which is on the d direction and t side of element el
+					const int edge_index = mesh.elem_neighbor[el].boundary_index[elem_side];  // the index of the edge that is on global boundary, which is on the d direction and t side of element el
+					assert(edge_index < mesh.N_edges_boundary && "boundary_index exceeds array bounds");
+
 					if (BC_switch_Poisson[edge_index] == DirichletBC) { // Dirichlet boundary condition
 						//******************************* The dirichlet BC case: *********************************
 						for (int j = 0; j < Knod; ++j) {
 							for (int i = 0; i < Knod; ++i) {
-								ij = j * Knod + i; //local cumulative sps index in element k
+								const int ij = j * Knod + i; //local cumulative sps index in element k
 								for (int m = 0; m < Knod; ++m) {
-									for (int r = 0; r < 2; r++) {
-										a = m * (1 - r) + i * r;
-										b = m * r + j * (1 - r);
-										q = a * d + b * (1 - d);
+									for (int r = 0; r < 2; ++r) {
+										const int a = m * (1 - r) + i * r;
+										const int b = m * r + j * (1 - r);
+										const int q = a * d + b * (1 - d);
 										double SNGLB1 = sps_sps_grad_basis[m][i * (1 - r) + j * r];
 										double NGR1 = sps_grad_radau[a * (1 - d) + b * d][t];
 										double A = G[el][b][a][r][d]; //(g_r . g_d)/J at k,a,b
 										tmp2 = 0.;
 										for (int s = 0; s < 2; s++) tmp2 += sps_boundary_basis[m][s] * sps_grad_radau[j * r + i * (1 - r)][s];
 										for (int p = 0; p < Knod; ++p) {
-											j1 = p * d + b * (1 - d);
-											i1 = p * (1 - d) + a * d;
-											rs = j1 * Knod + i1; //cumulative index
+											const int j1 = p * d + b * (1 - d);
+											const int i1 = p * (1 - d) + a * d;
+											const int rs = j1 * Knod + i1; //cumulative index
 											laplacian_center[el][ij][rs] -= 0.5 * SNGLB1 * A * sps_boundary_basis[p][t] * NGR1;  //page 1 of my notes 3 Feb 2021
 											laplacian_center[el][ij][rs] += 0.5 * tmp2 * A * sps_boundary_basis[p][t] * NGR1;  //page 2 of my notes 3 Feb 2021
 										}
@@ -1371,18 +1378,18 @@ void HO_2D:: form_Laplace_operator_matrix() {
 
 						for (int j = 0; j < Knod; ++j) {
 							for (int i = 0; i < Knod; ++i) {
-								ij = j * Knod + i; //local cumulative sps index in element k
-								int alpha = i * d + j * (1 - d);
-								double A = GB[el][d][t][alpha][d];  //[(g_d . g_d)/J]|k,d,t,alpha
-								double NGR1 = sps_grad_radau[j * d + i * (1 - d)][t];
+								const int ij = j * Knod + i; //local cumulative sps index in element k
+								const int alpha = i * d + j * (1 - d);
+								const double A = GB[el][d][t][alpha][d];  //[(g_d . g_d)/J]|k,d,t,alpha
+								const double NGR1 = sps_grad_radau[j * d + i * (1 - d)][t];
 								for (int m = 0; m < Knod; ++m) {
-									j1 = m * d + j * (1 - d);
-									i1 = m * (1 - d) + i * d;
-									rs = j1 * Knod + i1;
+									const int j1 = m * d + j * (1 - d);
+									const int i1 = m * (1 - d) + i * d;
+									const int rs = j1 * Knod + i1;
 									laplacian_center[el][ij][rs] += A * (sps_boundary_grad_basis[m][t] - g_prime[t] * sps_boundary_basis[m][t]) * NGR1; //page 3 of my notes 3 Feb 2021
 								}
 								boundary_source[edge_index][ij][(elem_side / 2) * (Knod - 2 * alpha - 1) + alpha] += A * g_prime[t] * NGR1; //page 3 of my notes 3 Feb 2021
-								double B = GB[el][d][t][alpha][1 - d];
+								const double B = GB[el][d][t][alpha][1 - d];
 								for (int m = 0; m < Knod; ++m) {
 									boundary_source[edge_index][ij][(elem_side / 2) * (Knod - 2 * m - 1) + m] += B * sps_sps_grad_basis[m][alpha] * NGR1; //page 3 of my notes 3 Feb 2021
 								}
@@ -1401,30 +1408,30 @@ void HO_2D:: form_Laplace_operator_matrix() {
 
 						NeuMatrix = NeuMatrix_Orig.inverse();
 
-						double sign = t ? 1. : -1.;
+						const double sign = t ? 1. : -1.;
 
 						for (int j = 0; j < Knod; ++j) {
 							for (int i = 0; i < Knod; ++i) {
-								ij = j * Knod + i; //local cumulative sps index in element k
+								const int ij = j * Knod + i; //local cumulative sps index in element k
 
-								int alpha = i * d + j * (1 - d);
+								const int alpha = i * d + j * (1 - d);
 								boundary_source[edge_index][ij][(elem_side / 2) * (Knod - 2 * alpha - 1) + alpha] += sign * sps_grad_radau[j * d + i * (1 - d)][t]
 									 * std::sqrt(GB[el][d][t][alpha][d]*face_jac[el][ijp][alpha]); //page 9 on my notes 17 Feb 2021, effect of NBC, according to the edge[edge_index] direction
 
 								for (int m = 0; m < Knod; ++m) {
 									for (int r = 0; r < 2; r++) {
-										a = m * (1 - r) + i * r;
-										b = m * r + j * (1 - r);
-										q = a * d + b * (1 - d);
+										const int a = m * (1 - r) + i * r;
+										const int b = m * r + j * (1 - r);
+										const int q = a * d + b * (1 - d);
 										double SNGLB1 = sps_sps_grad_basis[m][i * (1 - r) + j * r];
 										double NGR1 = sps_grad_radau[a * (1 - d) + b * d][t];
 										double A = G[el][b][a][r][d]; //(g_r . g_d)/J at k,a,b
 										tmp2 = 0.;
 										for (int s = 0; s < 2; s++) tmp2 += sps_boundary_basis[m][s] * sps_grad_radau[j * r + i * (1 - r)][s];
 										for (int p = 0; p < Knod; ++p) {
-											j1 = p * d + b * (1 - d);
-											i1 = p * (1 - d) + a * d;
-											rs = j1 * Knod + i1; //cumulative index
+											const int j1 = p * d + b * (1 - d);
+											const int i1 = p * (1 - d) + a * d;
+											const int rs = j1 * Knod + i1; //cumulative index
 											laplacian_center[el][ij][rs] -= 0.5 * SNGLB1 * A * sps_boundary_basis[p][t] * NGR1;  //last term of page 8 of my notes 17 Feb 2021
 											laplacian_center[el][ij][rs] += 0.5 * tmp2 * A * sps_boundary_basis[p][t] * NGR1;  //last term of page 9 of my notes 17 Feb 2021
 
@@ -1433,9 +1440,9 @@ void HO_2D:: form_Laplace_operator_matrix() {
 
 											double tmp4 = sps_boundary_grad_basis[p][t] - g_prime[t] * sps_boundary_basis[p][t]; //SNGLB(p,t)-gLp(t)*SBLB(p,t)
 											for (int c = 0; c < Knod; ++c) {
-												j1 = p * d + c * (1 - d);
-												i1 = p * (1 - d) + c * d;
-												rs = j1 * Knod + i1; //cumulative index
+												const int j1 = p * d + c * (1 - d);
+												const int i1 = p * (1 - d) + c * d;
+												const int rs = j1 * Knod + i1; //cumulative index
 												laplacian_center[el][ij][rs] += SNGLB1 * A * NGR1 * tmp4 * NeuMatrix(q,c) * GB[el][d][t][c][d]; //page 8 of my notes 17 Feb 2021
 												laplacian_center[el][ij][rs] -= tmp2 * A * NGR1 * tmp4 * NeuMatrix(q, c) * GB[el][d][t][c][d];  //page 9 of my notes 17 Feb 2021
 											}
@@ -1461,19 +1468,19 @@ void HO_2D:: form_Laplace_operator_matrix() {
 							int ij = j * Knod + i; //local cumulative sps index in element k
 							for (int m = 0; m < Knod; ++m) {
 								for (int r = 0; r < 2; r++) {
-									a = m * (1 - r) + i * r;
-									b = m * r + j * (1 - r);
-									q = a * d + b * (1 - d);
-									Mq = ((d + t + dn + tn + 1) % 2) * (Knod - 2 * q - 1) + q; //index of the flux point in the neighbor element
+									const int a = m * (1 - r) + i * r;
+									const int b = m * r + j * (1 - r);
+									const int q = a * d + b * (1 - d);
+									const int Mq = ((d + t + dn + tn + 1) % 2) * (Knod - 2 * q - 1) + q; //index of the flux point in the neighbor element
 									double SNGLB1 = sps_sps_grad_basis[m][i * (1 - r) + j * r];
 									double NGR1 = sps_grad_radau[a * (1 - d) + b * d][t];
 									double A = G[el][b][a][r][d]; //(g_r . g_d)/J at k,a,b
 									tmp2 = 0.;
 									for (int s = 0; s < 2; s++) tmp2 += sps_boundary_basis[m][s] * sps_grad_radau[j * r + i * (1 - r)][s];
 									for (int p = 0; p < Knod; ++p) {
-										j1 = p * dn + Mq * (1 - dn); //j of the neighbor element
-										i1 = p * (1 - dn) + Mq * dn; //i of the neighbor element
-										rs = j1 * Knod + i1; //cumulative index in the neighbor element
+										const int j1 = p * dn + Mq * (1 - dn); //j of the neighbor element
+										const int i1 = p * (1 - dn) + Mq * dn; //i of the neighbor element
+										const int rs = j1 * Knod + i1; //cumulative index in the neighbor element
 										laplacian_neighbor[el][elem_side][ij][rs] += 0.5 * SNGLB1 * A * sps_boundary_basis[p][tn] * NGR1;  //contribution to the L term, page 1 of my notes, 3 Feb 2021
 										laplacian_neighbor[el][elem_side][ij][rs] -= 0.5 * tmp2   * A * sps_boundary_basis[p][tn] * NGR1;  //contribution to the M,N,P,Q term, page 2 of my notes, 3 Feb 2021
 									}
@@ -1484,7 +1491,7 @@ void HO_2D:: form_Laplace_operator_matrix() {
 					//page 3 of my notes, 3 Feb 2021
 					for (int j = 0; j < Knod; ++j) {
 						for (int i = 0; i < Knod; ++i) {
-							ij = j * Knod + i; //local cumulative sps index in element k
+							const int ij = j * Knod + i; //local cumulative sps index in element k
 							int alpha = i * d + j * (1 - d);
 							int Malpha = ((d + t + dn + tn + 1) % 2) * (Knod - 2 * alpha - 1) + alpha;
 							double A = GB[el][d][t][alpha][d];  //[(g_d . g_d)/J]|k,d,t,alpha
@@ -1496,9 +1503,9 @@ void HO_2D:: form_Laplace_operator_matrix() {
 
 							for (int m = 0; m < Knod; ++m) {
 								int Mm = ((d + t + dn + tn + 1) % 2) * (Knod - 2 * m - 1) + m;
-								j1 = m * d + j * (1 - d);
-								i1 = m * (1 - d) + i * d;
-								rs = j1 * Knod + i1;
+								int j1 = m * d + j * (1 - d);
+								int i1 = m * (1 - d) + i * d;
+								int rs = j1 * Knod + i1;
 								laplacian_center[el][ij][rs] += (0.5 * A * sps_boundary_grad_basis[m][t] - 0.25 * g_prime[t] * A * sps_boundary_basis[m][t] +
 									0.25 * sign * g_prime[tn] * An * sps_boundary_basis[m][t]) * NGR1;
 
@@ -1533,17 +1540,7 @@ void HO_2D:: form_Laplace_operator_matrix() {
 
 	//  **************** free unnecessary memory ****************
 	deallocate_3d_array_d(laplacian_center, N_el, Ksq);
-
-	for (int i = 0; i < N_el; ++i) {
-		for (int j = 0; j < 4; ++j) {
-			for (int k = 0; k < Ksq; ++k)
-				delete[] laplacian_neighbor[i][j][k];
-			delete[] laplacian_neighbor[i][j];
-		}
-		delete[] laplacian_neighbor[i];
-	}
-	delete[] laplacian_neighbor;
-
+	deallocate_4d_array_d(laplacian_neighbor, N_el, 4, Ksq);
 }
 
 char HO_2D::Euler_time_integrate(double*** vort_in, double*** vort_out, double coeff) {
@@ -2797,8 +2794,9 @@ void HO_2D::Poisson_solver_Eigen_setup(double*** laplacian_center, double**** la
 
 void HO_2D::Poisson_solver_AMGCL_setup(double*** laplacian_center, double**** laplacian_neighbor) {
 	// sets up the LHS of the Poisson equation via the Eigen library
-	int N_el = mesh.N_el;
-	int Ksq = Knod * Knod, K4 = Ksq * Ksq;;
+	const int N_el = mesh.N_el;
+	const int Ksq = Knod * Knod;
+	//const int K4 = Ksq * Ksq;
 
 	std::vector<int>    ptr, col; //col_start = ptr[row]; col_end = ptr[row + 1], col has all the column indices
 	std::vector<double> val; //val has all the matrix coeffients
@@ -2809,7 +2807,7 @@ void HO_2D::Poisson_solver_AMGCL_setup(double*** laplacian_center, double**** la
 	nnz = 0;
 	for (int el = 0; el < N_el; ++el)
 		for (int ij = 0; ij < Ksq; ++ij) {
-			int sps_index = el * Ksq + ij;
+			const int sps_index = el * Ksq + ij;
 			columns[sps_index].clear();
 			values[sps_index].clear();
 			for (int rs = 0; rs < Ksq; ++rs)
@@ -2823,9 +2821,9 @@ void HO_2D::Poisson_solver_AMGCL_setup(double*** laplacian_center, double**** la
 	for (int el = 0; el < N_el; ++el)
 		for (int elem_side = south; elem_side <= west; elem_side++)
 			if (!(mesh.elem_neighbor[el].is_on_boundary[elem_side])) {
-				int eln = mesh.elem_neighbor[el].neighbor[elem_side]; //element number of the neighbor
+				const int eln = mesh.elem_neighbor[el].neighbor[elem_side]; //element number of the neighbor
 				for (int ij = 0; ij < Ksq; ++ij) {
-					int sps_index = el * Ksq + ij;
+					const int sps_index = el * Ksq + ij;
 					for (int rs = 0; rs < Ksq; ++rs)
 						if (std::fabs(laplacian_neighbor[el][elem_side][ij][rs]) > 1.e-14) {
 							nnz++;
@@ -3724,7 +3722,7 @@ void HO_2D::load_mesh_arrays_d(const int32_t _iorder,
 			mesh.elements[i].nodes[j] = (unsigned int)_idxelems[nnodeper*i+j];
 		}
 		for (size_t j=0; j<4; ++j) {
-			mesh.elements[i].edges[j] = 0;	// these are assigned in process_mesh()
+			mesh.elements[i].edges[j] = 0;	// these must be assigned here!!!
 		}
 	}
 
@@ -3743,10 +3741,11 @@ void HO_2D::load_mesh_arrays_d(const int32_t _iorder,
 		thisbdry.edges.resize(thisbdry.N_edges);
 
 		for (size_t i=0; i<thisbdry.N_edges; ++i) {
-			// stuff
+			// make a new edge
 			mesh.edges.emplace_back(edge());
-
 			edge& thisedge = mesh.edges.back();
+
+			// now fill in the information
 			thisedge.edge_type = dtype;
 			thisedge.N_nodes = mesh.Lnod;
 			thisedge.nodes.resize(mesh.Lnod);
@@ -3754,7 +3753,22 @@ void HO_2D::load_mesh_arrays_d(const int32_t _iorder,
 				thisedge.nodes[j] = (unsigned int)_idxwall[mesh.Lnod*i+j];
 			}
 			
+			// add the index to the boundary
 			thisbdry.edges[i] = (unsigned int)mesh.edges.size();
+
+			// finally, search for the owning element
+			for (size_t el=0; el<mesh.N_elements; ++el) {
+				// check each side of the element
+				for (int s = south; s <= west; s++) {
+					// match first and second node idx
+					const unsigned int n0 = mesh.elements[el].nodes[s];
+					const unsigned int n1 = mesh.elements[el].nodes[(s + 1) % 4];
+					if (n0 == thisedge.nodes[0] && n1 == thisedge.nodes[1]) {
+						mesh.elements[el].edges[s] = thisbdry.edges[i];
+						std::cout << "wall edge " << thisbdry.edges[i] << " matches element " << el << std::endl;
+					}
+				}
+			}
 		}
 	}
 
@@ -3769,18 +3783,34 @@ void HO_2D::load_mesh_arrays_d(const int32_t _iorder,
 		thisbdry.edges.resize(thisbdry.N_edges);
 
 		for (size_t i=0; i<thisbdry.N_edges; ++i) {
-			// stuff
+			// make a new edge
 			mesh.edges.emplace_back(edge());
-
 			edge& thisedge = mesh.edges.back();
+
+			// now fill in the information
 			thisedge.edge_type = dtype;
 			thisedge.N_nodes = mesh.Lnod;
 			thisedge.nodes.resize(mesh.Lnod);
 			for (size_t j=0; j<thisedge.N_nodes; ++j) {
-				thisedge.nodes[j] = (unsigned int)_idxwall[mesh.Lnod*i+j];
+				thisedge.nodes[j] = (unsigned int)_idxopen[mesh.Lnod*i+j];
 			}
 			
+			// add the index to the boundary
 			thisbdry.edges[i] = (unsigned int)mesh.edges.size();
+
+			// finally, search for the owning element
+			for (size_t el=0; el<mesh.N_elements; ++el) {
+				// check each side of the element
+				for (int s = south; s <= west; s++) {
+					// match first and second node idx
+					const unsigned int n0 = mesh.elements[el].nodes[s];
+					const unsigned int n1 = mesh.elements[el].nodes[(s + 1) % 4];
+					if (n0 == thisedge.nodes[0] && n1 == thisedge.nodes[1]) {
+						mesh.elements[el].edges[s] = thisbdry.edges[i];
+						std::cout << "open edge " << thisbdry.edges[i] << " matches element " << el << std::endl;
+					}
+				}
+			}
 		}
 	}
 
@@ -3817,19 +3847,19 @@ void HO_2D::getsolnpts_d(const int32_t _ptlen, double* _xypts) {
 	double** yloc = allocate_2d_array_d(mesh.Lnod,mesh.Lnod);
 
 	// first get the mesh nodes
-	for (size_t i=0; i<mesh.N_el; ++i) {
-		for (size_t j=0; j<mesh.Lnod; ++j) for (size_t k=0; k<mesh.Lnod; ++k) {
+	for (int i=0; i<mesh.N_el; ++i) {
+		for (int j=0; j<mesh.Lnod; ++j) for (int k=0; k<mesh.Lnod; ++k) {
 			// NOT DONE
 			xloc[j][k] = 0.0;
 			yloc[j][k] = 0.0;
 		}
 
 		// then convert these into the solution nodes
-		for (size_t j=0; j<Knod; ++j) for (size_t k=0; k<Knod; ++k) {
+		for (int j=0; j<Knod; ++j) for (int k=0; k<Knod; ++k) {
 			double x = 0.0;
 			double y = 0.0;
 
-			for (size_t l=0; l<mesh.Lnod; ++l) for (size_t m=0; m<mesh.Lnod; ++m) {
+			for (int l=0; l<mesh.Lnod; ++l) for (int m=0; m<mesh.Lnod; ++m) {
 				// NOT DONE
 				x += xloc[l][m];
 				y += yloc[l][m];
@@ -3915,7 +3945,7 @@ void HO_2D::trigger_write(const int32_t _indx) {
 void HO_2D::clean_up() {
 
 	// call the existing memory cleanup routine
-	release_memory();
+	//release_memory();
 
 	// and then clean up hybrid arrays
 	deallocate_2d_array_d(BC_VelNorm_start, mesh.N_edges_boundary);
