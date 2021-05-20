@@ -976,10 +976,10 @@ void HO_2D::setup_IC_BC_SRC() {
 
     // Now convert the outward normal directions into the local h direction
     for (int el_b=0; el_b<mesh.N_edges_boundary; ++el_b) {
-        int element_index = mesh.boundary_elem_ID[el_b].element_index; //index of the element that has a face on the global boundary
-		int elem_side = mesh.boundary_elem_ID[el_b].side; //side of the element that has the edge on the global boundary
-		int ijp = f2i[elem_side];
-        double sign = 2.*(ijp%2) - 1.;
+        //int element_index = mesh.boundary_elem_ID[el_b].element_index; //index of the element that has a face on the global boundary
+		const int elem_side = mesh.boundary_elem_ID[el_b].side; //side of the element that has the edge on the global boundary
+		const int ijp = f2i[elem_side];
+        const double sign = 2.*(ijp%2) - 1.;
         for (int k=0; k<Knod; ++k) {
             BC_normal_vel[el_b][k] *= sign;
             if (BC_switch_diffusion[el_b]==NeumannBC) BC_diffusion[el_b][k] *= sign;
@@ -1161,7 +1161,7 @@ char HO_2D::solve_vorticity_streamfunction() {
 					const int node_index = mesh.elements[el].nodes[mesh.tensor2FEM(nx, ny)];
 					coor.plus(gps_sps_basis[ny][j] * gps_sps_basis[nx][i], mesh.nodes[node_index].coor);
 				}
-				double ym = M_PI * (1. - coor.y);
+				//double ym = M_PI * (1. - coor.y);
 				//vorticity[el][j][i] = M_PI * std::sin(M_PI * coor.x) * (ym * (1. + 2. * std::cos(ym)) + 2. * std::sin(ym));
 				//vorticity[el][j][i] = std::sin(M_PI * coor.y);
 				//vorticity[el][j][i] = M_PI*std::sin(M_PI*coor.x)*(2.*std::sin(M_PI*coor.y) + 2.*M_PI*coor.y*std::cos(M_PI*coor.y) + M_PI*coor.y);
@@ -1551,7 +1551,7 @@ char HO_2D::Euler_time_integrate(double*** vort_in, double*** vort_out, double c
 	Then using this velocity field, the advection diffusion equation for the vorticity is solved to calculate vort_out (k2,k3,k4)
 	*/
 
-	double current_time =  (ti + coeff) * dt;
+	//double current_time =  (ti + coeff) * dt;
 	//update_BCs(current_time); // for now the BC are setup once in the setup_IC_BC_SRC. Later for a time-dependent BCs, this needs to be setup.
 	solve_Poisson(vort_in); //calculate the streamfunction corresponding to the vort_in, i.e. Laplacian(psi)=-vort_in. solves for stream_function
 	calc_velocity_vector_from_streamfunction(); //calculate the Cartesian velocity field velocity_cart from psi
@@ -1918,13 +1918,13 @@ void HO_2D::update_advection_BC() {
 	// ************************ form the BC_advection *************************
 	//std::fill(BC_switch_advection, BC_switch_advection + mesh.N_edges_boundary, DirichletBC); //pick Dirichlet BC for advection term based on the Fortran code
 	for (int edge_index = 0; edge_index < mesh.N_edges_boundary; ++edge_index) {
-		int element_index = mesh.boundary_elem_ID[edge_index].element_index; //index of the element that has a face on the global boundary
-		int elem_side = mesh.boundary_elem_ID[edge_index].side; //side of the element that has the edge on the global boundary
-		int ijp = f2i[elem_side];
-		int direction = ijp / 2; //0 means xsi, 1 means eta direction
+		const int element_index = mesh.boundary_elem_ID[edge_index].element_index; //index of the element that has a face on the global boundary
+		const int elem_side = mesh.boundary_elem_ID[edge_index].side; //side of the element that has the edge on the global boundary
+		const int ijp = f2i[elem_side];
+		//int direction = ijp / 2; //0 means xsi, 1 means eta direction
 
 		for (int i = 0; i < Knod; ++i) {
-			int edge_flux_point_index = (elem_side / 2) * (Knod - 2 * i - 1) + i;
+			const int edge_flux_point_index = (elem_side / 2) * (Knod - 2 * i - 1) + i;
 			/*double volumetric_flux_boundary[2] = {
 							BC_cart_vel[edge_index][edge_flux_point_index].x * face_Dy_Dxsi[element_index][ijp][i].y - BC_cart_vel[edge_index][edge_flux_point_index].y * face_Dx_Dxsi[element_index][ijp][i].y,
 							-BC_cart_vel[edge_index][edge_flux_point_index].x * face_Dy_Dxsi[element_index][ijp][i].x + BC_cart_vel[edge_index][edge_flux_point_index].y * face_Dx_Dxsi[element_index][ijp][i].x };*/
@@ -1941,8 +1941,6 @@ char HO_2D::calc_RHS_advection(double*** vort_in) {
 
 	// *********************************************************************
 
-	int ijp, ijpm, eln, jn;
-	double bndr_vel;
 	double** local_vort; //local array to hold the vorticity along a row of csi [0], and row of eta [1] direction
 	double** local_vel; //local array to hold the contravariant flux on a row of csi [0] (xsi dir), and row of eta [1] direction (eta dir)
 
@@ -1972,7 +1970,7 @@ char HO_2D::calc_RHS_advection(double*** vort_in) {
 	//Extrapolate the unknown, Phi and the Flux to the mesh boundaries using Lagrange polynomials of order Knod - 1
 	for (int el = 0; el < mesh.N_el; el++) { //form flux (U^1w/U^2w on xsi/eta dirs, respectively) on the 4 boundaries (bndr_flx) and all interior sps of all elements (disc_flx)
 		for (int row_col = 0; row_col < Knod; ++row_col) {
-			for (ijp = 0; ijp < 4; ++ijp) bndr_vort[el][ijp][row_col] = bndr_flx[el][ijp][row_col] = upwnd_flx[el][ijp][row_col] = 0.;
+			for (int ijp = 0; ijp < 4; ++ijp) bndr_vort[el][ijp][row_col] = bndr_flx[el][ijp][row_col] = upwnd_flx[el][ijp][row_col] = 0.;
 			for (int i = 0; i < Knod; i++) {
 				local_vort[i][0] = vort_in[el][row_col][i];  // xsi direction
 				local_vort[i][1] = vort_in[el][i][row_col];  //eta direction
@@ -1980,14 +1978,14 @@ char HO_2D::calc_RHS_advection(double*** vort_in) {
 				local_vel[i][1] = -velocity_cart[el][i][row_col].x * vol_Dy_Dxsi[el][i][row_col].x + velocity_cart[el][i][row_col].y * vol_Dx_Dxsi[el][i][row_col].x;  //U^2/J = volumetric flux = contravariant eta FLUX component along eta direction,
 			}
 
-			ijp = 0; //ijp=0 (ibnd=idir=0)
+			int ijp = 0; //ijp=0 (ibnd=idir=0)
 			for (int idir = 0; idir < 2; ++idir) { //idir=0 (xsi); idir=1: eta direction
 				//discontinuous flux values (f^tilda, g^tilda) on (row_col,1:Knod) solution points for xsi direction and on(row_col, 1:Knod) solution points for eta direction
 				for (int i = 0; i < Knod; ++i) disc_flx[el][idir][row_col][i] = local_vel[i][idir] * local_vort[i][idir];
 
 				for (int ibnd = 0; ibnd < 2; ++ibnd) { //ibnd=0: left/south); ibnd=1: right/north
 					for (int m = 0; m < Knod; m++) bndr_vort[el][ijp][row_col] += local_vort[m][idir] * sps_boundary_basis[m][ibnd];
-					int elem_side = i2f[ijp]; //the side of current element corresponding to combination of ibnd and idir
+					const int elem_side = i2f[ijp]; //the side of current element corresponding to combination of ibnd and idir
 					if (mesh.elem_neighbor[el].is_on_boundary[elem_side]) {
 
 						int edge_index = mesh.elem_neighbor[el].boundary_index[elem_side];
@@ -2013,27 +2011,27 @@ char HO_2D::calc_RHS_advection(double*** vort_in) {
 	}
 
 	for (int el = 0; el < mesh.N_el; el++) {
-		for (ijp = 0; ijp < 4; ++ijp) {
-			int elem_side = i2f[ijp]; //the side of current element corresponding to combination of ibnd and idir
+		for (int ijp = 0; ijp < 4; ++ijp) {
+			const int elem_side = i2f[ijp]; //the side of current element corresponding to combination of ibnd and idir
 			if (mesh.elem_neighbor[el].is_on_boundary[elem_side])
 				for (int j = 0; j < Knod; ++j)
 					upwnd_flx[el][ijp][j] = bndr_flx[el][ijp][j];
 			else {
-				eln = mesh.elem_neighbor[el].neighbor[elem_side]; //element number of the neighbor
-				ijpm = f2i[mesh.elem_neighbor[el].neighbor_common_side[elem_side]];
+				const int eln = mesh.elem_neighbor[el].neighbor[elem_side]; //element number of the neighbor
+				const int ijpm = f2i[mesh.elem_neighbor[el].neighbor_common_side[elem_side]];
 
-				double sign = 2. * ((ijp + ijpm) % 2) - 1.;  //to see if the normal fluxes are in different orientations
-				int revert_coeff = (ijp + ijpm - ijp / 2 - ijpm / 2 + 1) % 2; //equal to (d+t+dn+tn+1)%2 = (ijp-d+ijpm-dn+1)%2
+				const double sign = 2. * ((ijp + ijpm) % 2) - 1.;  //to see if the normal fluxes are in different orientations
+				const int revert_coeff = (ijp + ijpm - ijp / 2 - ijpm / 2 + 1) % 2; //equal to (d+t+dn+tn+1)%2 = (ijp-d+ijpm-dn+1)%2
 				//bool revert_tangent = (ijp == ijpm) || (ijp + ijpm == 3);
 				//bool revert_normal = (ijp == ijpm) || (std::fabs(ijp - ijpm) == 2);
 				//double sign = revert_normal? -1. : 1.;
 				for (int j = 0; j < Knod; ++j) {
 					//kk = (revert_tangent) ? Knod - 1 - j : j;
-					jn = revert_coeff * (Knod - 2 * j - 1) + j; // the neighbor side of the common face index (either j or Knod-j-1)
+					const int jn = revert_coeff * (Knod - 2 * j - 1) + j; // the neighbor side of the common face index (either j or Knod-j-1)
 					upwnd_flx[el][ijp][j] = 0.5 * (bndr_flx[el][ijp][j] + sign * bndr_flx[eln][ijpm][jn]);
 					double vort_diff = bndr_vort[el][ijp][j] - bndr_vort[eln][ijpm][jn];
 					if (std::fabs(vort_diff) > 1.e-4) {
-						bndr_vel = (bndr_flx[el][ijp][j] - sign * bndr_flx[eln][ijpm][jn]) / vort_diff; //a_tilda
+						const double bndr_vel = (bndr_flx[el][ijp][j] - sign * bndr_flx[eln][ijpm][jn]) / vort_diff; //a_tilda
 						upwnd_flx[el][ijp][j] += 0.5 * sgn[ijp] * std::fabs(bndr_vel) * vort_diff;
 					}
 				}
@@ -2042,7 +2040,7 @@ char HO_2D::calc_RHS_advection(double*** vort_in) {
 	}
 
 	for (int el = 0; el < mesh.N_el; el++) {
-		ijp = 0;
+		int ijp = 0;
 		for (int idir = 0; idir < 2; ++idir) { //idir=0 (xsi); idir=1: eta direction
 			for (int ibnd = 0; ibnd < 2; ++ibnd) { //ibnd=0: left/south); ibnd=1: right/north
 				for (int j = 0; j < Knod; ++j) {
@@ -2096,7 +2094,6 @@ char HO_2D::calc_RHS_advection_continuous(double*** vort_in) {
 	// *********************************************************************
 
 	int ijp, ijpm, jn;
-	//double bndr_vel;
 	double** local_vort = new double* [Knod]; //local array to hold the vorticity along a row of csi [0], and row of eta [1] direction
 	for (int i = 0; i < Knod; ++i) local_vort[i] = new double[2];
 	double** local_vel = new double* [Knod]; //local array to hold the contravariant flux on a row of csi [0] (xsi dir), and row of eta [1] direction (eta dir)
@@ -3806,12 +3803,12 @@ void HO_2D::getsolnpts_d(const int32_t _ptlen, double* _xypts) {
 	// first get the mesh nodes
 	for (int i=0; i<mesh.N_el; ++i) {
 		for (int j=0; j<mesh.Lnod; ++j) for (int k=0; k<mesh.Lnod; ++k) {
-			// NOT DONE
 			xloc[j][k] = 0.0;
 			yloc[j][k] = 0.0;
 		}
 
 		// then convert these into the solution nodes
+		size_t idx = i*mesh.Lnod*mesh.Lnod;
 		for (int j=0; j<Knod; ++j) for (int k=0; k<Knod; ++k) {
 			double x = 0.0;
 			double y = 0.0;
@@ -3822,8 +3819,8 @@ void HO_2D::getsolnpts_d(const int32_t _ptlen, double* _xypts) {
 				y += yloc[l][m];
 			}
 
-			_xypts[0] = x;
-			_xypts[0] = y;
+			_xypts[idx+0] = x;
+			_xypts[idx+1] = y;
 		}
 	}
 
