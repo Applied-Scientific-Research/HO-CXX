@@ -12,13 +12,13 @@
 #include "Mesh.hpp"
 
 //#include "stdafx.h"
-#include <cstdlib> 
+#include <cstdlib>
 #include <iostream>
 #include <fstream>
 #include <string>
 #include <tuple>
 
-#include <Eigen/Eigenvalues> 
+#include <Eigen/Eigenvalues>
 #include <Eigen/Dense>
 #include <Eigen/Core>
 #include <Eigen/Sparse>
@@ -64,7 +64,7 @@ private:
 	double** BC_diffusion;
 	double** BC_vorticity;  //it is always the dirichlet. it has the vorticity values on the boundary, which are calculated from the BC_diffusion BC values.
 	bool* BC_no_slip; //if the boundary conditions are no slip wall. if yes, then it is true
-	Cmpnts2** BC_cart_vel; //the BC for Cartesian velocity vector
+	Cmpnts2** BC_cart_vel;  //the values of the x,y components of velocity on the boundary
 
 	double*** vorticity; //the vorticity field: first index goes for element, second and third go for j (eta dir) and i (csi dir) sps
 	double*** initial_vorticity; //The initial (t=0) vorticity field
@@ -103,6 +103,7 @@ private:
 	double***** GB; // GB[el][d=0,1][t=0,1]][j][d2=0,1] is (g_d dot g_d2)/J at j flux point on the face of element el that is in the d direction and t side.
 	double*** RHS_advective; //the right hand side of the vorticity eq for the advective term: -div(vw) = -d_dxsi_j(V^jw)/G
 	double*** RHS_diffusive;   //stores 1/Re * Laplace(w) in RHS_diffusive[el][ky][kx]
+	double*** k1, ***k2, ***k3, ***k4, ***vort;
 	double** velocity_jump; //it is partial(psi)/partial(n) at the global boundary which is the tangential component of velocity in the direction of local csi-eta direction
 	double*** boundary_source; //Poisson Solver's RHS term to be dotted by BC_Values of the edge that belongs to the element (which has this edge on the global boundary); size is [N_edges_boundary][Knod*Knod][Knod]
 	int LHS_type; //1 is eigen, 2 is hypre
@@ -156,8 +157,8 @@ public:
 		dump_frequency = 1000;
 		dt = 0.001;
 		num_time_steps = 10000;
-		problem_type = 10;
-		time_integration_type = 1;
+		problem_type = 1;
+		time_integration_type = 4;
 		HuynhSolver_type = 2;
 		Reyn_inv = 0.001;
 		Knod = 2;
