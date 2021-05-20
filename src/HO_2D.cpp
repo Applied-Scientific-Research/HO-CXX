@@ -11,6 +11,11 @@
 
 #include <cmath>
 
+void deallocate_1d_array_d(double* arry) {
+	if (arry == nullptr) return;
+	delete[] arry;
+}
+
 void deallocate_2d_array_d(double** arry, const size_t nx) {
 	if (arry == nullptr) return;
 	for (size_t k = 0; k < nx; ++k) {
@@ -474,6 +479,12 @@ void HO_2D::setup_sps_gps() {
 // allocator helpers
 // there is a better way to do this, where all data is held in a contiguous memory chunk
 // and we can even do it in a templated function: allocate_2d_array<double>(nx, ny);
+
+double* allocate_1d_array_d(const size_t nx) {
+	double* outptr = nullptr;
+	outptr = new double[nx];
+	return outptr;
+}
 
 double** allocate_2d_array_d(const size_t nx, const size_t ny) {
 	double** outptr = nullptr;
@@ -3689,7 +3700,7 @@ void HO_2D::load_mesh_arrays_d(const int32_t _iorder,
 		mesh.boundaries.emplace_back(boundary());
 		boundary& thisbdry = mesh.boundaries.back();
 
-		thisbdry.name == "wall";
+		thisbdry.name = "wall";
 		thisbdry.N_edges = (unsigned int)_nwall / mesh.Lnod;
 		const unsigned int dtype = mesh.face_type_node_number_inv.at(mesh.Lnod);
 		thisbdry.edges.resize(thisbdry.N_edges);
@@ -3731,7 +3742,7 @@ void HO_2D::load_mesh_arrays_d(const int32_t _iorder,
 		mesh.boundaries.emplace_back(boundary());
 		boundary& thisbdry = mesh.boundaries.back();
 
-		thisbdry.name == "open";
+		thisbdry.name = "open";
 		thisbdry.N_edges = (unsigned int)_nopen / mesh.Lnod;
 		const unsigned int dtype = mesh.face_type_node_number_inv.at(mesh.Lnod);
 		thisbdry.edges.resize(thisbdry.N_edges);
@@ -3803,24 +3814,28 @@ void HO_2D::getsolnpts_d(const int32_t _ptlen, double* _xypts) {
 	// first get the mesh nodes
 	for (int i=0; i<mesh.N_el; ++i) {
 		for (int j=0; j<mesh.Lnod; ++j) for (int k=0; k<mesh.Lnod; ++k) {
-			xloc[j][k] = 0.0;
-			yloc[j][k] = 0.0;
+			// xloc(jx,jy) = xcoord(nodeID(t2f(jx,jy),i))
+			const size_t nid = mesh.elements[i].nodes[mesh.tensor2FEM(k,j)];	// ??????
+			xloc[j][k] = mesh.nodes[nid].coor.x;
+			yloc[j][k] = mesh.nodes[nid].coor.y;
 		}
 
 		// then convert these into the solution nodes
-		size_t idx = i*mesh.Lnod*mesh.Lnod;
+		size_t idx = i*Knod*Knod;
 		for (int j=0; j<Knod; ++j) for (int k=0; k<Knod; ++k) {
 			double x = 0.0;
 			double y = 0.0;
 
 			for (int l=0; l<mesh.Lnod; ++l) for (int m=0; m<mesh.Lnod; ++m) {
-				// NOT DONE
-				x += xloc[l][m];
-				y += yloc[l][m];
+				// x = x + GeomNodesLgrangeBasis(jx,kx) * GeomNodesLgrangeBasis(jy,ky) * xloc(jx,jy)
+				// gps_sps_basis or sps_gps_basis?
+				x += gps_sps_basis[l][j] * gps_sps_basis[m][k] * xloc[l][m];
+				y += gps_sps_basis[l][j] * gps_sps_basis[m][k] * yloc[l][m];
 			}
 
 			_xypts[idx+0] = x;
 			_xypts[idx+1] = y;
+			idx += 2;
 		}
 	}
 
@@ -3830,13 +3845,64 @@ void HO_2D::getsolnpts_d(const int32_t _ptlen, double* _xypts) {
 
 void HO_2D::getsolnareas_d(const int32_t _veclen, double* _areas) {
 	// NOT DONE
+	for (int i=0; i<mesh.N_el; ++i) {
+		size_t idx = i*Knod*Knod;
+		for (int j=0; j<Knod; ++j) for (int k=0; k<Knod; ++k) {
+			// areas(ptnum) = wgt(i) * wgt(j) * Vol_Jac(i,j,el)
+			_areas[idx] = vol_jac[i][j][k];
+			idx++;
+		}
+	}
 }
+
 int32_t HO_2D::getopenptlen() {
-	// NOT DONE
+	// loop over boundary and look for "open"
+	for (auto &bdry : mesh.boundaries) {
+		if (bdry.name == "open") {
+			return 2 * bdry.N_edges * Knod;
+		}
+	}
 	return 0;
 }
+
 void HO_2D::getopenpts_d(const int32_t _nopen, double* _xyopen) {
 	// NOT DONE
+	for (auto &bdry : mesh.boundaries) {
+		if (bdry.name == "open") {
+			double* xloc = allocate_1d_array_d(mesh.Lnod);
+			double* yloc = allocate_1d_array_d(mesh.Lnod);
+
+			// now get the solution points on this boundary
+			for (unsigned int i=0; i<bdry.N_edges; ++i) {
+
+				for (int j=0; j<mesh.Lnod; ++j) {
+					// xloc1D(jx) = xcoord(boundarynodeID(t2f(jx),i))
+					const size_t nid = mesh.edges[bdry.edges[i]].nodes[mesh.tensor2FEM(j)];	// ??????
+					xloc[j] = mesh.nodes[nid].coor.x;
+					yloc[j] = mesh.nodes[nid].coor.y;
+				}
+
+				size_t idx = i*Knod;
+				for (int j=0; j<Knod; ++j) {
+					double x = 0.0;
+					double y = 0.0;
+
+					for (int l=0; l<mesh.Lnod; ++l) {
+						// x = x + GeomNodesLgrangeBasis(jx,kx) * xloc1D(jx)
+						x += gps_sps_basis[l][j] * xloc[l];
+						y += gps_sps_basis[l][j] * yloc[l];
+					}
+
+					_xyopen[idx+0] = x;
+					_xyopen[idx+1] = y;
+					idx += 2;
+				}
+			}
+			deallocate_1d_array_d(xloc);
+			deallocate_1d_array_d(yloc);
+		}
+	}
+	return;
 }
 
 // send vels and vorts to this solver
