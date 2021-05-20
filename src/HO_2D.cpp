@@ -1705,7 +1705,7 @@ char HO_2D::solve_Poisson(double const* const* const* vort_in) {
 	return 0;
 }
 
-void HO_2D::update_BCs(double time) {
+void HO_2D::update_BCs(const double time) {
 	// updates the BC for the slip and normal velocity for the time "time". typically velocity BC is fixed over time, so this gives more flexibility for velocity BC changes in time
 /*
 	if (problem_type==1) { //cavity flow: the mass flux is zero and the slip velocity is -1 on the top plane (lid moves to the right, so CCW)
@@ -3815,7 +3815,7 @@ void HO_2D::getsolnpts_d(const int32_t _ptlen, double* _xypts) {
 	for (int i=0; i<mesh.N_el; ++i) {
 		for (int j=0; j<mesh.Lnod; ++j) for (int k=0; k<mesh.Lnod; ++k) {
 			// xloc(jx,jy) = xcoord(nodeID(t2f(jx,jy),i))
-			const size_t nid = mesh.elements[i].nodes[mesh.tensor2FEM(k,j)];	// ??????
+			const size_t nid = mesh.elements[i].nodes[mesh.tensor2FEM(k,j)];
 			xloc[j][k] = mesh.nodes[nid].coor.x;
 			yloc[j][k] = mesh.nodes[nid].coor.y;
 		}
@@ -3828,7 +3828,6 @@ void HO_2D::getsolnpts_d(const int32_t _ptlen, double* _xypts) {
 
 			for (int l=0; l<mesh.Lnod; ++l) for (int m=0; m<mesh.Lnod; ++m) {
 				// x = x + GeomNodesLgrangeBasis(jx,kx) * GeomNodesLgrangeBasis(jy,ky) * xloc(jx,jy)
-				// gps_sps_basis or sps_gps_basis?
 				x += gps_sps_basis[l][j] * gps_sps_basis[m][k] * xloc[l][m];
 				y += gps_sps_basis[l][j] * gps_sps_basis[m][k] * yloc[l][m];
 			}
@@ -3844,7 +3843,6 @@ void HO_2D::getsolnpts_d(const int32_t _ptlen, double* _xypts) {
 }
 
 void HO_2D::getsolnareas_d(const int32_t _veclen, double* _areas) {
-	// NOT DONE
 	for (int i=0; i<mesh.N_el; ++i) {
 		size_t idx = i*Knod*Knod;
 		for (int j=0; j<Knod; ++j) for (int k=0; k<Knod; ++k) {
@@ -3909,12 +3907,14 @@ void HO_2D::getopenpts_d(const int32_t _nopen, double* _xyopen) {
 
 void HO_2D::setopenvels_d(const int32_t _veclen, double* _xyvel) {
 	// NOT DONE
+	//velocity_cart[el][eta][xi].x
 }
 void HO_2D::setopenvort_d(const int32_t _veclen, double* _invort) {
 	// NOT DONE
 }
 void HO_2D::setsolnvort_d(const int32_t _veclen, double* _invort) {
 	// NOT DONE
+	//vorticity[el][eta][xi]
 }
 void HO_2D::setptogweights_d(const int32_t _veclen, double* _inwgt) {
 	// NOT DONE
