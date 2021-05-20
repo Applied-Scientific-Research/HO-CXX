@@ -1740,7 +1740,7 @@ void HO_2D::update_BCs(const double time) {
 
 	else if (problem_type==2) {  //Backward Facing step: the inlet velocity goes from 0 to 2 and reverts back
 		//BFS: inlet: specific normal vel ---> calculate psi based on the mass flux
-		double y_min, y_max;
+		double y_min = 0, y_max = 0;
 		for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) { //find the min and max y at the inlet
 			if (mesh.boundaries[G_boundary].name != "inlet") continue;
 			y_min = mesh.nodes[ mesh.edges[ mesh.boundaries[G_boundary].edges[0] ].nodes[0] ].coor.y;
@@ -1753,7 +1753,7 @@ void HO_2D::update_BCs(const double time) {
 			}
 		}
 
-		double time_coeff = 2.*std::fabs(std::sin(M_PI/40.*time));
+		const double time_coeff = 2.*std::fabs(std::sin(M_PI/40.*time));
 
 		for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) {
 			if (mesh.boundaries[G_boundary].name == "inlet") { //vorticity, psi and normal velocity are defined
@@ -1788,7 +1788,7 @@ void HO_2D::update_BCs(const double time) {
 	}  //else if problem_type ==2
 
 	else if (problem_type==3) { //flow over an object
-		double y_min, y_max;
+		double y_min = 0, y_max = 0;
 		for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) { //find the min and max y at the inlet
 			if (mesh.boundaries[G_boundary].name != "inlet") continue;
 			y_min = mesh.nodes[ mesh.edges[ mesh.boundaries[G_boundary].edges[0] ].nodes[0] ].coor.y;
@@ -1853,10 +1853,10 @@ void HO_2D::update_BCs(const double time) {
 
 	// Now convert the outward normal directions into the local h direction
 	for (int el_b=0; el_b<mesh.N_edges_boundary; ++el_b) {
-		int element_index = mesh.boundary_elem_ID[el_b].element_index; //index of the element that has a face on the global boundary
-		int elem_side = mesh.boundary_elem_ID[el_b].side; //side of the element that has the edge on the global boundary
-		int ijp = f2i[elem_side];
-		double sign = 2.*(ijp%2) - 1.;
+		//int element_index = mesh.boundary_elem_ID[el_b].element_index; //index of the element that has a face on the global boundary
+		const int elem_side = mesh.boundary_elem_ID[el_b].side; //side of the element that has the edge on the global boundary
+		const int ijp = f2i[elem_side];
+		const double sign = 2.*(ijp%2) - 1.;
 		for (int k=0; k<Knod; ++k) {
 			BC_normal_vel[el_b][k] *= sign;
 			if (BC_switch_diffusion[el_b]==NeumannBC) BC_diffusion[el_b][k] *= sign;

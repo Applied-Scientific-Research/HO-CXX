@@ -80,7 +80,7 @@ char Mesh::read_msh_file() {
 	// reads a msh file output from the Gmsh software. The msh file is in ASCII 4.1 version of the Gmsh output
 	std::string filename = input_msh_file;
 	std::cout << "     Gmsh file   ***** " << filename << " *****   opened for reading ..." << std::endl << std::endl;
-	int retval = 1, tmp, tmp1, tmp2;
+	int retval = 1;
 	int index;
 	int nodes_min_index, nodes_max_index, raw_N_nodes, tag_N_nodes, nodes_total_entities, group_tag, entity_dim, unorganized_node_index = 0;
 	int elements_min_index, elements_max_index, tag_N_elements, elements_total_entities, element_type;
@@ -102,7 +102,7 @@ char Mesh::read_msh_file() {
 
 	// *************** Now read in the Boundaries field: locate the keyword $PhysicalNames *****************
 	//-----------------------------------------------------------------------------------------
-	tmp = locate_in_file(mshfile, "$PhysicalNames");
+	int tmp = locate_in_file(mshfile, "$PhysicalNames");
 	if (tmp==10) {std::cout<< "could not find the physicalNames field, check mesh \n"; exit(1);}
 	int N_physical_names, dim_physical_name;
 	mshfile >> N_physical_names;  //number of global boundaries with boundary conditions
@@ -279,8 +279,8 @@ char Mesh::read_msh_file() {
 	std::vector<unsigned int> second_mapping(raw_N_nodes);
 	for (unsigned int i = 0; i < edges.size(); ++i) {
 		for (unsigned int j = 0; j < edges[i].N_nodes; ++j) {
-			tmp = edges[i].nodes[j]; //tmp should map into node_index now
-			tmp1 = unorganized_node_mapping[tmp];
+			const int tmp = edges[i].nodes[j]; //tmp should map into node_index now
+			const int tmp1 = unorganized_node_mapping[tmp];
 			if (!used_node[tmp1]) {
 				used_node[tmp1] = true;
 				second_mapping[tmp1] = node_index++;
@@ -294,8 +294,8 @@ char Mesh::read_msh_file() {
 	}
 	for (unsigned int i = 0; i < elements.size(); ++i) {
 		for (unsigned int j = 0; j < elements[i].N_nodes; ++j) {
-			tmp = elements[i].nodes[j]; //tmp should map into index now
-			tmp1 = unorganized_node_mapping[tmp];
+			const int tmp = elements[i].nodes[j]; //tmp should map into index now
+			const int tmp1 = unorganized_node_mapping[tmp];
 
 			if (!used_node[tmp1]) {
 				used_node[tmp1] = true;
