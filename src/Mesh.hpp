@@ -145,7 +145,7 @@ public:
 		fac = 0.; //uniform
 		dx_ratio = 1; //no expanding grid
 		N_edges_boundary = 0;
-		N_Gboundary = 4;
+		N_Gboundary = 0;
 	}
 
 	~Mesh() {}	//destructor define here later

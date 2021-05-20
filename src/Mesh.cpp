@@ -107,13 +107,19 @@ char Mesh::read_msh_file() {
 	//-----------------------------------------------------------------------------------------
 	tmp = locate_in_file(mshfile, "$PhysicalNames");
 	if (tmp==10) {std::cout<< "could not find the physicalNames field, check mesh \n"; exit(1);}
-	mshfile >> N_Gboundary;  //number of global boundaries with boundary conditions
-	boundaries.resize(N_Gboundary);
-	std::vector<unsigned int> tmp_boundary_tag(N_Gboundary); //temporary vector to store the boundary indices in MSH file (it is often irregular)
-	for (int i = 0; i < N_Gboundary; ++i) {
-		mshfile >> tmp >> tmp_boundary_tag[i] >> boundaries[i].name; std::getline(mshfile, temp_string);
-		boundaries[i].name.erase(boundaries[i].name.size() - 1); //get rid of the "" that are in the name field read from MSH file
-		boundaries[i].name.erase(0, 1);
+	int N_physical_names, dim_physical_name;
+	mshfile >> N_physical_names;  //number of global boundaries with boundary conditions
+	std::getline(mshfile, temp_string);
+	std::vector<unsigned int> tmp_boundary_tag; //temporary vector to store the boundary indices in MSH file (it is often irregular)
+	for (int i = 0; i < N_physical_names; ++i) {
+        mshfile >> dim_physical_name;
+        if (dim_physical_name!=1) continue; //we are not interested in 2D or 0D physical names
+        tmp_boundary_tag.resize(N_Gboundary+1);
+        boundaries.resize(N_Gboundary+1);
+		mshfile >> tmp_boundary_tag[N_Gboundary] >> boundaries[N_Gboundary].name; std::getline(mshfile, temp_string);
+		boundaries[N_Gboundary].name.erase(boundaries[N_Gboundary].name.size() - 1); //get rid of the "" that are in the name field read from MSH file
+		boundaries[N_Gboundary].name.erase(0, 1);
+		N_Gboundary++;
 	}
 
 	// *************** Now read in the entities field: locate the keyword $Entities *****************
@@ -124,16 +130,13 @@ char Mesh::read_msh_file() {
 	std::getline(mshfile, temp_string);
 	assert(!tmp); //double check that there is no volume in the domain, so 2D problem
 
-	for (int i = 0; i < entities_N_points; ++i) //skip the points
-	  do
-	    std::getline(mshfile, temp_string);
-	  while (temp_string.length() == 0);
-
+	for (int i = 0; i < entities_N_points; ++i) std::getline(mshfile, temp_string); //skip the points
 
 	std::vector<unsigned int> tmp_curve_entity_tag(entities_N_curves); //temporary vector to store the curves entity tag in MSH file
 	std::vector<unsigned int> tmp_curves_boundary_tag(entities_N_curves); //writes the boundry tag of curves
+	std::vector<int> tmp_curves_num_physical_tag(entities_N_curves); //this curve entity belongs to how many physical boundaries. If zero, then it is an interface between 2 subdomains.
 	for (int i = 0; i < entities_N_curves; ++i) { //read in the curves entity tag and the boundry tag
-	  mshfile >> tmp_curve_entity_tag[i] >> double_field >> double_field >> double_field >> double_field >> double_field >> double_field >> tmp >> tmp_curves_boundary_tag[i];
+	  mshfile >> tmp_curve_entity_tag[i] >> double_field >> double_field >> double_field >> double_field >> double_field >> double_field >> tmp_curves_num_physical_tag[i] >> tmp_curves_boundary_tag[i];
 	  std::getline(mshfile, temp_string); //read in the rst of data which are not needed at this point
 	}
 
@@ -175,16 +178,14 @@ char Mesh::read_msh_file() {
 	if (tmp==10) {std::cout<< "could not find the Elements field, check mesh \n"; exit(1);}
 	mshfile >> elements_total_entities >> N_elements >> elements_min_index >> elements_max_index; //N_element= total number of nodes, edges and 2d elements, ignore the 0d elements
 	std::getline(mshfile, temp_string);
-	assert(elements_total_entities == entities_N_points + entities_N_curves + entities_N_faces);
+	//assert(elements_total_entities == entities_N_points + entities_N_curves + entities_N_faces);
 	for (unsigned int element_entity = 0; element_entity < elements_total_entities; ++element_entity) {
 		mshfile >> entity_dim >> group_tag; ////entity_dim=0(0d), 1(1d) , 2(2d) features; group_tag: tag of entity
 		mshfile >> element_type >> tag_N_elements; //1,8,26,27,28: 2-node, 3-node, 4-node, 5-node and 6-node lines; 3,10,16,36,37: 4-node, 9-node, 8-node, 16-node, 25-node 2D elements
 		std::getline(mshfile, temp_string);
 		if (entity_dim == 0 /*element_type==15*/)  //single-node point
-		  for (unsigned int element = 0; element < tag_N_elements; ++element) { //skip the nodes definitions
-		    mshfile >> tmp1 >> tmp2;
+		  for (unsigned int element = 0; element < tag_N_elements; ++element) //skip the nodes definitions
 		    std::getline(mshfile, temp_string);
-		  }
 
 		else if (entity_dim == 1) { // element_type corresponds to edge
 			its = std::find(edge_type_node_number[0].begin(), edge_type_node_number[0].end(), element_type);
@@ -202,7 +203,12 @@ char Mesh::read_msh_file() {
 			its = std::find(tmp_curve_entity_tag.begin(), tmp_curve_entity_tag.end(), group_tag);
 			index = its - tmp_curve_entity_tag.begin();  //index of the curve_tag (group_tag) in the vector tmp_curve_entity_tag (to find the corresponding boundary tag)
 
-			int curve_boundary_tag = tmp_curves_boundary_tag[index];
+            if (!tmp_curves_num_physical_tag[index]) {  //exclude/skip the internal interfaces
+                for (int i=0; i<tag_N_elements; ++i) std::getline(mshfile, temp_string);
+                    continue;
+            }
+
+			int curve_boundary_tag = tmp_curves_boundary_tag[index]; // the physical tag of this
 			its = std::find(tmp_boundary_tag.begin(), tmp_boundary_tag.end(), curve_boundary_tag);
 			index = its - tmp_boundary_tag.begin();  //index of the boundary_tag in the vector tmp_boundary_tag which corresponds to the curve_boundary_tag. it is used to extract the boundary name below
 			boundaries[index].N_edges += tag_N_elements; //number of edges that form the boundary

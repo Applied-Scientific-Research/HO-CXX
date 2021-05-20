@@ -10,8 +10,15 @@
 #include "MathHelpers.hpp"
 
 #include <cmath>
-
+ //can use templates so that we dont worry about data types, do it later.
 void deallocate_2d_array_d(double** arry, const size_t nx) {
+	for (size_t k = 0; k < nx; ++k) {
+		delete[] arry[k];
+	}
+	delete[] arry;
+}
+
+void deallocate_2d_array_c2(Cmpnts2** arry, const size_t nx) {
 	for (size_t k = 0; k < nx; ++k) {
 		delete[] arry[k];
 	}
@@ -114,6 +121,14 @@ void HO_2D::release_memory() { //release the memory as destructor
 	delete[] BC_switch_Poisson;
 	delete[] BC_switch_advection;
 	delete[] BC_switch_diffusion;
+
+    deallocate_2d_array_c2(BC_cart_vel,mesh.N_edges_boundary);
+
+    deallocate_3d_array_d(k1, mesh.N_el, Knod); //these are used in the RK time integration
+    deallocate_3d_array_d(k2, mesh.N_el, Knod);
+    deallocate_3d_array_d(k3, mesh.N_el, Knod);
+    deallocate_3d_array_d(k4, mesh.N_el, Knod);
+    deallocate_3d_array_d(vort, mesh.N_el, Knod);
 }
 
 int HO_2D::read_input_file(const std::string filename) {
@@ -578,7 +593,7 @@ char HO_2D::allocate_arrays() {
 
 	RHS_advective = allocate_3d_array_d(N_el, Knod, Knod);
 	RHS_diffusive = allocate_3d_array_d(N_el, Knod, Knod);
-	
+
 	BC_no_slip = new bool[mesh.N_Gboundary]; //Set NoSlip to all walls (as default)
 
 	BC_switch_Poisson = new unsigned char[mesh.N_edges_boundary];
@@ -600,13 +615,12 @@ char HO_2D::allocate_arrays() {
 
 	BC_cart_vel = allocate_2d_array_c2(mesh.N_edges_boundary, Knod);
 
-	// initialize some arrays (should not do this here)
-	for (int i = 0; i < mesh.N_edges_boundary; ++i) {
-		for (int j=0; j<Knod; ++j) {
-			BC_diffusion[i][j] = 0.; //initialize the BC_diffusion, when the BC_switch_diffusion is Neumann but not initialized (to be calculated in the runtime)
-			BC_normal_vel[i][j] =0.; // if it gets inputted from the user, it is in the outward normal direction, so it is converted into local h coordinate. thats why it needs initialization
-		}
-	}
+    k1 = allocate_3d_array_d(N_el, Knod, Knod); //these are used in the RK time integration
+    k2 = allocate_3d_array_d(N_el, Knod, Knod);
+    k3 = allocate_3d_array_d(N_el, Knod, Knod);
+    k4 = allocate_3d_array_d(N_el, Knod, Knod);
+    vort = allocate_3d_array_d(N_el, Knod, Knod);
+
 
 	return 0;
 }
@@ -756,13 +770,13 @@ void HO_2D::setup_IC_BC_SRC() {
 	}
 
 	if (problem_type==1) { //cavity flow: the mass flux is zero and the slip velocity is -1 on the top plane (lid moves to the right, so CCW)
-//        for (int el_b = 0; el_b < mesh.N_edges_boundary; ++el_b) {
-//            for (int j = 0; j < Knod; ++j) {
-//                BC_Poisson[el_b][j] = 0.; //psi=0
-//                BC_normal_vel[el_b][j] = 0.;
-//                BC_parl_vel[el_b][j] = 0.;
-//            }
-//        }
+        	for (int el_b = 0; el_b < mesh.N_edges_boundary; ++el_b) {
+            		for (int j = 0; j < Knod; ++j) {
+                		BC_Poisson[el_b][j] = 0.; //psi=0
+                		BC_normal_vel[el_b][j] = 0.;
+                		BC_parl_vel[el_b][j] = 0.;
+            		}
+        	}
 
 		// std::fill works if all the data is contiguous in memory, which is currently is not
 		std::fill(BC_no_slip, BC_no_slip + mesh.N_Gboundary, true); // if a boundary is no-slip wall or not.
@@ -809,7 +823,7 @@ void HO_2D::setup_IC_BC_SRC() {
                         double y=0.;
                         for (int j=0; j<mesh.Lnod; ++j) y += gps_sps_basis[j][k] * mesh.nodes[ mesh.edges[edge_index].nodes[mesh.tensor2FEM(j)] ].coor.y; //y at k sps on the edge_index boundary edge
 
-                        if (true) { // uniform velocity profile = 1 into the domain
+                        if (false) { // uniform velocity profile = 1 into the domain
                             BC_Poisson[edge_index][k] = y - y_min;
                             BC_diffusion[edge_index][k] =0.; //zero vorticity
                             BC_normal_vel[edge_index][k] = -1.; //In the Fortran code, it is considered as the volume flux but here it is the normal out of domain VELOCITY, to be consistent with the BC_parl_vel
@@ -1167,19 +1181,6 @@ char HO_2D::solve_advection_diffusion() {
 
 	int N_el = mesh.N_el;
 
-	static bool are_allocated = false;
-	static double*** k1, ***k2, ***k3, ***k4, ***vort;
-
-	if (not are_allocated) {
-		k1 = allocate_3d_array_d(N_el, Knod, Knod);
-		k2 = allocate_3d_array_d(N_el, Knod, Knod);
-		k3 = allocate_3d_array_d(N_el, Knod, Knod);
-		k4 = allocate_3d_array_d(N_el, Knod, Knod);
-		vort = allocate_3d_array_d(N_el, Knod, Knod);
-		are_allocated = true;
-	}
-
-
 	if (time_integration_type == 1) { // first order Euler time integration method
 		Euler_time_integrate(vorticity, k1, 0.); //calculate the RHS terms for the advective term and diffusive terms, i.e. -div(vw) and Laplacian(w)
 		for (int el = 0; el < N_el; ++el) for (int j = 0; j < Knod; ++j) for (int i = 0; i < Knod; ++i) vorticity[el][j][i] += k1[el][j][i]; //vorticity at time step n+1
@@ -1520,7 +1521,7 @@ char HO_2D::Euler_time_integrate(double*** vort_in, double*** vort_out, double c
 	*/
 
 	double current_time =  (ti + coeff) * dt;
-	//update_BCs(current_time); // for now the BC are setup once in the setup_IC_BC_SRC. Later for a time-dependent BCs, this needs to be setup.
+	update_BCs(current_time); // for now the BC are setup once in the setup_IC_BC_SRC. This is for a time-dependent BCs
 	solve_Poisson(vort_in); //calculate the streamfunction corresponding to the vort_in, i.e. Laplacian(psi)=-vort_in. solves for stream_function
 	calc_velocity_vector_from_streamfunction(); //calculate the Cartesian velocity field velocity_cart from psi
 	update_diffusion_BC();  //sets the BC for the vorticity
@@ -1663,222 +1664,145 @@ char HO_2D::solve_Poisson(double const* const* const* vort_in) {
 }
 
 void HO_2D::update_BCs(double time) {
-	// updates the BC for the slip and normal velocity for the time "time". typically velocity BC is fixed over time, so this gives more flexibility for velocity BC changes in time
-/*
-	if (problem_type==1) { //cavity flow: the mass flux is zero and the slip velocity is -1 on the top plane (lid moves to the right, so CCW)
-//        std::fill(BC_switch_Poisson, BC_switch_Poisson + mesh.N_edges_boundary, DirichletBC);
-//        std::fill(BC_switch_diffusion, BC_switch_diffusion + mesh.N_edges_boundary, NeumannBC);
-//        std::fill(BC_no_slip, BC_no_slip + mesh.N_Gboundary, true); // if a boundary is no-slip wall or not.
-//        for (int el_b = 0; el_b < mesh.N_edges_boundary; ++el_b) {
-//            for (int j = 0; j < Knod; ++j) {
-//                BC_Poisson[el_b][j] = 0.; //psi=0
-//                BC_normal_vel[el_b][j] = 0.;
-//                BC_parl_vel[el_b][j] = 0.;
-//            }
-//        }
-        std::fill(BC_no_slip, BC_no_slip + mesh.N_Gboundary, true); // if a boundary is no-slip wall or not.
-        std::fill(BC_switch_Poisson, BC_switch_Poisson + mesh.N_edges_boundary, DirichletBC);
-        std::fill(&BC_Poisson[0][0], &BC_Poisson[0][0] + mesh.N_edges_boundary * Knod, 0.); //psi=0
-        std::fill(BC_switch_diffusion, BC_switch_diffusion + mesh.N_edges_boundary, NeumannBC);
-        std::fill(&BC_normal_vel[0][0], &BC_normal_vel[0][0] + mesh.N_edges_boundary * Knod, 0.);
-        std::fill(&BC_parl_vel[0][0], &BC_parl_vel[0][0] + mesh.N_edges_boundary * Knod, 0.);
+	/* updates the BC for the slip and normal velocity for the time "time".
+	typically velocity BC is fixed over time,
+	so this gives more flexibility for velocity BC changes in time */
 
-        for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) {
-            if (mesh.boundaries[G_boundary].name == "top") { // the proper boundary is selected
-                for (int egde_index : mesh.boundaries[G_boundary].edges) { //loop over all the edges forming the top boundary
-                    for (int i = 0; i < Knod; ++i) // loop over all sps on each edge on the proper boundary
-                        BC_parl_vel[egde_index][i] = -1.; //the lid moves CCW on the global boundary
-                }
-            }
-        }
-    }
+	if (problem_type==1) {  // for testing: Assume the lid moves to the right from stall and reaches velocity 1 and then again goes back to zero, with a period of 20
+		for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) {
+			if (mesh.boundaries[G_boundary].name == "top") { // the proper boundary is selected
+				for (int edge_index : mesh.boundaries[G_boundary].edges) { //loop over all the edges forming the top boundary
+					for (int i = 0; i < Knod; ++i) // loop over all sps on each edge on the proper boundary
+						BC_parl_vel[edge_index][i] = -std::fabs(std::sin(M_PI/20.*time)); //the lid moves CW on the global boundary
+				}
+			}
+		}
+	}
 
-    else if (problem_type==2) {  //Backward Facing step
-        //BFS: inlet: specific normal vel ---> calculate psi based on the mass flux
-        double y_min, y_max;
-        for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) { //find the min and max y at the inlet
-            if (mesh.boundaries[G_boundary].name != "inlet") continue;
-            y_min = mesh.nodes[ mesh.edges[ mesh.boundaries[G_boundary].edges[0] ].nodes[0] ].coor.y;
-            y_max = mesh.nodes[ mesh.edges[ mesh.boundaries[G_boundary].edges[0] ].nodes[0] ].coor.y;
-            for (int edge_index: mesh.boundaries[G_boundary].edges) { //loop over all the edges to find min y and max y of the inlet boundary
-                y_min = std::min(mesh.nodes[ mesh.edges[edge_index].nodes[0] ].coor.y, y_min); // compare with the first node of the edge
-                y_min = std::min(mesh.nodes[ mesh.edges[edge_index].nodes[1] ].coor.y, y_min); // compare with the last  node of the edge
-                y_max = std::max(mesh.nodes[ mesh.edges[edge_index].nodes[0] ].coor.y, y_max); // compare with the first node of the edge
-                y_max = std::max(mesh.nodes[ mesh.edges[edge_index].nodes[1] ].coor.y, y_max); // compare with the last  node of the edge
-            }
-        }
+	else if (problem_type==2) {  //Backward Facing step: the inlet velocity goes from 0 to 2 and reverts back
+		//BFS: inlet: specific normal vel ---> calculate psi based on the mass flux
+		double y_min, y_max;
+		for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) { //find the min and max y at the inlet
+			if (mesh.boundaries[G_boundary].name != "inlet") continue;
+			y_min = mesh.nodes[ mesh.edges[ mesh.boundaries[G_boundary].edges[0] ].nodes[0] ].coor.y;
+			y_max = mesh.nodes[ mesh.edges[ mesh.boundaries[G_boundary].edges[0] ].nodes[0] ].coor.y;
+			for (int edge_index: mesh.boundaries[G_boundary].edges) { //loop over all the edges to find min y and max y of the inlet boundary
+				y_min = std::min(mesh.nodes[ mesh.edges[edge_index].nodes[0] ].coor.y, y_min); // compare with the first node of the edge
+				y_min = std::min(mesh.nodes[ mesh.edges[edge_index].nodes[1] ].coor.y, y_min); // compare with the last  node of the edge
+				y_max = std::max(mesh.nodes[ mesh.edges[edge_index].nodes[0] ].coor.y, y_max); // compare with the first node of the edge
+				y_max = std::max(mesh.nodes[ mesh.edges[edge_index].nodes[1] ].coor.y, y_max); // compare with the last  node of the edge
+			}
+		}
 
-        for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) {
-            if (mesh.boundaries[G_boundary].name == "inlet") { //vorticity, psi and normal velocity are defined
-                BC_no_slip[G_boundary] = false;
-                for (int edge_index : mesh.boundaries[G_boundary].edges) {
-                    BC_switch_diffusion[edge_index] = DirichletBC;
-                    BC_switch_Poisson[edge_index] = DirichletBC;
+		double time_coeff = 2.*std::fabs(std::sin(M_PI/40.*time));
 
-                    for (int k=0; k<Knod; ++k) {
-                        double y=0.;
-                        for (int j=0; j<mesh.Lnod; ++j) y += gps_sps_basis[j][k] * mesh.nodes[ mesh.edges[edge_index].nodes[mesh.tensor2FEM(j)] ].coor.y; //y at k sps on the edge_index boundary edge
+		for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) {
+			if (mesh.boundaries[G_boundary].name == "inlet") { //vorticity, psi and normal velocity are defined
+				for (int edge_index : mesh.boundaries[G_boundary].edges) {
+					for (int k=0; k<Knod; ++k) {
+						double y=0.;
+						for (int j=0; j<mesh.Lnod; ++j) y += gps_sps_basis[j][k] * mesh.nodes[ mesh.edges[edge_index].nodes[mesh.tensor2FEM(j)] ].coor.y; //y at k sps on the edge_index boundary edge
 
-                        if (false) { // uniform velocity profile = 1 into the domain
-                            BC_Poisson[edge_index][k] = y - y_min;
-                            BC_diffusion[edge_index][k] =0.; //zero vorticity
-                            BC_normal_vel[edge_index][k] = -1.; //In the Fortran code, it is considered as the volume flux but here it is the normal out of domain VELOCITY, to be consistent with the BC_parl_vel
-                        }
-                        else { //parabolic inlet profile
-                            BC_Poisson[edge_index][k] = pow(y - y_min,2.) * (3.*y_max-y_min-2.*y)/ pow(y_max-y_min,2.); //psi BC
-                            BC_diffusion[edge_index][k] = 6.*(2.*y-y_min-y_max)/ pow(y_max-y_min,2.);  //vorticity BC
-                            BC_normal_vel[edge_index][k] = 6.*(y-y_min)*(y-y_max)/pow(y_max-y_min,2.);
-                        }
-                    }
-                }
-            }  //case inlet
+						if (false) { // uniform velocity profile into the domain
+							BC_Poisson[edge_index][k] = time_coeff*(y - y_min);
+							BC_diffusion[edge_index][k] =0.; //zero vorticity
+							BC_normal_vel[edge_index][k] = -time_coeff;
+						}
+						else { //parabolic inlet profile
+							BC_Poisson[edge_index][k] = time_coeff * pow(y - y_min,2.) * (3.*y_max-y_min-2.*y)/ pow(y_max-y_min,2.); //psi BC
+							BC_diffusion[edge_index][k] = time_coeff * 6.*(2.*y-y_min-y_max)/ pow(y_max-y_min,2.);  //vorticity BC
+							BC_normal_vel[edge_index][k] = time_coeff * 6.*(y-y_min)*(y-y_max)/pow(y_max-y_min,2.);
+						}
+					}
+				}
+			}  //case inlet
 
-            else if (mesh.boundaries[G_boundary].name == "outlet") {  //Neumann for vorticity, Neumann for psi, and slip velocity are known
-                // set slip BC to not allow diffusion
-                BC_no_slip[G_boundary] = false;
-                for (int edge_index : mesh.boundaries[G_boundary].edges) {
-                    BC_switch_diffusion[edge_index] = NeumannBC;
-                    BC_switch_Poisson[edge_index] = NeumannBC;
-                    for (int k=0; k<Knod; ++k) {
-                        BC_diffusion[edge_index][k] = 0.;  //zero domega/dn
-                        BC_Poisson[edge_index][k] = 0.;
-                    }
-                }
-            }
 
-            else if (mesh.boundaries[G_boundary].name == "bottom") {  //psi is given on the bottom wall. domega/dn is derived in the code while running, and both the tangential and normal velocities are known
-                BC_no_slip[G_boundary] = true;
-                for (int edge_index : mesh.boundaries[G_boundary].edges) {
-                    BC_switch_Poisson[edge_index] = DirichletBC;
-                    BC_switch_diffusion[edge_index] = NeumannBC; //BC_diffusion is calculated in the code during runtime when BC_no_slip is true
-                    for (int k=0; k<Knod; ++k) {
-                        BC_Poisson[edge_index][k] = 0.;
-                        BC_normal_vel[edge_index][k] = 0.;
-                        BC_parl_vel[edge_index][k] = 0.; // it is used to calculate the normal derivative of vorticity
-                    }
-                }
-            }
+			else if (mesh.boundaries[G_boundary].name == "top") {
+				for (int edge_index : mesh.boundaries[G_boundary].edges) {
+					for (int k=0; k<Knod; ++k) {
+						BC_Poisson[edge_index][k] = time_coeff * (y_max - y_min);
+					}
+				}
+			}
+		}  //for int Gboundary
+	}  //else if problem_type ==2
 
-            else if (mesh.boundaries[G_boundary].name == "top") {
-                BC_no_slip[G_boundary] = true;
-                for (int edge_index : mesh.boundaries[G_boundary].edges) {
-                    BC_switch_Poisson[edge_index] = DirichletBC;
-                    BC_switch_diffusion[edge_index] = NeumannBC; //BC_diffusion is calculated in the code during runtime
-                    for (int k=0; k<Knod; ++k) {
-                        BC_Poisson[edge_index][k] = y_max - y_min; //the average velocity is 1, so the volume flux in equal to the area of the inlet = psi(top) - psi(bottom)
-                        BC_normal_vel[edge_index][k] = 0.;
-                        BC_parl_vel[edge_index][k] = 0.; // it is used to calculate the normal derivative of vorticity
-                    }
-                }
-            }
-        }  //for int Gboundary
-    }  //else if problem_type ==2
+	else if (problem_type==3) { //flow over an object
+		double y_min, y_max;
+		for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) { //find the min and max y at the inlet
+			if (mesh.boundaries[G_boundary].name != "inlet") continue;
+			y_min = mesh.nodes[ mesh.edges[ mesh.boundaries[G_boundary].edges[0] ].nodes[0] ].coor.y;
+			y_max = mesh.nodes[ mesh.edges[ mesh.boundaries[G_boundary].edges[0] ].nodes[0] ].coor.y;
+			for (int edge_index: mesh.boundaries[G_boundary].edges) { //loop over all the edges to find min y and max y of the inlet boundary
+				y_min = std::min(mesh.nodes[ mesh.edges[edge_index].nodes[0] ].coor.y, y_min); // compare with the first node of the edge
+				y_min = std::min(mesh.nodes[ mesh.edges[edge_index].nodes[1] ].coor.y, y_min); // compare with the last  node of the edge
+				y_max = std::max(mesh.nodes[ mesh.edges[edge_index].nodes[0] ].coor.y, y_max); // compare with the first node of the edge
+				y_max = std::max(mesh.nodes[ mesh.edges[edge_index].nodes[1] ].coor.y, y_max); // compare with the last  node of the edge
+			}
+		}
 
-    else if (problem_type==3) { //flow over an object
-        double y_min, y_max;
-        for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) { //find the min and max y at the inlet
-            if (mesh.boundaries[G_boundary].name != "inlet") continue;
-            y_min = mesh.nodes[ mesh.edges[ mesh.boundaries[G_boundary].edges[0] ].nodes[0] ].coor.y;
-            y_max = mesh.nodes[ mesh.edges[ mesh.boundaries[G_boundary].edges[0] ].nodes[0] ].coor.y;
-            for (int edge_index: mesh.boundaries[G_boundary].edges) { //loop over all the edges to find min y and max y of the inlet boundary
-                y_min = std::min(mesh.nodes[ mesh.edges[edge_index].nodes[0] ].coor.y, y_min); // compare with the first node of the edge
-                y_min = std::min(mesh.nodes[ mesh.edges[edge_index].nodes[1] ].coor.y, y_min); // compare with the last  node of the edge
-                y_max = std::max(mesh.nodes[ mesh.edges[edge_index].nodes[0] ].coor.y, y_max); // compare with the first node of the edge
-                y_max = std::max(mesh.nodes[ mesh.edges[edge_index].nodes[1] ].coor.y, y_max); // compare with the last  node of the edge
-            }
-        }
+		double time_coeff = 2.*std::fabs(std::sin(M_PI/40.*time));
 
-        for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) {
-            if (mesh.boundaries[G_boundary].name == "inlet") { //vorticity, psi and normal velocity are defined
-                BC_no_slip[G_boundary] = false;
-                for (int edge_index : mesh.boundaries[G_boundary].edges) {
-                    BC_switch_diffusion[edge_index] = DirichletBC;
-                    BC_switch_Poisson[edge_index] = DirichletBC;
-                    for (int k=0; k<Knod; ++k) {
-                        double y=0.;
-                        for (int j=0; j<mesh.Lnod; ++j) y += gps_sps_basis[j][k] * mesh.nodes[ mesh.edges[edge_index].nodes[mesh.tensor2FEM(j)] ].coor.y; //y at k sps on the edge_index boundary edge
-                        BC_Poisson[edge_index][k] = y - y_min; // uniform velocity profile = 1 into the domain
-                        BC_diffusion[edge_index][k] =0.; //zero vorticity
-                        BC_normal_vel[edge_index][k] = -1.; //In the Fortran code, it is considered as the volume flux but here it is the normal out of domain VELOCITY, to be consistent with the BC_parl_vel
-                    }
-                }
-            }  //case inlet
+		for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) {
+			if (mesh.boundaries[G_boundary].name == "inlet") { //vorticity, psi and normal velocity are defined
+				for (int edge_index : mesh.boundaries[G_boundary].edges) {
+					for (int k=0; k<Knod; ++k) {
+						double y=0.;
+						for (int j=0; j<mesh.Lnod; ++j) y += gps_sps_basis[j][k] * mesh.nodes[ mesh.edges[edge_index].nodes[mesh.tensor2FEM(j)] ].coor.y; //y at k sps on the edge_index boundary edge
+						BC_Poisson[edge_index][k] = time_coeff * (y - y_min); // uniform velocity profile = 1 into the domain
+						BC_normal_vel[edge_index][k] = -time_coeff; //In the Fortran code, it is considered as the volume flux but here it is the normal out of domain VELOCITY, to be consistent with the BC_parl_vel
+					}
+				}
+			}  //case inlet
 
-            else if (mesh.boundaries[G_boundary].name == "outlet") {  //Neumann for vorticity, Neumann for psi, and slip velocity are known
-                // set slip BC to not allow diffusion
-                BC_no_slip[G_boundary] = false;
-                for (int edge_index : mesh.boundaries[G_boundary].edges) {
-                    BC_switch_diffusion[edge_index] = NeumannBC;
-                    BC_switch_Poisson[edge_index] = NeumannBC;
-                    for (int k=0; k<Knod; ++k) {
-                        BC_diffusion[edge_index][k] = 0.;  //zero domega/dn
-                        BC_Poisson[edge_index][k] = 0.;
-                    }
-                }
-            }
+			else if (mesh.boundaries[G_boundary].name == "top") {
+				for (int edge_index : mesh.boundaries[G_boundary].edges) {
+					for (int k=0; k<Knod; ++k) {
+						BC_Poisson[edge_index][k] = time_coeff * (y_max - y_min); //the average velocity is 1, so the volume flux in equal to the area of the inlet = psi(top) - psi(bottom)
+						BC_parl_vel[edge_index][k] = -time_coeff; // goes to right, so CW. it is used to calculate the normal derivative of vorticity
+					}
+				}
+			}
 
-            else if (mesh.boundaries[G_boundary].name == "top") {
-                BC_no_slip[G_boundary] = true;
-                for (int edge_index : mesh.boundaries[G_boundary].edges) {
-                    BC_switch_Poisson[edge_index] = DirichletBC;
-                    BC_switch_diffusion[edge_index] = NeumannBC; //BC_diffusion is calculated in the code during runtime
-                    for (int k=0; k<Knod; ++k) {
-                        BC_Poisson[edge_index][k] = y_max - y_min; //the average velocity is 1, so the volume flux in equal to the area of the inlet = psi(top) - psi(bottom)
-                        BC_normal_vel[edge_index][k] = 0.;
-                        BC_parl_vel[edge_index][k] = -1.; // it is used to calculate the normal derivative of vorticity
-                    }
-                }
-            }
+			else if (mesh.boundaries[G_boundary].name == "bottom") {
+				for (int edge_index : mesh.boundaries[G_boundary].edges) {
+					for (int k=0; k<Knod; ++k) {
+						BC_parl_vel[edge_index][k] = time_coeff; // Goes to the right, so CCW, so positive sign
+					}
+				}
+			}
 
-            else if (mesh.boundaries[G_boundary].name == "bottom") {
-                BC_no_slip[G_boundary] = true;
-                for (int edge_index : mesh.boundaries[G_boundary].edges) {
-                    BC_switch_Poisson[edge_index] = DirichletBC;
-                    BC_switch_diffusion[edge_index] = NeumannBC; //BC_diffusion is calculated in the code during runtime
-                    for (int k=0; k<Knod; ++k) {
-                        BC_Poisson[edge_index][k] = 0; //the average velocity is 1, so the volume flux in equal to the area of the inlet = psi(top) - psi(bottom)
-                        BC_normal_vel[edge_index][k] = 0.;
-                        BC_parl_vel[edge_index][k] = 1.; // it is used to calculate the normal derivative of vorticity
-                    }
-                }
-            }
+			else if (mesh.boundaries[G_boundary].name == "object") {
+				for (int edge_index : mesh.boundaries[G_boundary].edges) {
+					for (int k=0; k<Knod; ++k) {
+						BC_Poisson[edge_index][k] = time_coeff * 0.5 * (y_max-y_min); //psi=0
+					}
+				}
+			}
+		} //for Gboundary
+	} //if problem_type==3
 
-            else if (mesh.boundaries[G_boundary].name == "object") {
-                BC_no_slip[G_boundary] = true; // if a boundary is no-slip wall or not.
-                for (int edge_index : mesh.boundaries[G_boundary].edges) {
-                BC_switch_Poisson[edge_index] = DirichletBC;
-                BC_switch_diffusion[edge_index] = NeumannBC;  //calculate domega/dn during runtime
-                    for (int k=0; k<Knod; ++k) {
-                        BC_Poisson[edge_index][k] = 0.5*(y_max-y_min); //psi=0
-                        BC_normal_vel[edge_index][k] = 0.;
-                        BC_parl_vel[edge_index][k] = 0.;
-                    }
-                }
-            }
-        } //for Gboundary
-    } //if problem_type==3
+	else {  //for any arbitrary problem, specify the BC's of the problem here: modify the below terms as the problem is designed
+		std::fill(BC_no_slip, BC_no_slip + mesh.N_Gboundary, true);
+		std::fill(BC_switch_Poisson, BC_switch_Poisson + mesh.N_edges_boundary, DirichletBC);
+		std::fill(&BC_Poisson[0][0], &BC_Poisson[0][0] + mesh.N_edges_boundary * Knod, 0.);
+		std::fill(BC_switch_diffusion, BC_switch_diffusion + mesh.N_edges_boundary, NeumannBC);
+		std::fill(&BC_normal_vel[0][0], &BC_normal_vel[0][0] + mesh.N_edges_boundary * Knod, 0.);
+		std::fill(&BC_parl_vel[0][0], &BC_parl_vel[0][0] + mesh.N_edges_boundary * Knod, 0.);
+	}
 
-    else {  //for any arbitrary problem, specify the BC's of the problem here: modify the below terms as the problem is designed
-        std::fill(BC_no_slip, BC_no_slip + mesh.N_Gboundary, true); // if a boundary is no-slip wall or not.
-        std::fill(BC_switch_Poisson, BC_switch_Poisson + mesh.N_edges_boundary, DirichletBC);
-        std::fill(&BC_Poisson[0][0], &BC_Poisson[0][0] + mesh.N_edges_boundary * Knod, 0.); //psi=0
-        std::fill(BC_switch_diffusion, BC_switch_diffusion + mesh.N_edges_boundary, NeumannBC);
-        std::fill(&BC_normal_vel[0][0], &BC_normal_vel[0][0] + mesh.N_edges_boundary * Knod, 0.);
-        std::fill(&BC_parl_vel[0][0], &BC_parl_vel[0][0] + mesh.N_edges_boundary * Knod, 0.);
-    }
-
-    // Now convert the outward normal directions into the local h direction
-    for (int el_b=0; el_b<mesh.N_edges_boundary; ++el_b) {
-        int element_index = mesh.boundary_elem_ID[el_b].element_index; //index of the element that has a face on the global boundary
+	// Now convert the outward normal directions into the local h direction
+	for (int el_b=0; el_b<mesh.N_edges_boundary; ++el_b) {
+		int element_index = mesh.boundary_elem_ID[el_b].element_index; //index of the element that has a face on the global boundary
 		int elem_side = mesh.boundary_elem_ID[el_b].side; //side of the element that has the edge on the global boundary
 		int ijp = f2i[elem_side];
-        double sign = 2.*(ijp%2) - 1.;
-        for (int k=0; k<Knod; ++k) {
-            BC_normal_vel[el_b][k] *= sign;
-            if (BC_switch_diffusion[el_b]==NeumannBC) BC_diffusion[el_b][k] *= sign;
-        }
-    }
-*/
+		double sign = 2.*(ijp%2) - 1.;
+		for (int k=0; k<Knod; ++k) {
+			BC_normal_vel[el_b][k] *= sign;
+			if (BC_switch_diffusion[el_b]==NeumannBC) BC_diffusion[el_b][k] *= sign;
+		}
+	}
 
 }
 
@@ -3023,6 +2947,7 @@ void HO_2D::calc_velocity_vector_from_streamfunction() {
 								double sign = 1. - 2. * (ijp / 2);// gives +1 for west and east faces, -1 for south and north faces
 								for (int dummy = 0; dummy < Knod; ++dummy)
 									BC_normal_vel[el_B][boundary_flux_point_index] += sign*comm_psi[el][ijp][dummy] * sps_sps_grad_basis[dummy][k]; //the normal component of velocity. The normal is in the local h direction (g1, g2) of element
+                                BC_normal_vel[el_B][boundary_flux_point_index] /= face_Anorm[el][ijp][k]; //added on 14 May, to fix the bug
 							}
                         }
 					}

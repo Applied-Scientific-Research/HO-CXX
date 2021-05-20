@@ -1,9 +1,8 @@
 /*
  * main.cpp - Driver code for HO-CXX, a high-order solver in vorticity variables
  *
- * (c)2018-21 Applied Scientific Research, Inc.
+ * (c)2018-20 Applied Scientific Research, Inc.
  *            Mohammad Haji <mhajit@gmail.com>
- *            Mark J Stock <markjstock@gmail.com>
  *            Based on work by
  *            Adrin Gharakhani <adrin@applied-scientific.com>
  *            Christoper Stone <cpstone@gmail.com>
@@ -12,6 +11,7 @@
 #include "HO_2D.hpp"
 
 #include <iostream>
+
 
 int main(int argc, char const *argv[])
 {
@@ -33,7 +33,6 @@ int main(int argc, char const *argv[])
     //true means gmsh file made with opencascade kernel, zero means the built-in format of GMSH
     ho_2d.read_input_file(input_file_name);
 
-    //if problem type is 10 then read from file, otherwise form a specific predefined mesh based on grid_type
     int success_mesh = ho_2d.setup_mesh();
     char success_allocate = ho_2d.allocate_arrays();
 
@@ -52,8 +51,4 @@ int main(int argc, char const *argv[])
 
     //solves the vorticity and stream functions equations for all the times
     ho_2d.solve_vorticity_streamfunction();
-
-    // dealloc and quit
-    ho_2d.release_memory();
 }
-
