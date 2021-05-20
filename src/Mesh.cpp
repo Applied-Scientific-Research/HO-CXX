@@ -10,16 +10,16 @@
 #include <cmath>
 
 
-unsigned int Mesh::tensor2FEM(unsigned int i) {
+int Mesh::tensor2FEM(int i) {
 	// converts the tensor index to the FEM node ordering for 1D case
 	if (!i) return 0;
 	else if (i == Lnod_in) return 1;
 	else return (i + 1);
 }
 
-unsigned int Mesh::tensor2FEM(unsigned int i, unsigned int j) {
+int Mesh::tensor2FEM(int i, int j) {
 	// converts the tensor index to the FEM node ordering for 2D case
-	unsigned  t2f;
+	int t2f = -1;
 
 	if (Lnod_in == 1) t2f = i+3*j-2*i*j;   //linear element
 
@@ -86,10 +86,8 @@ char Mesh::read_msh_file() {
 	int elements_min_index, elements_max_index, tag_N_elements, elements_total_entities, element_type;
 	int node_index;
 	int entities_N_points, entities_N_curves, entities_N_faces;
-	bool found = false;
-	double double_field, coorX, coorY, coorZ;
+	double double_field;
 	std::string temp_string;
-	bool check_start;
 	edge _edge;
 	element2d _face;
 	std::vector<Cmpnts2> unorganized_nodes_coor; //store all the raw read coordinartes of all nodes
@@ -148,18 +146,18 @@ char Mesh::read_msh_file() {
 	unorganized_node_mapping.resize(tmp);
 
 	// read in all the coordinates
-	for (unsigned int node_entity = 0; node_entity < nodes_total_entities; ++node_entity) {
+	for (int node_entity = 0; node_entity < nodes_total_entities; ++node_entity) {
 		mshfile >> entity_dim >> group_tag; //entity_dim=0(corners), 1(edge nodes) , 2(surface nodes); group_tag: tag of group for each entity
 		mshfile >> tmp >> tag_N_nodes; //tmp=0,1 means No parametric or with parametric; NNodes: number of nodes in this tag
 		std::getline(mshfile, temp_string);
 		std::fill(unorganized_node_type.begin() + unorganized_node_index, unorganized_node_type.begin() + unorganized_node_index + tag_N_nodes, entity_dim);
-		for (unsigned int node = 0; node < tag_N_nodes; ++node) { //store the indices
+		for (int node = 0; node < tag_N_nodes; ++node) { //store the indices
 		  mshfile >> index; std::getline(mshfile, temp_string);
 			index -= nodes_min_index; //shift all indices s.t. the indices start from zero
 			unorganized_node_mapping[index] = unorganized_node_index++;	//shifting all indices, such that min_index becomes zero index
 		}
 		unorganized_node_index -= tag_N_nodes; //restore to read the coordinates
-		for (unsigned int node = 0; node < tag_N_nodes; ++node) { //now store the coordinates
+		for (int node = 0; node < tag_N_nodes; ++node) { //now store the coordinates
 		  double a,b,c;
 		  mshfile >> a >>b >>c; std::getline(mshfile, temp_string); // The x,y,z coordinates of the nodes
 		  unorganized_nodes_coor[unorganized_node_index++].set_coor(a,b);
@@ -175,12 +173,12 @@ char Mesh::read_msh_file() {
 	mshfile >> elements_total_entities >> N_elements >> elements_min_index >> elements_max_index; //N_element= total number of nodes, edges and 2d elements, ignore the 0d elements
 	std::getline(mshfile, temp_string);
 	assert(elements_total_entities == entities_N_points + entities_N_curves + entities_N_faces);
-	for (unsigned int element_entity = 0; element_entity < elements_total_entities; ++element_entity) {
+	for (int element_entity = 0; element_entity < elements_total_entities; ++element_entity) {
 		mshfile >> entity_dim >> group_tag; ////entity_dim=0(0d), 1(1d) , 2(2d) features; group_tag: tag of entity
 		mshfile >> element_type >> tag_N_elements; //1,8,26,27,28: 2-node, 3-node, 4-node, 5-node and 6-node lines; 3,10,16,36,37: 4-node, 9-node, 8-node, 16-node, 25-node 2D elements
 		std::getline(mshfile, temp_string);
 		if (entity_dim == 0 /*element_type==15*/)  //single-node point
-		  for (unsigned int element = 0; element < tag_N_elements; ++element) { //skip the nodes definitions
+		  for (int element = 0; element < tag_N_elements; ++element) { //skip the nodes definitions
 		    mshfile >> tmp1 >> tmp2;
 		    std::getline(mshfile, temp_string);
 		  }
@@ -233,7 +231,7 @@ char Mesh::read_msh_file() {
 			}
 
 			_face.element_type = element_type; //type of face based on the value written in the msh file
-			for (unsigned int i = 0; i < tag_N_elements; ++i) {
+			for (int i = 0; i < tag_N_elements; ++i) {
 				mshfile >> tmp;
 				_face.nodes.clear();
 				for (unsigned int j = 0; j < _face.N_nodes; ++j) {
@@ -253,7 +251,7 @@ char Mesh::read_msh_file() {
 	// ******** Reorient in the CCW direction if the mesh file is in OCC format ************
 	std::vector<unsigned int> tmp_node_ids(Lnod*Lnod);
     if (OCC_format) {
-        for (int el=0; el<elements.size(); ++el) {
+        for (int el=0; el<(int)elements.size(); ++el) {
             tmp_node_ids = elements[el].nodes;
             for (int j_old=0; j_old<Lnod; ++j_old)
                 for (int i_old=0; i_old<Lnod; ++i_old) {
@@ -317,7 +315,7 @@ void Mesh::process_mesh() {
 	*/
 	N_nodes = nodes.size(); //total number of nodes in the domain
 	N_edges_boundary = 0;
-	for (int i = 0; i < boundaries.size(); ++i) {
+	for (int i = 0; i < (int)boundaries.size(); ++i) {
 		std::cout << "adding " << boundaries[i].N_edges << " edges from boundary " << i << std::endl;
 		N_edges_boundary += boundaries[i].N_edges; //total number of edges on global boundaries
 	}
@@ -328,9 +326,6 @@ void Mesh::process_mesh() {
 
 	// *************** detect the total interior edges in the domain and add them to the edges vector (which already has boundary edges) and add them to the elements vector *********************
 	edge _edge;
-	unsigned int N_node; //number of nodes on the edges of an element
-	unsigned int edge_type;
-	unsigned int N_edge_nodes;
 	bool found;
 	unsigned int edge_index = edges.size();
 	for (int el = 0; el < N_el; ++el) {  //loop over all 2D elements
@@ -338,7 +333,7 @@ void Mesh::process_mesh() {
 		//number of nodes for this edge type on the edges of the element el
 		const unsigned int N_edge_nodes = element_edge_node_number.at(element_type);
 		//type of edge on the boundary of the element el
-		edge_type = edge_type_node_number_inv.at(N_edge_nodes);
+		const unsigned int edge_type = edge_type_node_number_inv.at(N_edge_nodes);
 
 		_edge.N_nodes = N_edge_nodes;
 		_edge.edge_type = edge_type;
@@ -351,7 +346,7 @@ void Mesh::process_mesh() {
 
 			//search edge _edge in the edges vector to check if it doesnt already exist
 			found = false; //if the _edge exists in the edges list already
-			for (int edg = 0; edg < edges.size(); ++edg) {
+			for (int edg = 0; edg < (int)edges.size(); ++edg) {
 				if ((edges[edg].nodes == _edge.nodes) ||
 					(edges[edg].nodes[1] == _edge.nodes[0] && edges[edg].nodes[0] == _edge.nodes[1])) { //this edge already exists in the list
 					elements[el].edges[s] = edg; // the index of the edge that exists
@@ -405,7 +400,7 @@ void Mesh::process_mesh() {
 		}
 	}
 	/*
-	//*********************************************************************************************************************
+	// *********************************************************************************************************************
 	// ************* rotate the edges of elements so that north of this element is neighboring the south of neighboring element, ... ***************
 	//std::vector<bool> fixed_elements(N_el, false); //the elements that are fixed by rotating the edges are turned into true
 	//fixed_elements[0] = true; //I assume element 0 is fixed, so orient the rest based on element 0
@@ -436,8 +431,8 @@ void Mesh::process_mesh() {
 				elem_neighbor[el].neighbor_common_side[s] = orig_elem_neighbor.neighbor_common_side[(s + delta_orient) % 4];
 			}
 		}
-		//*******************************************************************************************
-		//************** add the 4 neighbors elements if they are not on boundary ****************
+		// *******************************************************************************************
+		// ************** add the 4 neighbors elements if they are not on boundary ****************
 		for (int s = south; s <= west; ++s)
 			if (!elem_neighbor[el].is_on_boundary[s]) {
 				int eln = elem_neighbor[el].neighbor[s];
@@ -692,7 +687,7 @@ char Mesh::setup_mesh_problem(unsigned int prob_type) {
 	int nb = 0;  //counter for the edges locaed on the boundaries of the domain
 	nc = 0;  //cell counter
 	nd = 0; //node index
-	int bool_boundary = false, top_B;
+	int top_B = -1;
 	if (Lnod_in > 3) {
 		std::cout << "ERROR: Up to bicubic elements supported! Set Lnod = 3, 2 or 1" << std::endl;
 		exit(7);
@@ -711,7 +706,6 @@ char Mesh::setup_mesh_problem(unsigned int prob_type) {
 	}
 	for (int j = 0; j < N_el_j; ++j)
 		for (int i = 0; i < N_el_i; ++i) {
-			bool_boundary = false;
 			if (!j) { //the cells attached to the south boundary of the domain
 				boundaries[0].edges.push_back(nb);
 				boundaries[0].N_edges++;

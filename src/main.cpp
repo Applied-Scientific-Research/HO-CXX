@@ -34,8 +34,16 @@ int main(int argc, char const *argv[])
     ho_2d.read_input_file(input_file_name);
 
     //if problem type is 10 then read from file, otherwise form a specific predefined mesh based on grid_type
-    int success_mesh = ho_2d.setup_mesh();
-    char success_allocate = ho_2d.allocate_arrays();
+    auto success_mesh = ho_2d.setup_mesh();
+	if (success_mesh != 1) {
+		std::cout << std::endl << "Mesh file (" << input_file_name << ") not processed correctly!" << std::endl;
+        return success_mesh;
+    }
+    auto success_allocate = ho_2d.allocate_arrays();
+	if (success_allocate != 1) {
+		std::cout << std::endl << "Arrays not allocated correctly!" << std::endl;
+        return success_allocate;
+    }
 
     //set the local coordinates of the solution points, geometry points
     ho_2d.setup_sps_gps();

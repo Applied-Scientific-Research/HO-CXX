@@ -308,7 +308,7 @@ void HO_2D::read_process_sample_points() {
 		if (!found_element) { //no element is found to contain the sampling point sp. so loop over all nodes of all elements and take element with the closest node distance to sampling point sp
 			tmp_coor.subtract(sample_points_coor[sp], mesh.nodes[mesh.elements[0].nodes[0]].coor);
 			double distance = tmp_coor.norm2()+1.;  //initiated distance as distance between sp and node 0 of the element 0 +1. +1 is to make sure it will change in the search process below
-			int containing_element;
+			int containing_element = -1;
 			for (int el = 0; el < N_el; ++el) {
 				for (int i = 0; i < mesh.Lnod * mesh.Lnod; ++i) {
 					tmp_coor.subtract(sample_points_coor[sp], mesh.nodes[mesh.elements[el].nodes[i]].coor);
@@ -813,7 +813,7 @@ void HO_2D::setup_IC_BC_SRC() {
 
     else if (problem_type==2) {  //Backward Facing step
         //BFS: inlet: specific normal vel ---> calculate psi based on the mass flux
-        double y_min, y_max;
+        double y_min = 0, y_max = 0;
         for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) { //find the min and max y at the inlet
             if (mesh.boundaries[G_boundary].name != "inlet") continue;
             y_min = mesh.nodes[ mesh.edges[ mesh.boundaries[G_boundary].edges[0] ].nodes[0] ].coor.y;
@@ -893,7 +893,7 @@ void HO_2D::setup_IC_BC_SRC() {
     }  //else if problem_type ==2
 
     else if (problem_type==3) { //flow over an object
-        double y_min, y_max;
+        double y_min = 0, y_max = 0;
         for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) { //find the min and max y at the inlet
             if (mesh.boundaries[G_boundary].name != "inlet") continue;
             y_min = mesh.nodes[ mesh.edges[ mesh.boundaries[G_boundary].edges[0] ].nodes[0] ].coor.y;

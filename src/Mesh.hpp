@@ -158,8 +158,8 @@ public:
 
 	void process_mesh(); //processes the mesh that is read from file, finding the elements neighbors, ...
 
-	unsigned int tensor2FEM(unsigned int i); // converts the tensor index to the FEM node ordering for 1D case
-	unsigned int tensor2FEM(unsigned int i, unsigned int j); // converts the tensor index to the FEM node ordering for 2D case
+	int tensor2FEM(int i); // converts the tensor index to the FEM node ordering for 1D case
+	int tensor2FEM(int i, int j); // converts the tensor index to the FEM node ordering for 2D case
 
 	friend class HO_2D;
 
