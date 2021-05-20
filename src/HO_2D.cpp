@@ -3788,7 +3788,8 @@ void HO_2D::getsolnareas_d(const int32_t _veclen, double* _areas) {
 		size_t idx = i*Knod*Knod;
 		for (int j=0; j<Knod; ++j) for (int k=0; k<Knod; ++k) {
 			// areas(ptnum) = wgt(i) * wgt(j) * Vol_Jac(i,j,el)
-			_areas[idx] = vol_jac[i][j][k];
+			//_areas[idx] = vol_jac[i][j][k];
+			_areas[idx] = sps_weight[j] * sps_weight[k] * vol_jac[i][j][k];
 			idx++;
 		}
 	}
@@ -3805,60 +3806,140 @@ int32_t HO_2D::getopenptlen() {
 }
 
 void HO_2D::getopenpts_d(const int32_t _nopen, double* _xyopen) {
-	// NOT DONE
-	for (auto &bdry : mesh.boundaries) {
-		if (bdry.name == "open") {
-			double* xloc = allocate_1d_array_d(mesh.Lnod);
-			double* yloc = allocate_1d_array_d(mesh.Lnod);
 
-			// now get the solution points on this boundary
-			for (unsigned int i=0; i<bdry.N_edges; ++i) {
+	for (auto &bdry : mesh.boundaries) if (bdry.name == "open") {
+		double* xloc = allocate_1d_array_d(mesh.Lnod);
+		double* yloc = allocate_1d_array_d(mesh.Lnod);
 
-				for (int j=0; j<mesh.Lnod; ++j) {
-					// xloc1D(jx) = xcoord(boundarynodeID(t2f(jx),i))
-					const size_t nid = mesh.edges[bdry.edges[i]].nodes[mesh.tensor2FEM(j)];	// ??????
-					xloc[j] = mesh.nodes[nid].coor.x;
-					yloc[j] = mesh.nodes[nid].coor.y;
-				}
+		// now get the solution points on this boundary
+		for (unsigned int i=0; i<bdry.N_edges; ++i) {
 
-				size_t idx = i*Knod;
-				for (int j=0; j<Knod; ++j) {
-					double x = 0.0;
-					double y = 0.0;
-
-					for (int l=0; l<mesh.Lnod; ++l) {
-						// x = x + GeomNodesLgrangeBasis(jx,kx) * xloc1D(jx)
-						x += gps_sps_basis[l][j] * xloc[l];
-						y += gps_sps_basis[l][j] * yloc[l];
-					}
-
-					_xyopen[idx+0] = x;
-					_xyopen[idx+1] = y;
-					idx += 2;
-				}
+			for (int j=0; j<mesh.Lnod; ++j) {
+				// xloc1D(jx) = xcoord(boundarynodeID(t2f(jx),i))
+				const size_t nid = mesh.edges[bdry.edges[i]].nodes[mesh.tensor2FEM(j)];	// ??????
+				xloc[j] = mesh.nodes[nid].coor.x;
+				yloc[j] = mesh.nodes[nid].coor.y;
 			}
-			deallocate_1d_array_d(xloc);
-			deallocate_1d_array_d(yloc);
+
+			size_t idx = i*Knod;
+			for (int j=0; j<Knod; ++j) {
+				double x = 0.0;
+				double y = 0.0;
+
+				for (int l=0; l<mesh.Lnod; ++l) {
+					// x = x + GeomNodesLgrangeBasis(jx,kx) * xloc1D(jx)
+					x += gps_sps_basis[l][j] * xloc[l];
+					y += gps_sps_basis[l][j] * yloc[l];
+				}
+
+				_xyopen[idx+0] = x;
+				_xyopen[idx+1] = y;
+				idx += 2;
+			}
 		}
+		deallocate_1d_array_d(xloc);
+		deallocate_1d_array_d(yloc);
 	}
 	return;
 }
 
 // send vels and vorts to this solver
 
+// update the x,y velocity at the open boundary solution nodes
 void HO_2D::setopenvels_d(const int32_t _veclen, double* _xyvel) {
-	// NOT DONE
-	//velocity_cart[el][eta][xi].x
+
+	// move data from end to start
+	//BC_VelNorm_start = BC_VelNorm_end
+	//BC_VelParl_start = BC_VelParl_end
+	for (int i=0; i<mesh.N_edges_boundary; ++i) for (int j=0; j<Knod; ++j) {
+		BC_VelNorm_start[i][j] = BC_VelNorm_end[i][j];
+	}
+	for (int i=0; i<mesh.N_edges_boundary; ++i) for (int j=0; j<Knod; ++j) {
+		BC_VelParl_start[i][j] = BC_VelParl_end[i][j];
+	}
+
+	// read new BC vels into "end"
+	for (auto &bdry : mesh.boundaries) if (bdry.name == "open") {
+		assert(2*(int)bdry.N_edges*Knod == _veclen && "setopenvels input vector mismatch");
+
+		for (unsigned int i=0; i<bdry.N_edges; ++i) {
+			size_t idx = i*Knod;
+			for (int j=0; j<Knod; ++j) {
+				// put x and y vels into Norm and Parl components?
+				BC_VelNorm_end[i][j] = _xyvel[idx+0];
+				BC_VelParl_end[i][j] = _xyvel[idx+1];
+				idx += 2;
+			}
+			// do we need to reproject into eta, xi components?
+		}
+	}
+
+	// now we have "start" and "end" values for the upcoming time step
+	return;
 }
+
+// update the vorticity at the open boundary solution nodes
 void HO_2D::setopenvort_d(const int32_t _veclen, double* _invort) {
-	// NOT DONE
+
+	// first - move what's in "end" to "start"
+	for (int i=0; i<mesh.N_edges_boundary; ++i) for (int j=0; j<Knod; ++j) {
+		BC_Vort_start[i][j] = BC_Vort_end[i][j];
+	}
+
+	// then - read the new BC vorts into "end"
+	for (auto &bdry : mesh.boundaries) if (bdry.name == "open") {
+		assert((int)bdry.N_edges*Knod == _veclen && "setopenvort input vector mismatch");
+
+		for (unsigned int i=0; i<bdry.N_edges; ++i) {
+			for (int j=0; j<Knod; ++j) {
+				BC_Vort_end[i][j] = _invort[Knod*i+j];
+			}
+		}
+	}
+
+	// we're going to need this somewhere, using vorticity[el][eta][xi]
+
+	return;
 }
+
+// set/update the vorticity at all solution nodes (useful for initialization)
 void HO_2D::setsolnvort_d(const int32_t _veclen, double* _invort) {
-	// NOT DONE
-	//vorticity[el][eta][xi]
+	assert(mesh.N_el*Knod*Knod == _veclen && "setsolnvort input vector mismatch");
+
+	// first - move what's in "end" to "start"
+	for (int i=0; i<mesh.N_el; ++i) {
+		for (int j=0; j<Knod; ++j) for (int k=0; k<Knod; ++k) {
+			Vort_start[i][j][k] = Vort_end[i][j][k];
+		}
+	}
+
+	// then - read the new vorts into "end"
+	for (int i=0; i<mesh.N_el; ++i) {
+		size_t idx = i*Knod*Knod;
+		for (int j=0; j<Knod; ++j) for (int k=0; k<Knod; ++k) {
+			Vort_end[i][j][k] = _invort[idx+j*Knod+k];
+		}
+	}
+
+	// this will eventually affect vorticity[el][eta][xi]
+
+	return;
 }
+
+// set the particle-to-grid weights for all solution nodes
+//   (should be 0.0 most places, 1.0 at the open boundary, falling off quickly)
 void HO_2D::setptogweights_d(const int32_t _veclen, double* _inwgt) {
-	// NOT DONE
+	assert(mesh.N_el*Knod*Knod == _veclen && "setsolnvort input vector mismatch");
+
+	// replace the weight with the incoming weight
+	for (int i=0; i<mesh.N_el; ++i) {
+		size_t idx = i*Knod*Knod;
+		for (int j=0; j<Knod; ++j) for (int k=0; k<Knod; ++k) {
+			Vort_wgt[i][j][k] = _inwgt[idx+j*Knod+k];
+		}
+	}
+
+	return;
 }
 
 // march forward
@@ -3890,12 +3971,30 @@ void HO_2D::solveto_d(const double _outerdt, const int32_t _numstep,
 
 // retrieve results
 
+// caller asks for vorticity on all solution nodes
 void HO_2D::getallvorts_d(const int32_t _veclen, double* _outvort) {
-	// NOT DONE
+	assert(mesh.N_el*Knod*Knod == _veclen && "getallvorts vector length mismatch");
+
+	// copy from master vorticity
+	for (int i=0; i<mesh.N_el; ++i) {
+		size_t idx = i*Knod*Knod;
+		for (int j=0; j<Knod; ++j) for (int k=0; k<Knod; ++k) {
+			_outvort[idx+j*Knod+k] = vorticity[i][j][k];
+		}
+	}
 }
+
+// caller needs array of weights for a solution element
 void HO_2D::get_hoquad_weights_d(const int32_t _veclen, double* _outvec) {
-	// NOT DONE
+	assert(Knod*Knod == _veclen && "get_hoquad_weights vector length mismatch");
+
+	// fraction of the element's area taken up by this solution node's domain
+	for (int j=0; j<Knod; ++j) for (int k=0; k<Knod; ++k) {
+		_outvec[j*Knod+k] = 0.25 * sps_weight[j] * sps_weight[k];
+	}
 }
+
+// 
 void HO_2D::trigger_write(const int32_t _indx) {
 	//save_vorticity_vtk((int)_indx);
 	save_smooth_vtk((int)_indx);
