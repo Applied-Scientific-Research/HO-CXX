@@ -922,7 +922,7 @@ void HO_2D::setup_IC_BC_SRC() {
             }
 
             else if (mesh.boundaries[G_boundary].name == "top") {
-                BC_no_slip[G_boundary] = true;
+                BC_no_slip[G_boundary] = false;
                 for (int edge_index : mesh.boundaries[G_boundary].edges) {
                     BC_switch_Poisson[edge_index] = DirichletBC;
                     BC_switch_diffusion[edge_index] = NeumannBC; //BC_diffusion is calculated in the code during runtime
@@ -935,7 +935,7 @@ void HO_2D::setup_IC_BC_SRC() {
             }
 
             else if (mesh.boundaries[G_boundary].name == "bottom") {
-                BC_no_slip[G_boundary] = true;
+                BC_no_slip[G_boundary] = false;
                 for (int edge_index : mesh.boundaries[G_boundary].edges) {
                     BC_switch_Poisson[edge_index] = DirichletBC;
                     BC_switch_diffusion[edge_index] = NeumannBC; //BC_diffusion is calculated in the code during runtime
@@ -1760,6 +1760,7 @@ void HO_2D::update_BCs(double time) {
 				for (int edge_index : mesh.boundaries[G_boundary].edges) {
 					for (int k=0; k<Knod; ++k) {
 						BC_Poisson[edge_index][k] = time_coeff * (y_max - y_min); //the average velocity is 1, so the volume flux in equal to the area of the inlet = psi(top) - psi(bottom)
+						BC_diffusion[edge_index][k] = 0.;
 						BC_parl_vel[edge_index][k] = -time_coeff; // goes to right, so CW. it is used to calculate the normal derivative of vorticity
 					}
 				}
