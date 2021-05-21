@@ -1675,8 +1675,8 @@ char HO_2D::solve_Poisson(double const* const* const* vort_in) {
 
 
 		Eigen::VectorXd poisson_sol = bicg_Eigen.solve(RHS_Eigen);  //biCGstab method
-		std::cout << "#iterations:     " << bicg_Eigen.iterations() << std::endl;
-		std::cout << "estimated error: " << bicg_Eigen.error() << std::endl;
+		std::cout << "  iterations:     " << bicg_Eigen.iterations() << std::endl;
+		std::cout << "  estimated error: " << bicg_Eigen.error() << std::endl;
 
 
 		/*
@@ -1850,7 +1850,7 @@ void HO_2D::update_BCs(const double current_time) {
 		// for the end of the last step, weights are fac1=0.0, fac2=1.0
 		const double fac1 = (current_time-time_start) / (time_end-time_start);
 		const double fac2 = 1.0-fac1;
-		std::cout << "Substep normalized time " << fac1;
+		std::cout << "  substep normalized time " << fac1 << std::endl;
 
 		// first, set switches for entire boundaries
 		for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) {
@@ -1868,22 +1868,31 @@ void HO_2D::update_BCs(const double current_time) {
 		}
 
 		// then set BC values for each element
-		for (auto &bdry : mesh.boundaries) if (bdry.name == "open") {
+		// note that the hybrid BC_VelNorm_start, etc. arrays are indexed only for the open bdry
+		// but the simulation BCs BC_normal_vel, etc. are indexed over all boundry edges!
+		unsigned int eoffset = 0;
+		for (auto &bdry : mesh.boundaries) {
+		if (bdry.name == "open") {
 			// set normal and parallel vels
 			for (unsigned int i=0; i<bdry.N_edges; ++i) {
+				const int eidx = eoffset + i;	// edge index in the master list
 				for (int j=0; j<Knod; ++j) {
-					BC_normal_vel[i][j] = fac1*BC_VelNorm_start[i][j] + fac2*BC_VelNorm_end[i][j];
-					BC_parl_vel[i][j]   = fac1*BC_VelParl_start[i][j] + fac2*BC_VelParl_end[i][j];
+					BC_normal_vel[eidx][j] = fac1*BC_VelNorm_start[i][j] + fac2*BC_VelNorm_end[i][j];
+					BC_parl_vel[eidx][j]   = fac1*BC_VelParl_start[i][j] + fac2*BC_VelParl_end[i][j];
 				}
 				// do we need to reproject into eta, xi components?
 			}
 
 			// and vorticity for diffusion
 			for (unsigned int i=0; i<bdry.N_edges; ++i) {
+				const int eidx = eoffset + i;	// edge index in the master list
 				for (int j=0; j<Knod; ++j) {
-					BC_vorticity[i][j] = fac1*BC_Vort_start[i][j] + fac2*BC_Vort_end[i][j];
+					BC_vorticity[eidx][j] = fac1*BC_Vort_start[i][j] + fac2*BC_Vort_end[i][j];
 				}
 			}
+		}
+		// keep track of where in the full list of boundary edges this boundary's edges begin
+		eoffset += bdry.N_edges;
 		}
 
 		// apply parallel and normal velocities on the wall boundary
@@ -3832,7 +3841,7 @@ void HO_2D::getsolnpts_d(const int32_t _ptlen, double* _xypts) {
 		}
 
 		// then convert these into the solution nodes
-		size_t idx = i*Knod*Knod;
+		size_t idx = 2*i*Knod*Knod;
 		for (int j=0; j<Knod; ++j) for (int k=0; k<Knod; ++k) {
 			double x = 0.0;
 			double y = 0.0;
@@ -3858,7 +3867,7 @@ void HO_2D::getsolnareas_d(const int32_t _veclen, double* _areas) {
 		size_t idx = i*Knod*Knod;
 		for (int j=0; j<Knod; ++j) for (int k=0; k<Knod; ++k) {
 			// areas(ptnum) = wgt(i) * wgt(j) * Vol_Jac(i,j,el)
-			//_areas[idx] = vol_jac[i][j][k];
+			//_areas[idx] = vol_jac[i][j][k];	// wrong?
 			_areas[idx] = sps_weight[j] * sps_weight[k] * vol_jac[i][j][k];
 			idx++;
 		}
@@ -3886,12 +3895,12 @@ void HO_2D::getopenpts_d(const int32_t _nopen, double* _xyopen) {
 
 			for (int j=0; j<mesh.Lnod; ++j) {
 				// xloc1D(jx) = xcoord(boundarynodeID(t2f(jx),i))
-				const size_t nid = mesh.edges[bdry.edges[i]].nodes[mesh.tensor2FEM(j)];	// ??????
+				const size_t nid = mesh.edges[bdry.edges[i]].nodes[mesh.tensor2FEM(j)];
 				xloc[j] = mesh.nodes[nid].coor.x;
 				yloc[j] = mesh.nodes[nid].coor.y;
 			}
 
-			size_t idx = i*Knod;
+			size_t idx = 2*i*Knod;
 			for (int j=0; j<Knod; ++j) {
 				double x = 0.0;
 				double y = 0.0;
@@ -3901,6 +3910,7 @@ void HO_2D::getopenpts_d(const int32_t _nopen, double* _xyopen) {
 					x += gps_sps_basis[l][j] * xloc[l];
 					y += gps_sps_basis[l][j] * yloc[l];
 				}
+				//if (i==0) std::cout << "open pt " << i << " " << j << " is " << x << " " << y << std::endl;
 
 				_xyopen[idx+0] = x;
 				_xyopen[idx+1] = y;
@@ -3930,19 +3940,63 @@ void HO_2D::setopenvels_d(const int32_t _veclen, double* _xyvel) {
 	}
 
 	// read new BC vels into "end"
-	for (auto &bdry : mesh.boundaries) if (bdry.name == "open") {
+	unsigned int eoffset = 0;
+	for (auto &bdry : mesh.boundaries) {
+	if (bdry.name == "open") {
 		assert(2*(int)bdry.N_edges*Knod == _veclen && "setopenvels input vector mismatch");
 
 		for (unsigned int i=0; i<bdry.N_edges; ++i) {
-			size_t idx = i*Knod;
+
+			// see line 1948 for code like this
+			// find the enclosing element
+			const int edge_index = eoffset + i;	// edge index in the master list
+			const int el = mesh.boundary_elem_ID[edge_index].element_index;
+			// and the side of that element
+			const int elem_side = mesh.boundary_elem_ID[edge_index].side;
+			// and others
+			const int ijp = f2i[elem_side];
+			const int t = ijp%2;  //Left/right (South/north face of element)
+			const int d = ijp/2; //the direction of the face (0: xsi side, 1: eta side)
+			const double coeff = 2. * t -1.; //convert the local h direction to outward normal direction
+
+			// loop over Knod compute nodes along this edge
 			for (int j=0; j<Knod; ++j) {
-				// put x and y vels into Norm and Parl components?
-				BC_VelNorm_end[i][j] = _xyvel[idx+0];
-				BC_VelParl_end[i][j] = _xyvel[idx+1];
-				idx += 2;
+
+				// pull x and y vels into temps
+				const double xvel = _xyvel[2*(i*Knod+j)+0];
+				const double yvel = _xyvel[2*(i*Knod+j)+1];
+
+				// find unit normal vector here
+				double nx = 0, ny = 0;
+				if (d == 1) {
+					nx = -face_Dy_Dxsi[el][ijp][j].x;
+					ny = face_Dx_Dxsi[el][ijp][j].x;
+				} else {
+					nx = face_Dy_Dxsi[el][ijp][j].y;
+					ny = -face_Dx_Dxsi[el][ijp][j].y;
+				}
+
+				nx *= coeff/face_Anorm[el][ijp][j];
+				ny *= coeff/face_Anorm[el][ijp][j];
+
+				// convert into Norm and Parl components
+				// edge_flux_point_index
+				//const int efpi = (elem_side / 2) * (Knod - 2 * j - 1) + j;
+				//if (i==0) std::cout << "open pt " << i << " " << j << " in elem " << el << " side " << elem_side << std::endl;
+
+				// BC_VelNorm_end(l,bel) = (Srf_Dx_iDxsi_j(l,2,2,bel) * xvel(l) - Srf_Dx_iDxsi_j(l,1,2,bel) * yvel(l))
+				//BC_VelNorm_end[i][j] = face_Dx_Dxsi[el][ijp][efpi].y * xvel - face_Dx_Dxsi[el][ijp][efpi].x * yvel;
+				BC_VelNorm_end[i][j] = nx*xvel + ny*yvel;
+
+				// BC_VelParl_end(l,bel) = -(Srf_Dx_iDxsi_j(l,1,2,bel) * xvel(l) + Srf_Dx_iDxsi_j(l,2,2,bel) * yvel(l)) / Face_Norm(l,k,j)
+				//BC_VelParl_end[i][j] = -(face_Dx_Dxsi[el][ijp][efpi].x * xvel + face_Dx_Dxsi[el][ijp][efpi].y * yvel) / face_Anorm[el][ijp][j];
+				BC_VelParl_end[i][j] = nx*yvel - ny*xvel;
 			}
-			// do we need to reproject into eta, xi components?
+			if (i%10 == 0) std::cout << "new edge vel bc at " << i << " is " << BC_VelNorm_end[i][0] << " " << BC_VelParl_end[i][0]<< std::endl;
 		}
+	}
+	// keep track of where in the full list of boundary edges this boundary's edges begin
+	eoffset += bdry.N_edges;
 	}
 
 	// now we have "start" and "end" values for the upcoming time step
@@ -3953,19 +4007,17 @@ void HO_2D::setopenvels_d(const int32_t _veclen, double* _xyvel) {
 void HO_2D::setopenvort_d(const int32_t _veclen, double* _invort) {
 	std::cout << "  In setopenvort_d, incoming size is " << _veclen << std::endl;
 
-	// first - move what's in "end" to "start"
-	for (int i=0; i<mesh.N_edges_boundary; ++i) for (int j=0; j<Knod; ++j) {
-		BC_Vort_start[i][j] = BC_Vort_end[i][j];
-	}
-
-	// then - read the new BC vorts into "end"
 	for (auto &bdry : mesh.boundaries) if (bdry.name == "open") {
 		assert((int)bdry.N_edges*Knod == _veclen && "setopenvort input vector mismatch");
 
 		for (unsigned int i=0; i<bdry.N_edges; ++i) {
 			for (int j=0; j<Knod; ++j) {
+				// first - move what's in "end" to "start"
+				BC_Vort_start[i][j] = BC_Vort_end[i][j];
+				// then - read the new BC vorts into "end"
 				BC_Vort_end[i][j] = _invort[Knod*i+j];
 			}
+			if (i%10 == 0) std::cout << "new edge vort bc at " << i << " is " << BC_Vort_end[i][0] << std::endl;
 		}
 	}
 
@@ -3991,6 +4043,7 @@ void HO_2D::setsolnvort_d(const int32_t _veclen, double* _invort) {
 		for (int j=0; j<Knod; ++j) for (int k=0; k<Knod; ++k) {
 			Vort_end[i][j][k] = _invort[idx+j*Knod+k];
 		}
+		if (i%100 == 0) std::cout << "new vort bc at " << i << " is " << Vort_end[i][0][0] << std::endl;
 	}
 
 	// this will eventually affect vorticity[el][eta][xi]
@@ -4009,6 +4062,7 @@ void HO_2D::setptogweights_d(const int32_t _veclen, double* _inwgt) {
 		for (int j=0; j<Knod; ++j) for (int k=0; k<Knod; ++k) {
 			Vort_wgt[i][j][k] = _inwgt[idx+j*Knod+k];
 		}
+		if (i%100 == 0) std::cout << "vwght at " << i << " is " << Vort_wgt[i][0][0] << std::endl;
 	}
 
 	return;
@@ -4058,6 +4112,7 @@ void HO_2D::getallvorts_d(const int32_t _veclen, double* _outvort) {
 		for (int j=0; j<Knod; ++j) for (int k=0; k<Knod; ++k) {
 			_outvort[idx+j*Knod+k] = vorticity[i][j][k];
 		}
+		if (i%100 == 0) std::cout << "vort at " << i << " is " << vorticity[i][0][0] << std::endl;
 	}
 }
 
@@ -4073,7 +4128,7 @@ void HO_2D::get_hoquad_weights_d(const int32_t _veclen, double* _outvec) {
 
 // 
 void HO_2D::trigger_write(const int32_t _indx) {
-	//save_vorticity_vtk((int)_indx);
+	save_vorticity_vtk((int)_indx);
 	save_smooth_vtk((int)_indx);
 }
 
