@@ -3847,6 +3847,7 @@ void HO_2D::getopenpts_d(const int32_t _nopen, double* _xyopen) {
 
 // update the x,y velocity at the open boundary solution nodes
 void HO_2D::setopenvels_d(const int32_t _veclen, double* _xyvel) {
+	std::cout << "  In setopenvels_d, incoming size is " << _veclen << std::endl;
 
 	// move data from end to start
 	//BC_VelNorm_start = BC_VelNorm_end
@@ -3880,6 +3881,7 @@ void HO_2D::setopenvels_d(const int32_t _veclen, double* _xyvel) {
 
 // update the vorticity at the open boundary solution nodes
 void HO_2D::setopenvort_d(const int32_t _veclen, double* _invort) {
+	std::cout << "  In setopenvort_d, incoming size is " << _veclen << std::endl;
 
 	// first - move what's in "end" to "start"
 	for (int i=0; i<mesh.N_edges_boundary; ++i) for (int j=0; j<Knod; ++j) {

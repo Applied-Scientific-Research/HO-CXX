@@ -324,7 +324,7 @@ void Mesh::process_mesh() {
 	N_nodes = nodes.size(); //total number of nodes in the domain
 	N_edges_boundary = 0;
 	for (int i = 0; i < (int)boundaries.size(); ++i) {
-		std::cout << "adding " << boundaries[i].N_edges << " edges from boundary " << i << std::endl;
+		//std::cout << "  adding " << boundaries[i].N_edges << " edges from boundary " << i << std::endl;
 		N_edges_boundary += boundaries[i].N_edges; //total number of edges on global boundaries
 	}
 	N_el = elements.size();  //total number of elements (2d faces)
