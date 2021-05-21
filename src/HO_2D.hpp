@@ -136,6 +136,7 @@ private:
 	// data to support hybrid solvers
 
 	bool using_hybrid;
+	double time_start, time_end;
 	// this is where C++ is still terrible: either *** and new[] delete[], or Eigen, or Boost, or templates!
 	// values on the open boundary - relatively easy, can use Eigen matrix or double**
 	// it would be nice to use std::vector<std::array<FTYPE,K>> BC_VelNorm_start;
@@ -153,7 +154,6 @@ private:
 public:
 	HO_2D() //default constructor
 	{
-		using_hybrid = false;
 		dump_frequency = 1000;
 		dt = 0.001;
 		num_time_steps = 10000;
@@ -162,6 +162,9 @@ public:
 		HuynhSolver_type = 2;
 		Reyn_inv = 0.001;
 		Knod = 2;
+		using_hybrid = false;
+		time_start = 0.0;
+		time_end = 0.0;
 	};
 	HO_2D(const HO_2D& HO) :
 		vorticity(HO.vorticity), stream_function(HO.stream_function) {}

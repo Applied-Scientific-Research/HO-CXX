@@ -1722,7 +1722,7 @@ char HO_2D::solve_Poisson(double const* const* const* vort_in) {
 	return 0;
 }
 
-void HO_2D::update_BCs(const double time) {
+void HO_2D::update_BCs(const double current_time) {
 	/* updates the BC for the slip and normal velocity for the time "time".
 	typically velocity BC is fixed over time,
 	so this gives more flexibility for velocity BC changes in time */
@@ -1732,7 +1732,7 @@ void HO_2D::update_BCs(const double time) {
 			if (mesh.boundaries[G_boundary].name == "top") { // the proper boundary is selected
 				for (int edge_index : mesh.boundaries[G_boundary].edges) { //loop over all the edges forming the top boundary
 					for (int i = 0; i < Knod; ++i) // loop over all sps on each edge on the proper boundary
-						BC_parl_vel[edge_index][i] = -std::fabs(std::sin(M_PI/20.*time)); //the lid moves CW on the global boundary
+						BC_parl_vel[edge_index][i] = -std::fabs(std::sin(M_PI/20.*current_time)); //the lid moves CW on the global boundary
 				}
 			}
 		}
@@ -1753,7 +1753,7 @@ void HO_2D::update_BCs(const double time) {
 			}
 		}
 
-		const double time_coeff = 2.*std::fabs(std::sin(M_PI/40.*time));
+		const double time_coeff = 2.*std::fabs(std::sin(M_PI/40.*current_time));
 
 		for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) {
 			if (mesh.boundaries[G_boundary].name == "inlet") { //vorticity, psi and normal velocity are defined
@@ -1801,7 +1801,7 @@ void HO_2D::update_BCs(const double time) {
 			}
 		}
 
-		double time_coeff = 2.*std::fabs(std::sin(M_PI/40.*time));
+		double time_coeff = 2.*std::fabs(std::sin(M_PI/40.*current_time));
 
 		for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) {
 			if (mesh.boundaries[G_boundary].name == "inlet") { //vorticity, psi and normal velocity are defined
@@ -1843,6 +1843,71 @@ void HO_2D::update_BCs(const double time) {
 		} //for Gboundary
 	} //if problem_type==3
 
+	else if (problem_type==11) { //hybrid run
+
+		// what fraction through the outer time step are we?
+		// for the beginning of the first step, weights are fac1=1.0, fac2=0.0
+		// for the end of the last step, weights are fac1=0.0, fac2=1.0
+		const double fac1 = (current_time-time_start) / (time_end-time_start);
+		const double fac2 = 1.0-fac1;
+		std::cout << "Substep normalized time " << fac1;
+
+		// first, set switches for entire boundaries
+		for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) {
+			if (mesh.boundaries[G_boundary].name == "open") {
+				BC_no_slip[G_boundary] = false;
+				BC_switch_Poisson[G_boundary] = NeumannBC;
+				BC_switch_diffusion[G_boundary] = DirichletBC;
+			} else if (mesh.boundaries[G_boundary].name == "wall") {
+				BC_no_slip[G_boundary] = true;
+				BC_switch_Poisson[G_boundary] = DirichletBC;
+				BC_switch_diffusion[G_boundary] = NeumannBC;
+			} else if (mesh.boundaries[G_boundary].name == "inlet") {
+			} else if (mesh.boundaries[G_boundary].name == "outlet") {
+			}
+		}
+
+		// then set BC values for each element
+		for (auto &bdry : mesh.boundaries) if (bdry.name == "open") {
+			// set normal and parallel vels
+			for (unsigned int i=0; i<bdry.N_edges; ++i) {
+				for (int j=0; j<Knod; ++j) {
+					BC_normal_vel[i][j] = fac1*BC_VelNorm_start[i][j] + fac2*BC_VelNorm_end[i][j];
+					BC_parl_vel[i][j]   = fac1*BC_VelParl_start[i][j] + fac2*BC_VelParl_end[i][j];
+				}
+				// do we need to reproject into eta, xi components?
+			}
+
+			// and vorticity for diffusion
+			for (unsigned int i=0; i<bdry.N_edges; ++i) {
+				for (int j=0; j<Knod; ++j) {
+					BC_vorticity[i][j] = fac1*BC_Vort_start[i][j] + fac2*BC_Vort_end[i][j];
+				}
+			}
+		}
+
+		// apply parallel and normal velocities on the wall boundary
+		for (auto &bdry : mesh.boundaries) if (bdry.name == "wall") {
+			for (unsigned int i=0; i<bdry.N_edges; ++i) {
+				for (int j=0; j<Knod; ++j) {
+					BC_normal_vel[i][j] = 0.0;
+					BC_parl_vel[i][j]   = 0.0;
+				}
+				// do we need to reproject into eta, xi components?
+			}
+			// no need to set BC_vorticity - the solver takes care of the walls
+		}
+
+		// finally, apply the vorticity times the weight to all of the elements
+		for (int i=0; i<mesh.N_el; ++i) {
+			for (int j=0; j<Knod; ++j) for (int k=0; k<Knod; ++k) {
+				vorticity[i][j][k] = (1.0-Vort_wgt[i][j][k]) * vorticity[i][j][k]
+									+ Vort_wgt[i][j][k]*(fac1*Vort_start[i][j][k] + fac2*Vort_end[i][j][k]);
+			}
+		}
+
+	}  //else if problem_type ==11
+
 	else {  //for any arbitrary problem, specify the BC's of the problem here: modify the below terms as the problem is designed
 		std::fill(BC_no_slip, BC_no_slip + mesh.N_Gboundary, true);
 		std::fill(BC_switch_Poisson, BC_switch_Poisson + mesh.N_edges_boundary, DirichletBC);
@@ -1859,8 +1924,10 @@ void HO_2D::update_BCs(const double time) {
 		const int ijp = f2i[elem_side];
 		const double sign = 2.*(ijp%2) - 1.;
 		for (int k=0; k<Knod; ++k) {
+			// set and check normal velocity
 			BC_normal_vel[el_b][k] *= sign;
 			if (BC_switch_diffusion[el_b]==NeumannBC) BC_diffusion[el_b][k] *= sign;
+			// what about parallel/tangential velocity?
 		}
 	}
 
@@ -3561,6 +3628,8 @@ void HO_2D::set_defaults() {
 	problem_type = 11;
 	num_time_steps = 0;
 	dt = 1.0;
+	ti = 0;
+	time_end = 0.0;
 	dump_frequency = 100;
 	fast = 0;
 	LHS_type = 1;	// 1=Eigen, 3=amgcl
@@ -3957,6 +4026,11 @@ void HO_2D::solveto_d(const double _outerdt, const int32_t _numstep,
 	// set other class variables
 	time_integration_type = (int)_integtype;
 	Reyn_inv = 1.0 / _reyn;
+
+	// need times for start and end of outer time step
+	// copy from old end
+	time_start = time_end;
+	time_end += _outerdt;
 
 	// perform time integration, note ti is global step count
 	for (int32_t iter = 0; iter < _numstep; ++iter) {
