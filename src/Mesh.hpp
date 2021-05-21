@@ -25,7 +25,7 @@
 
 // class for 2D coordinate system
 
-enum cell_sides { south = 0, east = 1, north = 2, west = 3, top=4, bottom=5 }; //the 6 sides of a cell
+enum cell_sides { south = 0, east = 1, north = 2, west = 3}; //the 6 sides of a cell
 
 struct Cmpnts2 {
     double x, y; //the components for 2D coordinate system
