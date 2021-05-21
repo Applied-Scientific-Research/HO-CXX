@@ -24,26 +24,24 @@ enum cell_sides { south = 0, east = 1, north = 2, west = 3 }; //the 4 sides of a
 
 // class for 2D coordinate system
 struct Cmpnts2 {
-	double x, y; //the components for 2D coordinate system
+    double x, y; //the components for 2D coordinate system
+    
+    Cmpnts2(double _x, double _y) : x(_x), y(_y) {};
+    Cmpnts2(const Cmpnts2& cmp) : x(cmp.x), y(cmp.y) {}
+    Cmpnts2() {
+	x = y = 0.; //default constructor
+    }
 
-	Cmpnts2(double _x, double _y) : x(_x), y(_y) {};
-	Cmpnts2(const Cmpnts2& cmp) :
-		x(cmp.x), y(cmp.y)
-	{}
-	Cmpnts2() {
-		x = y = 0.; //default constructor
-	}
+    Cmpnts2& operator=(const Cmpnts2& rhs) {// compound assignment (does not need to be a member,
+	// addition of rhs to *this takes place here
+	x = rhs.x;
+	y = rhs.y;
+	return *this; // return the result by reference
+    }
 
-	Cmpnts2& operator=(const Cmpnts2& rhs) // compound assignment (does not need to be a member,
-	{     // addition of rhs to *this takes place here
-		x = rhs.x;
-		y = rhs.y;
-		return *this; // return the result by reference
-	}
-
-	~Cmpnts2() {}	//destructor define here later
-
-	void add(Cmpnts2 a, Cmpnts2 b) {
+    ~Cmpnts2() {}	//destructor define here later
+    
+    void add(Cmpnts2 a, Cmpnts2 b) {
 		x = a.x + b.x;
 		y = a.y + b.y;
 	}
