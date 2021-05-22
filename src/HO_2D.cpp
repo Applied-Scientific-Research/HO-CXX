@@ -785,6 +785,7 @@ void HO_2D::setup_IC_BC_SRC() {
 	Problem_type=1 : Cavity flow
 	problem_type=2: Backward facing step (BFS)
 	problem_type=3: Flow over a cylinder
+	problem_type=11: Hybrid run driven by Omega2D
 	other problems: change the proper boundary conditions as required.
 	*/
 
@@ -976,20 +977,55 @@ void HO_2D::setup_IC_BC_SRC() {
                 }
             }
 
-            else if (mesh.boundaries[G_boundary].name == "object") {
-                BC_no_slip[G_boundary] = true; // if a boundary is no-slip wall or not.
-                for (int edge_index : mesh.boundaries[G_boundary].edges) {
-                BC_switch_Poisson[edge_index] = DirichletBC;
-                BC_switch_diffusion[edge_index] = NeumannBC;  //calculate domega/dn during runtime
-                    for (int k=0; k<Knod; ++k) {
-                        BC_Poisson[edge_index][k] = 0.5*(y_max-y_min); //psi=0
-                        BC_normal_vel[edge_index][k] = 0.;
-                        BC_parl_vel[edge_index][k] = 0.;
-                    }
+			else if (mesh.boundaries[G_boundary].name == "object") {
+				BC_no_slip[G_boundary] = true; // if a boundary is no-slip wall or not.
+				for (int edge_index : mesh.boundaries[G_boundary].edges) {
+					BC_switch_Poisson[edge_index] = DirichletBC;
+					BC_switch_diffusion[edge_index] = NeumannBC;  //calculate domega/dn during runtime
+					for (int k=0; k<Knod; ++k) {
+						BC_Poisson[edge_index][k] = 0.5*(y_max-y_min); //psi=0
+						BC_normal_vel[edge_index][k] = 0.;
+						BC_parl_vel[edge_index][k] = 0.;
+					}
                 }
             }
         } //for Gboundary
     } //if problem_type==3
+
+	else if (problem_type==11) { //hybrid run
+
+		// first, set switches for entire boundaries
+		for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) {
+
+			if (mesh.boundaries[G_boundary].name == "open") {
+				BC_no_slip[G_boundary] = false;
+				for (auto edge_index : mesh.boundaries[G_boundary].edges) {
+					//std::cout << "open edge index " << edge_index << std::endl;
+					BC_switch_Poisson[edge_index] = NeumannBC;
+					BC_switch_diffusion[edge_index] = DirichletBC;
+					BC_switch_advection[edge_index] = DirichletBC;
+				}
+
+			} else if (mesh.boundaries[G_boundary].name == "wall") {
+				BC_no_slip[G_boundary] = true;
+				for (auto edge_index : mesh.boundaries[G_boundary].edges) {
+					//std::cout << "wall edge index " << edge_index << std::endl;
+					BC_switch_Poisson[edge_index] = DirichletBC;
+					BC_switch_diffusion[edge_index] = NeumannBC;
+					BC_switch_advection[edge_index] = DirichletBC;
+				}
+
+			} else if (mesh.boundaries[G_boundary].name == "inlet") {
+				assert(false && "HO_2D::setup_IC_BC_SRC - inlet BC unsupported");
+
+			} else if (mesh.boundaries[G_boundary].name == "outlet") {
+				assert(false && "HO_2D::setup_IC_BC_SRC - outlet BC unsupported");
+
+			} else {
+				assert(false && "HO_2D::setup_IC_BC_SRC - BC unsupported");
+			}
+		}
+    } //if problem_type==11
 
     else {  //for any arbitrary problem, specify the BC's of the problem here: modify the below terms as the problem is designed
         std::fill(BC_no_slip, BC_no_slip + mesh.N_Gboundary, true); // if a boundary is no-slip wall or not.
@@ -1852,68 +1888,65 @@ void HO_2D::update_BCs(const double current_time) {
 		const double fac2 = 1.0-fac1;
 		std::cout << "  substep normalized time " << fac1 << std::endl;
 
-		// first, set switches for entire boundaries
-		for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) {
-			if (mesh.boundaries[G_boundary].name == "open") {
-				BC_no_slip[G_boundary] = false;
-				BC_switch_Poisson[G_boundary] = NeumannBC;
-				BC_switch_diffusion[G_boundary] = DirichletBC;
-			} else if (mesh.boundaries[G_boundary].name == "wall") {
-				BC_no_slip[G_boundary] = true;
-				BC_switch_Poisson[G_boundary] = DirichletBC;
-				BC_switch_diffusion[G_boundary] = NeumannBC;
-			} else if (mesh.boundaries[G_boundary].name == "inlet") {
-			} else if (mesh.boundaries[G_boundary].name == "outlet") {
-			}
-		}
-
 		// then set BC values for each element
 		// note that the hybrid BC_VelNorm_start, etc. arrays are indexed only for the open bdry
 		// but the simulation BCs BC_normal_vel, etc. are indexed over all boundry edges!
 		unsigned int eoffset = 0;
-		for (auto &bdry : mesh.boundaries) {
-		if (bdry.name == "open") {
-			// set normal and parallel vels
-			for (unsigned int i=0; i<bdry.N_edges; ++i) {
-				const int eidx = eoffset + i;	// edge index in the master list
-				for (int j=0; j<Knod; ++j) {
-					BC_normal_vel[eidx][j] = fac1*BC_VelNorm_start[i][j] + fac2*BC_VelNorm_end[i][j];
-					BC_parl_vel[eidx][j]   = fac1*BC_VelParl_start[i][j] + fac2*BC_VelParl_end[i][j];
-					//if (i>150) std::cout << "set bc vel on " << eidx << " " << i << " " << j << " to " << BC_normal_vel[eidx][j] << " " << BC_parl_vel[eidx][j] << std::endl;
+		for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) {
+			auto& bdry = mesh.boundaries[G_boundary];
+
+			if (bdry.name == "open") {
+
+				// set normal and parallel vels
+				for (unsigned int i=0; i<bdry.N_edges; ++i) {
+					const int eidx = eoffset + i;	// edge index in the master list
+					for (int j=0; j<Knod; ++j) {
+						BC_normal_vel[eidx][j] = fac1*BC_VelNorm_start[i][j] + fac2*BC_VelNorm_end[i][j];
+						BC_parl_vel[eidx][j]   = fac1*BC_VelParl_start[i][j] + fac2*BC_VelParl_end[i][j];
+						//if (i>150) std::cout << "set bc vel on " << eidx << " " << i << " " << j << " to " << BC_normal_vel[eidx][j] << " " << BC_parl_vel[eidx][j] << std::endl;
+					}
+					// these are already reprojected into eta, xsi components
 				}
-				// these are already reprojected into eta, xsi components
+
+				// and vorticity for diffusion
+				for (unsigned int i=0; i<bdry.N_edges; ++i) {
+					const int eidx = eoffset + i;	// edge index in the master list
+					for (int j=0; j<Knod; ++j) {
+						BC_vorticity[eidx][j] = fac1*BC_Vort_start[i][j] + fac2*BC_Vort_end[i][j];
+						//BC_diffusion[eidx][j] = fac1*BC_Vort_start[i][j] + fac2*BC_Vort_end[i][j];
+						//if (i>150) std::cout << "set bc vort on " << eidx << " " << i << " " << j << " to " << BC_vorticity[eidx][j] << std::endl;
+					}
+				}
+
+			} else if (bdry.name == "wall") {
+
+				// apply parallel and normal velocities on the wall boundary
+				for (unsigned int i=0; i<bdry.N_edges; ++i) {
+					const int eidx = eoffset + i;	// edge index in the master list
+					for (int j=0; j<Knod; ++j) {
+						BC_normal_vel[eidx][j] = 0.0;
+						BC_parl_vel[eidx][j]   = 0.0;
+						BC_Poisson[eidx][j]    = 0.0;
+					}
+					// do we need to reproject into eta, xi components?
+				}
+				// no need to set BC_vorticity - the solver takes care of the walls
+
+			} else if (bdry.name == "inlet") {
+
+			} else if (bdry.name == "outlet") {
+
 			}
 
-			// and vorticity for diffusion
-			for (unsigned int i=0; i<bdry.N_edges; ++i) {
-				const int eidx = eoffset + i;	// edge index in the master list
-				for (int j=0; j<Knod; ++j) {
-					BC_vorticity[eidx][j] = fac1*BC_Vort_start[i][j] + fac2*BC_Vort_end[i][j];
-					//if (i>150) std::cout << "set bc vort on " << eidx << " " << i << " " << j << " to " << BC_vorticity[eidx][j] << std::endl;
-				}
-			}
-		}
-		// keep track of where in the full list of boundary edges this boundary's edges begin
-		eoffset += bdry.N_edges;
-		}
-
-		// apply parallel and normal velocities on the wall boundary
-		for (auto &bdry : mesh.boundaries) if (bdry.name == "wall") {
-			for (unsigned int i=0; i<bdry.N_edges; ++i) {
-				for (int j=0; j<Knod; ++j) {
-					BC_normal_vel[i][j] = 0.0;
-					BC_parl_vel[i][j]   = 0.0;
-				}
-				// do we need to reproject into eta, xi components?
-			}
-			// no need to set BC_vorticity - the solver takes care of the walls
+			// keep track of where in the full list of boundary edges this boundary's edges begin
+			eoffset += bdry.N_edges;
 		}
 
 		// finally, apply the vorticity times the weight to all of the elements
 		for (int i=0; i<mesh.N_el; ++i) {
 			for (int j=0; j<Knod; ++j) for (int k=0; k<Knod; ++k) {
 				vorticity[i][j][k] = (1.0-Vort_wgt[i][j][k]) * vorticity[i][j][k]
-									+ Vort_wgt[i][j][k]*(fac1*Vort_start[i][j][k] + fac2*Vort_end[i][j][k]);
+										+ Vort_wgt[i][j][k]*(fac1*Vort_start[i][j][k] + fac2*Vort_end[i][j][k]);
 			}
 		}
 
