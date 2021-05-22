@@ -334,7 +334,6 @@ void Mesh::process_mesh() {
 
 	// *************** detect the total interior edges in the domain and add them to the edges vector (which already has boundary edges) and add them to the elements vector *********************
 	edge _edge;
-	bool found;
 	unsigned int edge_index = edges.size();
 	for (int el = 0; el < N_el; ++el) {  //loop over all 2D elements
 		const unsigned int element_type = elements[el].element_type;
@@ -353,7 +352,7 @@ void Mesh::process_mesh() {
 			std::copy(elements[el].nodes.begin() + s * (N_edge_nodes - 2) + 4, elements[el].nodes.begin() + (s + 1) * (N_edge_nodes - 2) + 4, _edge.nodes.begin() + 2);
 
 			//search edge _edge in the edges vector to check if it doesnt already exist
-			found = false; //if the _edge exists in the edges list already
+			bool found = false; //if the _edge exists in the edges list already
 			for (int edg = 0; edg < (int)edges.size(); ++edg) {
 				if ((edges[edg].nodes == _edge.nodes) ||
 					(edges[edg].nodes[1] == _edge.nodes[0] && edges[edg].nodes[0] == _edge.nodes[1])) { //this edge already exists in the list
@@ -375,9 +374,10 @@ void Mesh::process_mesh() {
 
 	//*********************************************************************************************************************************************************
 	// ************************************* now detect the neighbors of each element **************************************
+	#pragma omp parallel for
 	for (int el = 0; el < N_el; ++el) {
 		for (int s = south; s <= west; s++) { //loop over all 4 sides of each element to find the neighbors
-			found = false;
+			bool found = false;
 			for (int eln = 0; eln < N_el; ++eln) { //loop over all elements to see if the edge[s] belongs to them too
 				if (eln == el) continue;
 				for (int sn = south; sn <= west; sn++) { //loop over all 4 sides of neighboring element to check if any of them are common to s
