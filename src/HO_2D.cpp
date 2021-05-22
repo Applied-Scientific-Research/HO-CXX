@@ -1897,25 +1897,20 @@ void HO_2D::update_BCs(const double current_time) {
 
 			if (bdry.name == "open") {
 
-				// set normal and parallel vels
 				for (unsigned int i=0; i<bdry.N_edges; ++i) {
 					const int eidx = eoffset + i;	// edge index in the master list
 					for (int j=0; j<Knod; ++j) {
+						// set normal and parallel vels
 						BC_normal_vel[eidx][j] = fac1*BC_VelNorm_start[i][j] + fac2*BC_VelNorm_end[i][j];
 						BC_parl_vel[eidx][j]   = fac1*BC_VelParl_start[i][j] + fac2*BC_VelParl_end[i][j];
 						//if (i>150) std::cout << "set bc vel on " << eidx << " " << i << " " << j << " to " << BC_normal_vel[eidx][j] << " " << BC_parl_vel[eidx][j] << std::endl;
-					}
-					// these are already reprojected into eta, xsi components
-				}
 
-				// and vorticity for diffusion
-				for (unsigned int i=0; i<bdry.N_edges; ++i) {
-					const int eidx = eoffset + i;	// edge index in the master list
-					for (int j=0; j<Knod; ++j) {
+						// and vorticity for diffusion
 						BC_vorticity[eidx][j] = fac1*BC_Vort_start[i][j] + fac2*BC_Vort_end[i][j];
 						//BC_diffusion[eidx][j] = fac1*BC_Vort_start[i][j] + fac2*BC_Vort_end[i][j];
 						//if (i>150) std::cout << "set bc vort on " << eidx << " " << i << " " << j << " to " << BC_vorticity[eidx][j] << std::endl;
 					}
+					// these are already reprojected into eta, xsi components
 				}
 
 			} else if (bdry.name == "wall") {
@@ -1927,6 +1922,7 @@ void HO_2D::update_BCs(const double current_time) {
 						BC_normal_vel[eidx][j] = 0.0;
 						BC_parl_vel[eidx][j]   = 0.0;
 						BC_Poisson[eidx][j]    = 0.0;
+						// let calc_RHS_diffusion calculate BC_vorticity
 					}
 					// do we need to reproject into eta, xi components?
 				}
