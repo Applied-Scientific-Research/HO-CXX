@@ -2465,42 +2465,23 @@ char HO_2D::calc_RHS_diffusion(double*** vort_in) {
 	// ****************** definition, memory allocation and initialization ****************
 	//double du_dxsi, du_deta;
 	unsigned char ijp, ijpm; //left boundary(xsi): ijp=0, right_boundary (xsi): ijp=1; south boundary (eta): ijp=2; north boundary (eta): ijp = 3
-	double** local_vort = new double* [Knod]; //local array to hold the vorticity along a row of csi [0], and row of eta [1] direction
-	for (int i = 0; i < Knod; ++i) local_vort[i] = new double[2];
+	//local array to hold the vorticity along a row of csi [0], and row of eta [1] direction
+	double** local_vort = allocate_2d_array_d(Knod, 2);
 
-	double*** bndr_vort, *** bndr_grad_vort; //vorticity and grad of vorticity at sps of the L/R (0:1) and S/N (2:3) boundaries of all elements
-	double ***comm_vort, *** comm_grad_vort; //common vorticity and common grad vorticity per element, per face (west, east, south, north) per sps index
-	bndr_vort = new double** [mesh.N_el];
-	bndr_grad_vort = new double** [mesh.N_el];
-	comm_vort = new double** [mesh.N_el];
-	comm_grad_vort = new double** [mesh.N_el];
+	//vorticity and grad of vorticity at sps of the L/R (0:1) and S/N (2:3) boundaries of all elements
+	double*** bndr_vort = allocate_3d_array_d(mesh.N_el, 4, Knod);
+	double*** bndr_grad_vort = allocate_3d_array_d(mesh.N_el, 4, Knod);
 
-	for (int i = 0; i < mesh.N_el; ++i) {
-		bndr_vort[i] = new double* [4];
-		bndr_grad_vort[i] = new double* [4];
-		comm_vort[i] = new double* [4];
-		comm_grad_vort[i] = new double* [4];
-		for (int j = 0; j < 4; ++j) {
-			bndr_vort[i][j] = new double[Knod];
-			bndr_grad_vort[i][j] = new double[Knod];
-			comm_vort[i][j] = new double[Knod];
-			comm_grad_vort[i][j] = new double[Knod];
-		}
-	}
+	//common vorticity and common grad vorticity per element, per face (west, east, south, north) per sps index
+	double*** comm_vort = allocate_3d_array_d(mesh.N_el, 4, Knod);
+	double*** comm_grad_vort = allocate_3d_array_d(mesh.N_el, 4, Knod);
 
-	double** f_tilda, ** g_tilda;
-	f_tilda = new double* [Knod]; //f_tilda is the derivative of the continuous vorticity function at all sps, i.e. d/dxsi(w^C)
-	g_tilda = new double* [Knod];  //g_tilda is the derivative of the continuous vorticity function at all sps, i.e. d/deta(w^C)
-	for (int i = 0; i < Knod; ++i) {
-		f_tilda[i] = new double[Knod];
-		g_tilda[i] = new double[Knod];
-	}
-
-	double **f_tilda_B = new double* [2], **g_tilda_B = new double* [2];
-	for (int i = 0; i < 2; ++i) {
-		f_tilda_B[i] = new double[Knod];
-		g_tilda_B[i] = new double[Knod];
-	}
+	//f_tilda is the derivative of the continuous vorticity function at all sps, i.e. d/dxsi(w^C)
+	double** f_tilda = allocate_2d_array_d(Knod, Knod);
+	double** f_tilda_B = allocate_2d_array_d(2, Knod);
+	//g_tilda is the derivative of the continuous vorticity function at all sps, i.e. d/deta(w^C)
+	double** g_tilda = allocate_2d_array_d(Knod, Knod);
+	double** g_tilda_B = allocate_2d_array_d(2, Knod);
 
 
 	//**********************************************************************
@@ -2631,40 +2612,15 @@ char HO_2D::calc_RHS_diffusion(double*** vort_in) {
 	}
 
 	// ******************* free memory on heap ***************
-	for (int i = 0; i < Knod; ++i)
-		delete[] local_vort[i];
-	delete[] local_vort;
-
-	for (int j = 0; j < mesh.N_el; ++j) {
-		for (int i = 0; i < 4; ++i) {
-			delete[] bndr_vort[j][i];
-			delete[] bndr_grad_vort[j][i];
-			delete[] comm_vort[j][i];
-			delete[] comm_grad_vort[j][i];
-		}
-		delete[] bndr_vort[j];
-		delete[] bndr_grad_vort[j];
-		delete[] comm_vort[j];
-		delete[] comm_grad_vort[j];
-	}
-	delete[] bndr_vort;
-	delete[] bndr_grad_vort;
-	delete[] comm_vort;
-	delete[] comm_grad_vort;
-
-	for (int i = 0; i < Knod; ++i) {
-		delete[] f_tilda[i];
-		delete[] g_tilda[i];
-	}
-	delete[] f_tilda;
-	delete[] g_tilda;
-
-	for (int i = 0; i < 2; ++i) {
-		delete[] f_tilda_B[i];
-		delete[] g_tilda_B[i];
-	}
-	delete[] f_tilda_B;
-	delete[] g_tilda_B;
+	deallocate_2d_array_d(local_vort, Knod);
+	deallocate_3d_array_d(bndr_vort, mesh.N_el, 4);
+	deallocate_3d_array_d(bndr_grad_vort, mesh.N_el, 4);
+	deallocate_3d_array_d(comm_vort, mesh.N_el, 4);
+	deallocate_3d_array_d(comm_grad_vort, mesh.N_el, 4);
+	deallocate_2d_array_d(f_tilda, Knod);
+	deallocate_2d_array_d(f_tilda_B, 2);
+	deallocate_2d_array_d(g_tilda, Knod);
+	deallocate_2d_array_d(g_tilda_B, 2);
 
 	return 0;
 }
