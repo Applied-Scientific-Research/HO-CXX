@@ -142,7 +142,7 @@ void HO_2D::release_memory() { //release the memory as destructor
 
 	delete[] BC_no_slip;
 	delete[] BC_switch_Poisson;
-	delete[] BC_switch_advection;
+	//delete[] BC_switch_advection;
 	delete[] BC_switch_diffusion;
 
     deallocate_2d_array_c2(BC_cart_vel,mesh.N_edges_boundary);
@@ -627,7 +627,7 @@ char HO_2D::allocate_arrays() {
 
 	BC_switch_Poisson = new unsigned char[mesh.N_edges_boundary];
 	//BC_switch_psi = new unsigned char[mesh.N_edges_boundary];
-	BC_switch_advection = new unsigned char[mesh.N_edges_boundary];
+	//BC_switch_advection = new unsigned char[mesh.N_edges_boundary];
 	BC_switch_diffusion = new unsigned char[mesh.N_edges_boundary];
 
 	boundary_source = allocate_3d_array_d(mesh.N_edges_boundary, Knod*Knod, Knod);
@@ -1003,7 +1003,7 @@ void HO_2D::setup_IC_BC_SRC() {
 					//std::cout << "open edge index " << edge_index << std::endl;
 					BC_switch_Poisson[edge_index] = NeumannBC;
 					BC_switch_diffusion[edge_index] = DirichletBC;
-					BC_switch_advection[edge_index] = DirichletBC;
+					//BC_switch_advection[edge_index] = DirichletBC;
 				}
 
 			} else if (mesh.boundaries[G_boundary].name == "wall") {
@@ -1012,7 +1012,7 @@ void HO_2D::setup_IC_BC_SRC() {
 					//std::cout << "wall edge index " << edge_index << std::endl;
 					BC_switch_Poisson[edge_index] = DirichletBC;
 					BC_switch_diffusion[edge_index] = NeumannBC;
-					BC_switch_advection[edge_index] = DirichletBC;
+					//BC_switch_advection[edge_index] = DirichletBC;
 				}
 
 			} else if (mesh.boundaries[G_boundary].name == "inlet") {
@@ -1904,10 +1904,11 @@ void HO_2D::update_BCs(const double current_time) {
 						BC_normal_vel[eidx][j] = fac1*BC_VelNorm_start[i][j] + fac2*BC_VelNorm_end[i][j];
 						BC_parl_vel[eidx][j]   = fac1*BC_VelParl_start[i][j] + fac2*BC_VelParl_end[i][j];
 						//if (i>150) std::cout << "set bc vel on " << eidx << " " << i << " " << j << " to " << BC_normal_vel[eidx][j] << " " << BC_parl_vel[eidx][j] << std::endl;
+						BC_Poisson[eidx][j]    = -BC_parl_vel[eidx][j];
 
 						// and vorticity for diffusion
-						BC_vorticity[eidx][j] = fac1*BC_Vort_start[i][j] + fac2*BC_Vort_end[i][j];
-						//BC_diffusion[eidx][j] = fac1*BC_Vort_start[i][j] + fac2*BC_Vort_end[i][j];
+						//BC_vorticity[eidx][j] = fac1*BC_Vort_start[i][j] + fac2*BC_Vort_end[i][j];
+						BC_diffusion[eidx][j] = fac1*BC_Vort_start[i][j] + fac2*BC_Vort_end[i][j];
 						//if (i>150) std::cout << "set bc vort on " << eidx << " " << i << " " << j << " to " << BC_vorticity[eidx][j] << std::endl;
 					}
 					// these are already reprojected into eta, xsi components
@@ -2444,6 +2445,7 @@ void HO_2D::update_diffusion_BC() {
 	//updates the BC values for vorticity (BC_diffusion) when BC_no_slip is true
 
 	//std::fill(BC_switch_diffusion, BC_switch_diffusion + mesh.N_edges_boundary, NeumannBC); //pick Neumann BC for diffusion term based on the Fortran code
+
 	for (int Gboundary = 0; Gboundary < mesh.N_Gboundary; ++Gboundary) { //usually 4 in case of square
 		if (BC_no_slip[Gboundary]) {  //no slip condition on the global boundary element Gboundary, so if no slip wall then
 			for (int edge_index : mesh.boundaries[Gboundary].edges) {  //loop over edges on the Gboundary global boundary
