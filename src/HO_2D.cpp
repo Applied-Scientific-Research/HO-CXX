@@ -23,21 +23,21 @@ void HO_2D::release_memory() { //release the memory as destructor
 	delete[] sps_weight;
 	delete[] gps_local_coor;
 
-	deallocate_2d_array_d(sps_boundary_basis, Knod);
-	deallocate_2d_array_d(sps_boundary_grad_basis, Knod);
-	deallocate_2d_array_d(sps_sps_grad_basis, Knod);
-	deallocate_2d_array_d(sps_gps_basis, Knod);
-	deallocate_2d_array_d(sps_radau, Knod);
-	deallocate_2d_array_d(sps_grad_radau, Knod);
+	free_array<double>(sps_boundary_basis);
+	free_array<double>(sps_boundary_grad_basis);
+	free_array<double>(sps_sps_grad_basis);
+	free_array<double>(sps_gps_basis);
+	free_array<double>(sps_radau);
+	free_array<double>(sps_grad_radau);
 
-	deallocate_2d_array_d(gps_boundary_basis, mesh.Lnod);
-	deallocate_2d_array_d(gps_boundary_grad_basis, mesh.Lnod);
-	deallocate_2d_array_d(gps_sps_basis, mesh.Lnod);
-	deallocate_2d_array_d(gps_sps_grad_basis, mesh.Lnod);
+	free_array<double>(gps_boundary_basis);
+	free_array<double>(gps_boundary_grad_basis);
+	free_array<double>(gps_sps_basis);
+	free_array<double>(gps_sps_grad_basis);
 
 	free_array<Cmpnts2>(vol_Dx_Dxsi);
 	free_array<Cmpnts2>(vol_Dy_Dxsi);
-	deallocate_3d_array_d(vol_jac, mesh.N_el, Knod);
+	free_array<double>(vol_jac);
 
     for (int i = 0; i < mesh.N_el; ++i) {
         for (int j = 0; j < Knod; ++j) {
@@ -74,15 +74,15 @@ void HO_2D::release_memory() { //release the memory as destructor
 	free_array<double>(RHS_advective);
 	free_array<double>(RHS_diffusive);
 
-	deallocate_2d_array_d(BC_Poisson, mesh.N_edges_boundary);
-	deallocate_2d_array_d(BC_advection, mesh.N_edges_boundary);
-	deallocate_2d_array_d(BC_diffusion, mesh.N_edges_boundary);
-	deallocate_2d_array_d(BC_vorticity, mesh.N_edges_boundary);
-	deallocate_2d_array_d(BC_parl_vel, mesh.N_edges_boundary);
-	deallocate_2d_array_d(BC_normal_vel, mesh.N_edges_boundary);
-	deallocate_2d_array_d(velocity_jump, mesh.N_edges_boundary);
+	free_array<double>(BC_Poisson);
+	free_array<double>(BC_advection);
+	free_array<double>(BC_diffusion);
+	free_array<double>(BC_vorticity);
+	free_array<double>(BC_parl_vel);
+	free_array<double>(BC_normal_vel);
+	free_array<double>(velocity_jump);
 
-	deallocate_3d_array_d(boundary_source, mesh.N_edges_boundary, Knod*Knod);
+	free_array<double>(boundary_source);
 
 	delete[] BC_no_slip;
 	delete[] BC_switch_Poisson;
@@ -451,22 +451,22 @@ char HO_2D::allocate_arrays() {
 	sps_weight = new double[Knod];
 	gps_local_coor = new double[Lnod];
 
-	sps_boundary_basis = allocate_2d_array_d(Knod, 2);
-	sps_boundary_grad_basis = allocate_2d_array_d(Knod, 2);
-	sps_sps_grad_basis = allocate_2d_array_d(Knod, Knod);
+	sps_boundary_basis = allocate_array<double>(Knod, 2);
+	sps_boundary_grad_basis = allocate_array<double>(Knod, 2);
+	sps_sps_grad_basis = allocate_array<double>(Knod, Knod);
 
-	gps_boundary_basis = allocate_2d_array_d(Lnod, 2);
-	gps_boundary_grad_basis = allocate_2d_array_d(Lnod, 2);
-	gps_sps_basis = allocate_2d_array_d(Lnod, Knod);
-	sps_gps_basis = allocate_2d_array_d(Knod, Lnod);
-	gps_sps_grad_basis = allocate_2d_array_d(Lnod, Knod);
+	gps_boundary_basis = allocate_array<double>(Lnod, 2);
+	gps_boundary_grad_basis = allocate_array<double>(Lnod, 2);
+	gps_sps_basis = allocate_array<double>(Lnod, Knod);
+	sps_gps_basis = allocate_array<double>(Knod, Lnod);
+	gps_sps_grad_basis = allocate_array<double>(Lnod, Knod);
 
-	sps_radau = allocate_2d_array_d(Knod, 2);
-	sps_grad_radau = allocate_2d_array_d(Knod, 2);
+	sps_radau = allocate_array<double>(Knod, 2);
+	sps_grad_radau = allocate_array<double>(Knod, 2);
 
 	vol_Dx_Dxsi = allocate_array<Cmpnts2>(N_el, Knod, Knod);
 	vol_Dy_Dxsi = allocate_array<Cmpnts2>(N_el, Knod, Knod);
-	vol_jac = allocate_3d_array_d(N_el, Knod, Knod);
+	vol_jac = allocate_array<double>(N_el, Knod, Knod);
 
 	G = new double**** [N_el];
 	GB = new double**** [N_el];
@@ -507,17 +507,17 @@ char HO_2D::allocate_arrays() {
 	//BC_switch_advection = new unsigned char[mesh.N_edges_boundary];
 	BC_switch_diffusion = new unsigned char[mesh.N_edges_boundary];
 
-	boundary_source = allocate_3d_array_d(mesh.N_edges_boundary, Knod*Knod, Knod);
+	boundary_source = allocate_array<double>(mesh.N_edges_boundary, Knod*Knod, Knod);
 
-	BC_Poisson = allocate_2d_array_d(mesh.N_edges_boundary, Knod);
-	//BC_psi = allocate_2d_array_d(mesh.N_edges_boundary, Knod);
-	BC_advection = allocate_2d_array_d(mesh.N_edges_boundary, Knod);
-	BC_diffusion = allocate_2d_array_d(mesh.N_edges_boundary, Knod);
+	BC_Poisson = allocate_array<double>(mesh.N_edges_boundary, Knod);
+	//BC_psi = allocate_array<double>(mesh.N_edges_boundary, Knod);
+	BC_advection = allocate_array<double>(mesh.N_edges_boundary, Knod);
+	BC_diffusion = allocate_array<double>(mesh.N_edges_boundary, Knod);
 
-	BC_vorticity = allocate_2d_array_d(mesh.N_edges_boundary, Knod);
-	velocity_jump = allocate_2d_array_d(mesh.N_edges_boundary, Knod);
-	BC_parl_vel = allocate_2d_array_d(mesh.N_edges_boundary, Knod);
-	BC_normal_vel = allocate_2d_array_d(mesh.N_edges_boundary, Knod);
+	BC_vorticity = allocate_array<double>(mesh.N_edges_boundary, Knod);
+	velocity_jump = allocate_array<double>(mesh.N_edges_boundary, Knod);
+	BC_parl_vel = allocate_array<double>(mesh.N_edges_boundary, Knod);
+	BC_normal_vel = allocate_array<double>(mesh.N_edges_boundary, Knod);
 
 	BC_cart_vel = allocate_array<Cmpnts2>(mesh.N_edges_boundary, Knod);
 
@@ -1237,9 +1237,9 @@ void HO_2D:: form_Laplace_operator_matrix() {
 	//unsigned int Km1 = Knod - 1;
 	const int K4 = Ksq * Ksq;
 	//The coefficients in the left hand side matrix that has contribution from the element itself. it has the coefficients for element el, sps ij=j*Knod+i and rs=r*Knod+s, so laplacian_center[el][ij][rs]
-	double*** laplacian_center = allocate_3d_array_d(N_el, Ksq, Ksq);
+	double*** laplacian_center = allocate_array<double>(N_el, Ksq, Ksq);
 	//The coefficients in the left hand side matrix that has contribution from the 4 neighboring element (if are not located on the global boundary). it has the coefficients for element el per cell side, sps ij=j*Knod+i and rs=r*Knod+s of the neighbor element, so laplacian_center[el][4][ij][rs]
-	double**** laplacian_neighbor = allocate_4d_array_d(N_el, 4, Ksq, Ksq);
+	double**** laplacian_neighbor = allocate_array<double>(N_el, 4, Ksq, Ksq);
 	//double** NeuMatrix_Orig = new double* [Knod], **NeuMatrix = new double* [Knod]; //small dense matrix to obtain comx(per element) for a given Neumann BC
 	Eigen::MatrixXd NeuMatrix_Orig(Knod, Knod), NeuMatrix(Knod, Knod); //I am using Eigen here to save energy and time
 
@@ -1495,8 +1495,8 @@ void HO_2D:: form_Laplace_operator_matrix() {
 	else if (LHS_type==3) Poisson_solver_AMGCL_setup(laplacian_center, laplacian_neighbor);//use AMGCL to solve for the linear system
 
 	//  **************** free unnecessary memory ****************
-	deallocate_3d_array_d(laplacian_center, N_el, Ksq);
-	deallocate_4d_array_d(laplacian_neighbor, N_el, 4, Ksq);
+	free_array<double>(laplacian_center);
+	free_array<double>(laplacian_neighbor);
 }
 
 char HO_2D::Euler_time_integrate(double*** vort_in, double*** vort_out, double coeff) {
@@ -1896,29 +1896,28 @@ char HO_2D::calc_RHS_advection(double*** vort_in) {
 
 	// *********************************************************************
 
-	double** local_vort; //local array to hold the vorticity along a row of csi [0], and row of eta [1] direction
-	double** local_vel; //local array to hold the contravariant flux on a row of csi [0] (xsi dir), and row of eta [1] direction (eta dir)
+	//local array to hold the vorticity along a row of csi [0], and row of eta [1] direction
+	double** local_vort = allocate_array<double>(Knod, 2);
+	//local array to hold the contravariant flux on a row of csi [0] (xsi dir), and row of eta [1] direction (eta dir)
+	double** local_vel = allocate_array<double>(Knod, 2);
 
 	//quantities per element, per ijp face per sps index
-	double*** bndr_vort; //interpolated vorticity from a row/column of K nodes on the ijp faces
-	double*** bndr_flx; //interpolated flux of uw and vw in ijp faces, i.e. w*f^tilda on ijp=0,1 faces and w*g^tilda on ijp=2,3 faces
-	double*** upwnd_flx; //flux values at el element, in idir direction, at row_col row or column at k sps, hence [el][idir][row_col][k]= f^tilda[k] w[k] if idir=0 AND g^tilda[k] w[k] if idir=1
-
-	local_vort = allocate_2d_array_d(Knod, 2);
-	local_vel  = allocate_2d_array_d(Knod, 2);
-	bndr_vort  = allocate_3d_array_d(mesh.N_el, 4, Knod);
-	bndr_flx   = allocate_3d_array_d(mesh.N_el, 4, Knod);
-	upwnd_flx  = allocate_3d_array_d(mesh.N_el, 4, Knod);
+	//interpolated vorticity from a row/column of K nodes on the ijp faces
+	double*** bndr_vort = allocate_array<double>(mesh.N_el, 4, Knod);
+	//interpolated flux of uw and vw in ijp faces, i.e. w*f^tilda on ijp=0,1 faces and w*g^tilda on ijp=2,3 faces
+	double*** bndr_flx = allocate_array<double>(mesh.N_el, 4, Knod);
+	//flux values at el element, in idir direction, at row_col row or column at k sps, hence [el][idir][row_col][k]= f^tilda[k] w[k] if idir=0 AND g^tilda[k] w[k] if idir=1
+	double*** upwnd_flx = allocate_array<double>(mesh.N_el, 4, Knod);
 
 	//0 for xsi and 1: eta directions, so 0 means f^tilda and 1 means g^tilda
-	double**** disc_flx = allocate_4d_array_d(mesh.N_el, 2, Knod, Knod);
+	double**** disc_flx = allocate_array<double>(mesh.N_el, 2, Knod, Knod);
 
 	for (int i = 0; i < mesh.N_el; ++i)
 		for (int j = 0; j < 2; j++)
 			for (int k = 0; k < Knod; k++)
 				for (int m = 0; m < Knod; m++) disc_flx[i][j][k][m] = 0.;
 
-	double** bndr_disc_flx = allocate_2d_array_d(4,Knod);	//4 side of a cells
+	double** bndr_disc_flx = allocate_array<double>(4,Knod);	//4 side of a cells
 
 	// ****************************************************************
 
@@ -2022,24 +2021,13 @@ char HO_2D::calc_RHS_advection(double*** vort_in) {
 	}
 
 	// ********************** free memory on the heap*****************
-	deallocate_2d_array_d(bndr_disc_flx, 4);
-
-	for (int i = 0; i < mesh.N_el; ++i) {
-		for (int j = 0; j < 2; j++) {
-			for (int k = 0; k < Knod; k++)
-				delete[] disc_flx[i][j][k];
-			delete[] disc_flx[i][j];
-		}
-		delete[] disc_flx[i];
-	}
-	delete[] disc_flx;
-
-	deallocate_3d_array_d(bndr_vort, mesh.N_el, 4);
-	deallocate_3d_array_d(bndr_flx, mesh.N_el, 4);
-	deallocate_3d_array_d(upwnd_flx, mesh.N_el, 4);
-
-	deallocate_2d_array_d(local_vort, Knod);
-	deallocate_2d_array_d(local_vel, Knod);
+	free_array<double>(bndr_disc_flx);
+	free_array<double>(disc_flx);
+	free_array<double>(bndr_vort);
+	free_array<double>(bndr_flx);
+	free_array<double>(upwnd_flx);
+	free_array<double>(local_vort);
+	free_array<double>(local_vel);
 
 	return 0;
 }
@@ -2363,22 +2351,22 @@ char HO_2D::calc_RHS_diffusion(double*** vort_in) {
 	//double du_dxsi, du_deta;
 	unsigned char ijp, ijpm; //left boundary(xsi): ijp=0, right_boundary (xsi): ijp=1; south boundary (eta): ijp=2; north boundary (eta): ijp = 3
 	//local array to hold the vorticity along a row of csi [0], and row of eta [1] direction
-	double** local_vort = allocate_2d_array_d(Knod, 2);
+	double** local_vort = allocate_array<double>(Knod, 2);
 
 	//vorticity and grad of vorticity at sps of the L/R (0:1) and S/N (2:3) boundaries of all elements
-	double*** bndr_vort = allocate_3d_array_d(mesh.N_el, 4, Knod);
-	double*** bndr_grad_vort = allocate_3d_array_d(mesh.N_el, 4, Knod);
+	double*** bndr_vort = allocate_array<double>(mesh.N_el, 4, Knod);
+	double*** bndr_grad_vort = allocate_array<double>(mesh.N_el, 4, Knod);
 
 	//common vorticity and common grad vorticity per element, per face (west, east, south, north) per sps index
-	double*** comm_vort = allocate_3d_array_d(mesh.N_el, 4, Knod);
-	double*** comm_grad_vort = allocate_3d_array_d(mesh.N_el, 4, Knod);
+	double*** comm_vort = allocate_array<double>(mesh.N_el, 4, Knod);
+	double*** comm_grad_vort = allocate_array<double>(mesh.N_el, 4, Knod);
 
 	//f_tilda is the derivative of the continuous vorticity function at all sps, i.e. d/dxsi(w^C)
-	double** f_tilda = allocate_2d_array_d(Knod, Knod);
-	double** f_tilda_B = allocate_2d_array_d(2, Knod);
+	double** f_tilda = allocate_array<double>(Knod, Knod);
+	double** f_tilda_B = allocate_array<double>(2, Knod);
 	//g_tilda is the derivative of the continuous vorticity function at all sps, i.e. d/deta(w^C)
-	double** g_tilda = allocate_2d_array_d(Knod, Knod);
-	double** g_tilda_B = allocate_2d_array_d(2, Knod);
+	double** g_tilda = allocate_array<double>(Knod, Knod);
+	double** g_tilda_B = allocate_array<double>(2, Knod);
 
 
 	//**********************************************************************
@@ -2509,15 +2497,15 @@ char HO_2D::calc_RHS_diffusion(double*** vort_in) {
 	}
 
 	// ******************* free memory on heap ***************
-	deallocate_2d_array_d(local_vort, Knod);
-	deallocate_3d_array_d(bndr_vort, mesh.N_el, 4);
-	deallocate_3d_array_d(bndr_grad_vort, mesh.N_el, 4);
-	deallocate_3d_array_d(comm_vort, mesh.N_el, 4);
-	deallocate_3d_array_d(comm_grad_vort, mesh.N_el, 4);
-	deallocate_2d_array_d(f_tilda, Knod);
-	deallocate_2d_array_d(f_tilda_B, 2);
-	deallocate_2d_array_d(g_tilda, Knod);
-	deallocate_2d_array_d(g_tilda_B, 2);
+	free_array<double>(local_vort);
+	free_array<double>(bndr_vort);
+	free_array<double>(bndr_grad_vort);
+	free_array<double>(comm_vort);
+	free_array<double>(comm_grad_vort);
+	free_array<double>(f_tilda);
+	free_array<double>(f_tilda_B);
+	free_array<double>(g_tilda);
+	free_array<double>(g_tilda_B);
 
 	return 0;
 }
@@ -2882,23 +2870,23 @@ void HO_2D::calc_velocity_vector_from_streamfunction() {
 	//double du_dxsi, du_deta;
 	unsigned char ijp, ijpm; //left boundary(xsi): ijp=0, right_boundary (xsi): ijp=1; south boundary (eta): ijp=2; north boundary (eta): ijp = 3
 	//local array to hold the vorticity along a row of csi [0], and row of eta [1] direction
-	double** local_psi = allocate_2d_array_d(Knod, 2);
+	double** local_psi = allocate_array<double>(Knod, 2);
 
 	//streamfunction and grad of streamfunction at sps of the L/R (0:1) and S/N (2:3) boundaries of all elements
-	double*** bndr_psi = allocate_3d_array_d(mesh.N_el, 4, Knod);
-	double*** bndr_grad_psi = allocate_3d_array_d(mesh.N_el, 4, Knod);
+	double*** bndr_psi = allocate_array<double>(mesh.N_el, 4, Knod);
+	double*** bndr_grad_psi = allocate_array<double>(mesh.N_el, 4, Knod);
 	//common streamfunction and common grad streamfunction per element, per face (west, east, south, north) at flux points
-	double*** comm_psi = allocate_3d_array_d(mesh.N_el, 4, Knod);
-	double*** comm_grad_psi = allocate_3d_array_d(mesh.N_el, 4, Knod);
+	double*** comm_psi = allocate_array<double>(mesh.N_el, 4, Knod);
+	double*** comm_grad_psi = allocate_array<double>(mesh.N_el, 4, Knod);
 
 	//f_tilda is the derivative of the continuous streamfunction at all sps, i.e. d/dxsi(psi^C)
-	double** f_tilda = allocate_2d_array_d(Knod, Knod);
+	double** f_tilda = allocate_array<double>(Knod, Knod);
 	//g_tilda is the derivative of the continuous streamfunction at all sps, i.e. d/deta(psi^C)
-	double** g_tilda = allocate_2d_array_d(Knod, Knod);
+	double** g_tilda = allocate_array<double>(Knod, Knod);
 
 	// // f_tilda_B is defined on W, E side, g_tilda_B is defined on S, N side
-	double** f_tilda_B = allocate_2d_array_d(2, Knod);
-	double** g_tilda_B = allocate_2d_array_d(2, Knod);
+	double** f_tilda_B = allocate_array<double>(2, Knod);
+	double** g_tilda_B = allocate_array<double>(2, Knod);
 
 	//**********************************************************************
 
@@ -3025,17 +3013,17 @@ void HO_2D::calc_velocity_vector_from_streamfunction() {
 	}
 
 	// ******************* free memory on heap ***************
-	deallocate_2d_array_d(local_psi, Knod);
+	free_array<double>(local_psi);
 
-	deallocate_3d_array_d(bndr_psi, mesh.N_el, 4);
-	deallocate_3d_array_d(bndr_grad_psi, mesh.N_el, 4);
-	deallocate_3d_array_d(comm_psi, mesh.N_el, 4);
-	deallocate_3d_array_d(comm_grad_psi, mesh.N_el, 4);
+	free_array<double>(bndr_psi);
+	free_array<double>(bndr_grad_psi);
+	free_array<double>(comm_psi);
+	free_array<double>(comm_grad_psi);
 
-	deallocate_2d_array_d(f_tilda, Knod);
-	deallocate_2d_array_d(g_tilda, Knod);
-	deallocate_2d_array_d(f_tilda_B, 2);
-	deallocate_2d_array_d(g_tilda_B, 2);
+	free_array<double>(f_tilda);
+	free_array<double>(g_tilda);
+	free_array<double>(f_tilda_B);
+	free_array<double>(g_tilda_B);
 }
 
 void HO_2D::save_output_vtk(int indx) {
@@ -3549,9 +3537,9 @@ void HO_2D::allocate_hybrid_arrays(const size_t _nel, const size_t _neb, const s
 	BC_Vort_start    = allocate_array<double>(_neb, _knod);
 	BC_Vort_end      = allocate_array<double>(_neb, _knod);
 
-	Vort_start = allocate_3d_array_d(_nel, _knod, _knod);
-	Vort_end   = allocate_3d_array_d(_nel, _knod, _knod);
-	Vort_wgt   = allocate_3d_array_d(_nel, _knod, _knod);
+	Vort_start = allocate_array<double>(_nel, _knod, _knod);
+	Vort_end   = allocate_array<double>(_nel, _knod, _knod);
+	Vort_wgt   = allocate_array<double>(_nel, _knod, _knod);
 }
 
 void HO_2D::load_mesh_arrays_d(const int32_t _iorder,
@@ -3714,8 +3702,8 @@ int32_t HO_2D::getsolnptlen() {
 
 void HO_2D::getsolnpts_d(const int32_t _ptlen, double* _xypts) {
 
-	double** xloc = allocate_2d_array_d(mesh.Lnod,mesh.Lnod);
-	double** yloc = allocate_2d_array_d(mesh.Lnod,mesh.Lnod);
+	double** xloc = allocate_array<double>(mesh.Lnod,mesh.Lnod);
+	double** yloc = allocate_array<double>(mesh.Lnod,mesh.Lnod);
 
 	// first get the mesh nodes
 	for (int i=0; i<mesh.N_el; ++i) {
@@ -3744,8 +3732,8 @@ void HO_2D::getsolnpts_d(const int32_t _ptlen, double* _xypts) {
 		}
 	}
 
-	deallocate_2d_array_d(xloc,mesh.Lnod);
-	deallocate_2d_array_d(yloc,mesh.Lnod);
+	free_array<double>(xloc);
+	free_array<double>(yloc);
 }
 
 void HO_2D::getsolnareas_d(const int32_t _veclen, double* _areas) {
@@ -4034,8 +4022,8 @@ void HO_2D::clean_up() {
 	free_array<double>(BC_Vort_start);
 	free_array<double>(BC_Vort_end);
 
-	deallocate_3d_array_d(Vort_start, mesh.N_el, Knod);
-	deallocate_3d_array_d(Vort_end, mesh.N_el, Knod);
-	deallocate_3d_array_d(Vort_wgt, mesh.N_el, Knod);
+	free_array<double>(Vort_start);
+	free_array<double>(Vort_end);
+	free_array<double>(Vort_wgt);
 }
 
