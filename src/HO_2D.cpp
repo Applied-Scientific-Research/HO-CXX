@@ -1711,8 +1711,9 @@ char HO_2D::solve_Poisson(double const* const* const* vort_in) {
 
 
 		Eigen::VectorXd poisson_sol = bicg_Eigen.solve(RHS_Eigen);  //biCGstab method
-		std::cout << "  iterations:     " << bicg_Eigen.iterations() << std::endl;
-		std::cout << "  estimated error: " << bicg_Eigen.error() << std::endl;
+		//std::cout << "  iterations:     " << bicg_Eigen.iterations() << std::endl;
+		//std::cout << "  estimated error: " << bicg_Eigen.error() << std::endl;
+		std::cout << "  iters:  " << bicg_Eigen.iterations() << "  and error:  " << bicg_Eigen.error() << std::endl;
 
 
 		/*
@@ -1886,7 +1887,7 @@ void HO_2D::update_BCs(const double current_time) {
 		// for the end of the last step, weights are fac1=0.0, fac2=1.0
 		const double fac1 = (current_time-time_start) / (time_end-time_start);
 		const double fac2 = 1.0-fac1;
-		std::cout << "  substep normalized time " << fac1 << std::endl;
+		//std::cout << "  substep normalized time " << fac1 << std::endl;
 
 		// then set BC values for each element
 		// note that the hybrid BC_VelNorm_start, etc. arrays are indexed only for the open bdry
