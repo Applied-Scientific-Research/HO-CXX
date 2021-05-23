@@ -8,72 +8,16 @@
 
 #include "HO_2D.hpp"
 #include "MathHelpers.hpp"
+#include "MemoryHelper.hpp"
 
 #include <cmath>
 
-//can use templates so that we dont worry about data types, do it later.
-void deallocate_1d_array_d(double* arry) {
-	if (arry == nullptr) return;
-	delete[] arry;
-}
-
-void deallocate_2d_array_d(double** arry, const size_t nx) {
-	if (arry == nullptr) return;
-	for (size_t k = 0; k < nx; ++k) {
-		delete[] arry[k];
-	}
-	delete[] arry;
-}
-
-void deallocate_2d_array_c2(Cmpnts2** arry, const size_t nx) {
-	for (size_t k = 0; k < nx; ++k) {
-		delete[] arry[k];
-	}
-	delete[] arry;
-}
-
-void deallocate_3d_array_d(double*** arry, const size_t nx, const size_t ny) {
-	if (arry == nullptr) return;
-	for (size_t k = 0; k < nx; ++k) {
-		for (size_t j = 0; j < ny; ++j) {
-			delete[] arry[k][j];
-		}
-		delete[] arry[k];
-	}
-	delete[] arry;
-}
-
-void deallocate_4d_array_d(double**** arry, const size_t nx, const size_t ny, const size_t nz) {
-	if (arry == nullptr) return;
-	for (size_t k = 0; k < nx; ++k) {
-		for (size_t j = 0; j < ny; ++j) {
-			for (size_t i = 0; i < nz; ++i) {
-				delete[] arry[k][j][i];
-			}
-			delete[] arry[k][j];
-		}
-		delete[] arry[k];
-	}
-	delete[] arry;
-}
-
-void deallocate_3d_array_c2(Cmpnts2*** arry, const size_t nx, const size_t ny) {
-	if (arry == nullptr) return;
-	for (size_t k = 0; k < nx; ++k) {
-		for (size_t j = 0; j < ny; ++j) {
-			delete[] arry[k][j];
-		}
-		delete[] arry[k];
-	}
-	delete[] arry;
-}
-
 void HO_2D::release_memory() { //release the memory as destructor
 
-	deallocate_3d_array_d(vorticity, mesh.N_el, Knod);
-	deallocate_3d_array_d(stream_function, mesh.N_el, Knod);
-	deallocate_3d_array_d(initial_vorticity, mesh.N_el, Knod);
-	deallocate_3d_array_c2(velocity_cart, mesh.N_el, Knod);
+	free_array<double>(vorticity);
+	free_array<double>(stream_function);
+	free_array<double>(initial_vorticity);
+	free_array<Cmpnts2>(velocity_cart);
 
 	delete[] sps_local_coor;
 	delete[] sps_weight;
@@ -91,8 +35,8 @@ void HO_2D::release_memory() { //release the memory as destructor
 	deallocate_2d_array_d(gps_sps_basis, mesh.Lnod);
 	deallocate_2d_array_d(gps_sps_grad_basis, mesh.Lnod);
 
-	deallocate_3d_array_c2(vol_Dx_Dxsi, mesh.N_el, Knod);
-	deallocate_3d_array_c2(vol_Dy_Dxsi, mesh.N_el, Knod);
+	free_array<Cmpnts2>(vol_Dx_Dxsi);
+	free_array<Cmpnts2>(vol_Dy_Dxsi);
 	deallocate_3d_array_d(vol_jac, mesh.N_el, Knod);
 
     for (int i = 0; i < mesh.N_el; ++i) {
@@ -119,16 +63,16 @@ void HO_2D::release_memory() { //release the memory as destructor
     }
     delete[] GB;
 
-	deallocate_3d_array_d(face_Acoef, mesh.N_el, 4);
-	deallocate_3d_array_d(face_Bcoef, mesh.N_el, 4);
-	deallocate_3d_array_d(face_jac, mesh.N_el, 4);
-	deallocate_3d_array_d(face_Anorm, mesh.N_el, 4);
+	free_array<double>(face_Acoef);
+	free_array<double>(face_Bcoef);
+	free_array<double>(face_jac);
+	free_array<double>(face_Anorm);
 
-	deallocate_3d_array_c2(face_Dx_Dxsi, mesh.N_el, 4);
-	deallocate_3d_array_c2(face_Dy_Dxsi, mesh.N_el, 4);
+	free_array<Cmpnts2>(face_Dx_Dxsi);
+	free_array<Cmpnts2>(face_Dy_Dxsi);
 
-	deallocate_3d_array_d(RHS_advective, mesh.N_el, Knod);
-	deallocate_3d_array_d(RHS_diffusive, mesh.N_el, Knod);
+	free_array<double>(RHS_advective);
+	free_array<double>(RHS_diffusive);
 
 	deallocate_2d_array_d(BC_Poisson, mesh.N_edges_boundary);
 	deallocate_2d_array_d(BC_advection, mesh.N_edges_boundary);
@@ -145,13 +89,13 @@ void HO_2D::release_memory() { //release the memory as destructor
 	//delete[] BC_switch_advection;
 	delete[] BC_switch_diffusion;
 
-    deallocate_2d_array_c2(BC_cart_vel,mesh.N_edges_boundary);
+	free_array<Cmpnts2>(BC_cart_vel);
 
-    deallocate_3d_array_d(k1, mesh.N_el, Knod); //these are used in the RK time integration
-    deallocate_3d_array_d(k2, mesh.N_el, Knod);
-    deallocate_3d_array_d(k3, mesh.N_el, Knod);
-    deallocate_3d_array_d(k4, mesh.N_el, Knod);
-    deallocate_3d_array_d(vort, mesh.N_el, Knod);
+    free_array<double>(k1); //these are used in the RK time integration
+    free_array<double>(k2);
+    free_array<double>(k3);
+    free_array<double>(k4);
+    free_array<double>(vort);
 }
 
 int HO_2D::read_input_file(const std::string filename) {
@@ -492,83 +436,16 @@ void HO_2D::setup_sps_gps() {
 
 }
 
-// allocator helpers
-// there is a better way to do this, where all data is held in a contiguous memory chunk
-// and we can even do it in a templated function: allocate_2d_array<double>(nx, ny);
-
-double* allocate_1d_array_d(const size_t nx) {
-	double* outptr = nullptr;
-	outptr = new double[nx];
-	return outptr;
-}
-
-double** allocate_2d_array_d(const size_t nx, const size_t ny) {
-	double** outptr = nullptr;
-	outptr = new double* [nx];
-	for (size_t j = 0; j < nx; ++j) {
-		outptr[j] = new double [ny];
-	}
-	return outptr;
-}
-
-double*** allocate_3d_array_d(const size_t nx, const size_t ny, const size_t nz) {
-	double*** outptr = nullptr;
-	outptr = new double** [nx];
-	for (size_t j = 0; j < nx; ++j) {
-		outptr[j] = new double* [ny];
-		for (size_t i = 0; i < ny; ++i) {
-			outptr[j][i] = new double[nz];
-		}
-	}
-	return outptr;
-}
-
-double**** allocate_4d_array_d(const size_t nx, const size_t ny, const size_t nz, const size_t nq) {
-	double**** outptr = nullptr;
-	outptr = new double*** [nx];
-	for (size_t i = 0; i < nx; ++i) {
-		outptr[i] = new double** [ny];
-		for (size_t j = 0; j < ny; ++j) {
-			outptr[i][j] = new double* [nz];
-			for (size_t k = 0; k < nz; ++k) {
-				outptr[i][j][k] = new double[nq];
-			}
-		}
-	}
-	return outptr;
-}
-
-Cmpnts2** allocate_2d_array_c2(const size_t nx, const size_t ny) {
-	Cmpnts2** outptr = nullptr;
-	outptr = new Cmpnts2* [nx];
-	for (size_t j = 0; j < nx; ++j) {
-		outptr[j] = new Cmpnts2 [ny];
-	}
-	return outptr;
-}
-
-Cmpnts2*** allocate_3d_array_c2(const size_t nx, const size_t ny, const size_t nz) {
-	Cmpnts2*** outptr = nullptr;
-	outptr = new Cmpnts2** [nx];
-	for (size_t j = 0; j < nx; ++j) {
-		outptr[j] = new Cmpnts2* [ny];
-		for (size_t i = 0; i < ny; ++i) {
-			outptr[j][i] = new Cmpnts2[nz];
-		}
-	}
-	return outptr;
-}
-
 char HO_2D::allocate_arrays() {
 	//allocate the memory for the arrays and resize them.
 	int N_el = mesh.N_el;
 	int Lnod = mesh.Lnod;
 
-	initial_vorticity = allocate_3d_array_d(N_el, Knod, Knod);
-	vorticity = allocate_3d_array_d(N_el, Knod, Knod);
-	stream_function = allocate_3d_array_d(N_el, Knod, Knod);
+	initial_vorticity = allocate_array<double>(N_el, Knod, Knod);
+	vorticity = allocate_array<double>(N_el, Knod, Knod);
+	stream_function = allocate_array<double>(N_el, Knod, Knod);
 
-	velocity_cart = allocate_3d_array_c2(N_el, Knod, Knod);
+	velocity_cart = allocate_array<Cmpnts2>(N_el, Knod, Knod);
 
 	sps_local_coor = new double[Knod];
 	sps_weight = new double[Knod];
@@ -587,8 +464,8 @@ char HO_2D::allocate_arrays() {
 	sps_radau = allocate_2d_array_d(Knod, 2);
 	sps_grad_radau = allocate_2d_array_d(Knod, 2);
 
-	vol_Dx_Dxsi = allocate_3d_array_c2(N_el, Knod, Knod);
-	vol_Dy_Dxsi = allocate_3d_array_c2(N_el, Knod, Knod);
+	vol_Dx_Dxsi = allocate_array<Cmpnts2>(N_el, Knod, Knod);
+	vol_Dy_Dxsi = allocate_array<Cmpnts2>(N_el, Knod, Knod);
 	vol_jac = allocate_3d_array_d(N_el, Knod, Knod);
 
 	G = new double**** [N_el];
@@ -613,15 +490,15 @@ char HO_2D::allocate_arrays() {
 		}
 	}
 
-	face_Acoef = allocate_3d_array_d(N_el, 4, Knod);
-	face_Bcoef = allocate_3d_array_d(N_el, 4, Knod);
-	face_jac   = allocate_3d_array_d(N_el, 4, Knod);
-	face_Anorm = allocate_3d_array_d(N_el, 4, Knod);
-	face_Dx_Dxsi = allocate_3d_array_c2(N_el, 4, Knod);
-	face_Dy_Dxsi = allocate_3d_array_c2(N_el, 4, Knod);
+	face_Acoef = allocate_array<double>(N_el, 4, Knod);
+	face_Bcoef = allocate_array<double>(N_el, 4, Knod);
+	face_jac   = allocate_array<double>(N_el, 4, Knod);
+	face_Anorm = allocate_array<double>(N_el, 4, Knod);
+	face_Dx_Dxsi = allocate_array<Cmpnts2>(N_el, 4, Knod);
+	face_Dy_Dxsi = allocate_array<Cmpnts2>(N_el, 4, Knod);
 
-	RHS_advective = allocate_3d_array_d(N_el, Knod, Knod);
-	RHS_diffusive = allocate_3d_array_d(N_el, Knod, Knod);
+	RHS_advective = allocate_array<double>(N_el, Knod, Knod);
+	RHS_diffusive = allocate_array<double>(N_el, Knod, Knod);
 
 	BC_no_slip = new bool[mesh.N_Gboundary]; //Set NoSlip to all walls (as default)
 
@@ -642,13 +519,13 @@ char HO_2D::allocate_arrays() {
 	BC_parl_vel = allocate_2d_array_d(mesh.N_edges_boundary, Knod);
 	BC_normal_vel = allocate_2d_array_d(mesh.N_edges_boundary, Knod);
 
-	BC_cart_vel = allocate_2d_array_c2(mesh.N_edges_boundary, Knod);
+	BC_cart_vel = allocate_array<Cmpnts2>(mesh.N_edges_boundary, Knod);
 
-    k1 = allocate_3d_array_d(N_el, Knod, Knod); //these are used in the RK time integration
-    k2 = allocate_3d_array_d(N_el, Knod, Knod);
-    k3 = allocate_3d_array_d(N_el, Knod, Knod);
-    k4 = allocate_3d_array_d(N_el, Knod, Knod);
-    vort = allocate_3d_array_d(N_el, Knod, Knod);
+    k1 = allocate_array<double>(N_el, Knod, Knod); //these are used in the RK time integration
+    k2 = allocate_array<double>(N_el, Knod, Knod);
+    k3 = allocate_array<double>(N_el, Knod, Knod);
+    k4 = allocate_array<double>(N_el, Knod, Knod);
+    vort = allocate_array<double>(N_el, Knod, Knod);
 
 
 	return 0;
@@ -1248,19 +1125,36 @@ char HO_2D::solve_vorticity_streamfunction() {
 char HO_2D::solve_advection_diffusion() {
 	//solves the advection diffusion eq. for the vorticity field: VTE
 
-	int N_el = mesh.N_el;
+	const int N_el = mesh.N_el; 
 
-	static bool are_allocated = false;
-	static double*** k1, ***k2, ***k3, ***k4, ***vort;
+	//static bool are_allocated = false;
+	//static int orig_nel = N_el, orig_knod = Knod;
+	//static double*** k1, ***k2, ***k3, ***k4, ***vort;
 
+/*
 	if (not are_allocated) {
-		k1 = allocate_3d_array_d(N_el, Knod, Knod);
-		k2 = allocate_3d_array_d(N_el, Knod, Knod);
-		k3 = allocate_3d_array_d(N_el, Knod, Knod);
-		k4 = allocate_3d_array_d(N_el, Knod, Knod);
-		vort = allocate_3d_array_d(N_el, Knod, Knod);
+		// if anything changed since last allocation, free first
+		if (N_el != orig_nel or Knod != orig_knod) {
+			free_array(k1);
+			free_array(k2);
+			free_array(k3);
+			free_array(k4);
+			free_array(vort);
+		}
+
+		// allocate here
+		k1 = allocate_array<double>(N_el, Knod, Knod);
+		k2 = allocate_array<double>(N_el, Knod, Knod);
+		k3 = allocate_array<double>(N_el, Knod, Knod);
+		k4 = allocate_array<double>(N_el, Knod, Knod);
+		vort = allocate_array<double>(N_el, Knod, Knod);
+
+		// and remember what we did here
+		orig_nel = N_el;
+		orig_knod = Knod;
 		are_allocated = true;
 	}
+*/
 
 	// first order Euler time integration method
 	if (time_integration_type == 1) {
@@ -1323,11 +1217,11 @@ char HO_2D::solve_advection_diffusion() {
 	}
 
     // do not delete memory, but if we wanted to, we would do this
-    //deallocate_3d_array_d(k1, N_el, Knod);
-    //deallocate_3d_array_d(k2, N_el, Knod);
-    //deallocate_3d_array_d(k3, N_el, Knod);
-    //deallocate_3d_array_d(k4, N_el, Knod);
-    //deallocate_3d_array_d(vort, N_el, Knod);
+    //free_array<double>(k1);
+    //free_array<double>(k2);
+    //free_array<double>(k3);
+    //free_array<double>(k4);
+    //free_array<double>(vort);
 
 	return 0;
 }
@@ -3648,12 +3542,12 @@ void HO_2D::allocate_hybrid_arrays(const size_t _nel, const size_t _neb, const s
 	clean_up();
 
 	// allocate anew
-	BC_VelNorm_start = allocate_2d_array_d(_neb, _knod);
-	BC_VelNorm_end   = allocate_2d_array_d(_neb, _knod);
-	BC_VelParl_start = allocate_2d_array_d(_neb, _knod);
-	BC_VelParl_end   = allocate_2d_array_d(_neb, _knod);
-	BC_Vort_start    = allocate_2d_array_d(_neb, _knod);
-	BC_Vort_end      = allocate_2d_array_d(_neb, _knod);
+	BC_VelNorm_start = allocate_array<double>(_neb, _knod);
+	BC_VelNorm_end   = allocate_array<double>(_neb, _knod);
+	BC_VelParl_start = allocate_array<double>(_neb, _knod);
+	BC_VelParl_end   = allocate_array<double>(_neb, _knod);
+	BC_Vort_start    = allocate_array<double>(_neb, _knod);
+	BC_Vort_end      = allocate_array<double>(_neb, _knod);
 
 	Vort_start = allocate_3d_array_d(_nel, _knod, _knod);
 	Vort_end   = allocate_3d_array_d(_nel, _knod, _knod);
@@ -3879,8 +3773,8 @@ int32_t HO_2D::getopenptlen() {
 void HO_2D::getopenpts_d(const int32_t _nopen, double* _xyopen) {
 
 	for (auto &bdry : mesh.boundaries) if (bdry.name == "open") {
-		double* xloc = allocate_1d_array_d(mesh.Lnod);
-		double* yloc = allocate_1d_array_d(mesh.Lnod);
+		double* xloc = new double [mesh.Lnod];
+		double* yloc = new double [mesh.Lnod];
 
 		// now get the solution points on this boundary
 		for (unsigned int i=0; i<bdry.N_edges; ++i) {
@@ -3910,8 +3804,8 @@ void HO_2D::getopenpts_d(const int32_t _nopen, double* _xyopen) {
 				idx += 2;
 			}
 		}
-		deallocate_1d_array_d(xloc);
-		deallocate_1d_array_d(yloc);
+		delete[] xloc;
+		delete[] yloc;
 	}
 	return;
 }
@@ -4133,12 +4027,12 @@ void HO_2D::clean_up() {
 	//release_memory();
 
 	// and then clean up hybrid arrays
-	deallocate_2d_array_d(BC_VelNorm_start, mesh.N_edges_boundary);
-	deallocate_2d_array_d(BC_VelNorm_end, mesh.N_edges_boundary);
-	deallocate_2d_array_d(BC_VelParl_start, mesh.N_edges_boundary);
-	deallocate_2d_array_d(BC_VelParl_end, mesh.N_edges_boundary);
-	deallocate_2d_array_d(BC_Vort_start, mesh.N_edges_boundary);
-	deallocate_2d_array_d(BC_Vort_end, mesh.N_edges_boundary);
+	free_array<double>(BC_VelNorm_start);
+	free_array<double>(BC_VelNorm_end);
+	free_array<double>(BC_VelParl_start);
+	free_array<double>(BC_VelParl_end);
+	free_array<double>(BC_Vort_start);
+	free_array<double>(BC_Vort_end);
 
 	deallocate_3d_array_d(Vort_start, mesh.N_el, Knod);
 	deallocate_3d_array_d(Vort_end, mesh.N_el, Knod);
