@@ -147,7 +147,10 @@ public:
 		N_Gboundary = 0;
 	}
 
-	~Mesh() {}	//destructor define here later
+	~Mesh() {	//destructor
+		delete[] elem_neighbor;
+		delete[] boundary_elem_ID;
+	}
 
 	char read_msh_file();
 	char setup_mesh_problem(unsigned int problem_type);
