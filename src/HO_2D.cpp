@@ -1508,7 +1508,7 @@ char HO_2D::Euler_time_integrate(double*** vort_in, double*** vort_out, double c
 	*/
 
 	// for now the BC are setup once in the setup_IC_BC_SRC. This is for a time-dependent BCs
-	const double current_time =  (ti + coeff) * dt;
+	const double current_time = (ti + coeff) * dt;
 	update_BCs(current_time);
 
 	solve_Poisson(vort_in); //calculate the streamfunction corresponding to the vort_in, i.e. Laplacian(psi)=-vort_in. solves for stream_function
@@ -1796,12 +1796,12 @@ void HO_2D::update_BCs(const double current_time) {
 					const int eidx = eoffset + i;	// edge index in the master list
 					for (int j=0; j<Knod; ++j) {
 						// set normal and parallel vels
-						BC_normal_vel[eidx][j] = fac1*BC_VelNorm_start[i][j] + fac2*BC_VelNorm_end[i][j];
-						BC_parl_vel[eidx][j]   = fac1*BC_VelParl_start[i][j] + fac2*BC_VelParl_end[i][j];
+						BC_normal_vel[eidx][j] = -(fac1*BC_VelNorm_start[i][j] + fac2*BC_VelNorm_end[i][j]);
+						BC_parl_vel[eidx][j]   = -(fac1*BC_VelParl_start[i][j] + fac2*BC_VelParl_end[i][j]);
 						//if (i>150) std::cout << "set bc vel on " << eidx << " " << i << " " << j << " to " << BC_normal_vel[eidx][j] << " " << BC_parl_vel[eidx][j] << std::endl;
-						BC_Poisson[eidx][j]    = -BC_parl_vel[eidx][j];
+						BC_Poisson[eidx][j]    = BC_parl_vel[eidx][j];
 
-						// and vorticity for diffusion
+						// and vorticity for diffusion - is this right? BC_vorticity is set in calc_RHS_diffusion:2407
 						//BC_vorticity[eidx][j] = fac1*BC_Vort_start[i][j] + fac2*BC_Vort_end[i][j];
 						BC_diffusion[eidx][j] = fac1*BC_Vort_start[i][j] + fac2*BC_Vort_end[i][j];
 						//if (i>150) std::cout << "set bc vort on " << eidx << " " << i << " " << j << " to " << BC_vorticity[eidx][j] << std::endl;
@@ -1885,6 +1885,10 @@ void HO_2D::update_advection_BC() {
 							-BC_cart_vel[edge_index][edge_flux_point_index].x * face_Dy_Dxsi[element_index][ijp][i].x + BC_cart_vel[edge_index][edge_flux_point_index].y * face_Dx_Dxsi[element_index][ijp][i].x };*/
 
 			//BC_advection[edge_index][edge_flux_point_index] = BC_vorticity[edge_index][edge_flux_point_index] * volumetric_flux_boundary[direction];
+			//
+			// NOTE Adrin thinks this following line should not have the face_Anorm multiplier (05-14),
+			//      but Mohammad explained in Discord on 05/16
+			//
 			BC_advection[edge_index][edge_flux_point_index] = BC_vorticity[edge_index][edge_flux_point_index]  * BC_normal_vel[edge_index][edge_flux_point_index] * face_Anorm[element_index][ijp][i];
 		}
 	}
@@ -3692,6 +3696,24 @@ void HO_2D::load_mesh_arrays_d(const int32_t _iorder,
 	form_metrics();
 	setup_IC_BC_SRC();
 	form_Laplace_operator_matrix();
+
+	// dump some debug info
+	for (int i=0; i<mesh.N_el; i+=2000) {
+		std::cout << "Elem " << i << " has vol_jac" << std::endl;
+		for (int j=0; j<Knod; ++j) {
+			for (int k=0; k<Knod; ++k) {
+				std::cout << " " << vol_jac[i][j][k];
+			}
+			std::cout << std::endl;
+		}
+		std::cout << "  and face_jac" << std::endl;
+		for (int j=0; j<4; ++j) {
+			for (int k=0; k<Knod; ++k) {
+				std::cout << " " << face_jac[i][j][k];
+			}
+			std::cout << std::endl;
+		}
+	}
 }
 
 // get data from this Eulerian solver
