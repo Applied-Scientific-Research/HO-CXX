@@ -3598,7 +3598,7 @@ void HO_2D::load_mesh_arrays_d(const int32_t _iorder,
 
 		thisbdry.name = "wall";
 		thisbdry.N_edges = (unsigned int)_nwall / mesh.Lnod;
-		const unsigned int dtype = mesh.face_type_node_number_inv.at(mesh.Lnod);
+		const unsigned int dtype = mesh.edge_type_node_number_inv.at(mesh.Lnod);
 		thisbdry.edges.resize(thisbdry.N_edges);
 
 		for (size_t i=0; i<thisbdry.N_edges; ++i) {
@@ -3640,7 +3640,7 @@ void HO_2D::load_mesh_arrays_d(const int32_t _iorder,
 
 		thisbdry.name = "open";
 		thisbdry.N_edges = (unsigned int)_nopen / mesh.Lnod;
-		const unsigned int dtype = mesh.face_type_node_number_inv.at(mesh.Lnod);
+		const unsigned int dtype = mesh.edge_type_node_number_inv.at(mesh.Lnod);
 		thisbdry.edges.resize(thisbdry.N_edges);
 
 		for (size_t i=0; i<thisbdry.N_edges; ++i) {
@@ -3698,7 +3698,7 @@ void HO_2D::load_mesh_arrays_d(const int32_t _iorder,
 	form_Laplace_operator_matrix();
 
 	// dump some debug info
-	for (int i=0; i<mesh.N_el; i+=2000) {
+	if (false) for (int i=0; i<mesh.N_el; i+=2000) {
 		std::cout << "Elem " << i << " has vol_jac" << std::endl;
 		for (int j=0; j<Knod; ++j) {
 			for (int k=0; k<Knod; ++k) {
