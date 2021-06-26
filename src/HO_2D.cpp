@@ -3677,10 +3677,33 @@ void HO_2D::load_mesh_arrays_d(const int32_t _iorder,
 		}
 	}
 
+	// read in inlets and outlets after this
+}
+
+// load in any normal vels and indices for inlets and outlets
+void HO_2D::load_inout_arrays_d(
+		const int32_t _ninval, const double* _velin,
+		const int32_t _nin, const int32_t* _idxin,
+		const int32_t _noutval, const double* _velout,
+		const int32_t _nout, const int32_t* _idxout) {
+
+	if (_nin > 0) {
+		mesh.boundaries.emplace_back(boundary());
+		boundary& thisbdry = mesh.boundaries.back();
+
+		thisbdry.name = "inlet";
+		thisbdry.N_edges = (unsigned int)_nin / mesh.Lnod;
+	}
+
+	// testing - stop here
+	exit(1);
+}
+
+// all input is done, process the mesh and boundaries
+void HO_2D::process_mesh_input() {
+
 	mesh.N_edges_boundary = mesh.edges.size();
 	mesh.N_Gboundary = mesh.boundaries.size();
-
-	// how to deal with inlets and outlets? are they just other "open" boundaries?
 
 	// complete processing of the mesh
 	mesh.process_mesh();
@@ -3715,6 +3738,7 @@ void HO_2D::load_mesh_arrays_d(const int32_t _iorder,
 		}
 	}
 }
+
 
 // get data from this Eulerian solver
 

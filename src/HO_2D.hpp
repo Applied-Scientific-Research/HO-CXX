@@ -228,6 +228,12 @@ public:
 		const int32_t, const int32_t*,
 		const int32_t, const int32_t*,
 		const int32_t, const int32_t*);
+	void load_inout_arrays_d(
+		const int32_t, const double*,
+		const int32_t, const int32_t*,
+		const int32_t, const double*,
+		const int32_t, const int32_t*);
+	void process_mesh_input();
 	// get data from this Eulerian solver
 	int32_t getsolnptlen();
 	void getsolnpts_d(const int32_t, double*);
