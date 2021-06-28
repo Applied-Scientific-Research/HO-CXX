@@ -3546,6 +3546,61 @@ void HO_2D::allocate_hybrid_arrays(const size_t _nel, const size_t _neb, const s
 	Vort_wgt   = allocate_array<double>(_nel, _knod, _knod);
 }
 
+// method to accept indices and values and return a boundary
+boundary HO_2D::arrays_to_boundary(
+		const std::string _name,
+		const int32_t _n, const int32_t* _idx,
+		const int32_t _nval, const double* _bc) {
+
+	boundary thisbdry = boundary();
+
+	thisbdry.name = _name;
+	thisbdry.N_edges = (unsigned int)_n / mesh.Lnod;
+	const unsigned int dtype = mesh.edge_type_node_number_inv.at(mesh.Lnod);
+	thisbdry.edges.resize(thisbdry.N_edges);
+
+	for (size_t i=0; i<thisbdry.N_edges; ++i) {
+		// make a new edge
+		mesh.edges.emplace_back(edge());
+		edge& thisedge = mesh.edges.back();
+
+		// now fill in the information
+		thisedge.edge_type = dtype;
+		thisedge.N_nodes = mesh.Lnod;
+		thisedge.nodes.resize(mesh.Lnod);
+		for (size_t j=0; j<thisedge.N_nodes; ++j) {
+			thisedge.nodes[j] = (unsigned int)_idx[mesh.Lnod*i+j];
+			//std::cout << _name << " bdry edge " << i << " node " << j << " is " << thisedge.nodes[j] << std::endl;
+		}
+		
+		// add the index to the boundary
+		thisbdry.edges[i] = (unsigned int)mesh.edges.size() - 1;
+		//std::cout << "  and is index " << thisbdry.edges[i] << std::endl;
+
+		// finally, search for the owning element
+		for (int el=0; el<mesh.N_elements; ++el) {
+			// check each side of the element
+			for (int s = south; s <= west; s++) {
+				// match first and second node idx
+				const unsigned int n0 = mesh.elements[el].nodes[s];
+				const unsigned int n1 = mesh.elements[el].nodes[(s + 1) % 4];
+				if (n0 == thisedge.nodes[0] && n1 == thisedge.nodes[1]) {
+					mesh.elements[el].edges[s] = thisbdry.edges[i];
+					//std::cout << _name << " edge " << thisbdry.edges[i] << " matches element " << el << std::endl;
+				}
+			}
+		}
+	}
+
+	// deal with the BCs now
+    if (_nval > 0) {
+		std::cout << "boundary " << _name << " has BC values" << std::endl;
+	}
+
+	return thisbdry;
+}
+
+// load in all the nodes, elements, wall, and open BCs
 void HO_2D::load_mesh_arrays_d(const int32_t _iorder,
 		const int32_t _nnodes, const double* _xynodes,
 		const int32_t _nelems, const int32_t* _idxelems,
@@ -3560,6 +3615,8 @@ void HO_2D::load_mesh_arrays_d(const int32_t _iorder,
 	// Lnod is in Mesh
 	mesh.Lnod_in = (unsigned int)_iorder;
 	mesh.Lnod = mesh.Lnod_in + 1;
+
+	//std::cout << "in HO_2D::load_mesh_arrays_d with " << _iorder << " " << _nnodes << " " << _nelems << " " << _nwall << " " << _nopen << std::endl;
 
 	// load in the nodes
 	mesh.N_nodes = _nnodes/2;
@@ -3593,88 +3650,12 @@ void HO_2D::load_mesh_arrays_d(const int32_t _iorder,
 
 	// first, the wall boundary
 	if (_nwall > 0) {
-		mesh.boundaries.emplace_back(boundary());
-		boundary& thisbdry = mesh.boundaries.back();
-
-		thisbdry.name = "wall";
-		thisbdry.N_edges = (unsigned int)_nwall / mesh.Lnod;
-		const unsigned int dtype = mesh.edge_type_node_number_inv.at(mesh.Lnod);
-		thisbdry.edges.resize(thisbdry.N_edges);
-
-		for (size_t i=0; i<thisbdry.N_edges; ++i) {
-			// make a new edge
-			mesh.edges.emplace_back(edge());
-			edge& thisedge = mesh.edges.back();
-
-			// now fill in the information
-			thisedge.edge_type = dtype;
-			thisedge.N_nodes = mesh.Lnod;
-			thisedge.nodes.resize(mesh.Lnod);
-			for (size_t j=0; j<thisedge.N_nodes; ++j) {
-				thisedge.nodes[j] = (unsigned int)_idxwall[mesh.Lnod*i+j];
-			}
-			
-			// add the index to the boundary
-			thisbdry.edges[i] = (unsigned int)mesh.edges.size() - 1;
-
-			// finally, search for the owning element
-			for (int el=0; el<mesh.N_elements; ++el) {
-				// check each side of the element
-				for (int s = south; s <= west; s++) {
-					// match first and second node idx
-					const unsigned int n0 = mesh.elements[el].nodes[s];
-					const unsigned int n1 = mesh.elements[el].nodes[(s + 1) % 4];
-					if (n0 == thisedge.nodes[0] && n1 == thisedge.nodes[1]) {
-						mesh.elements[el].edges[s] = thisbdry.edges[i];
-						//std::cout << "wall edge " << thisbdry.edges[i] << " matches element " << el << std::endl;
-					}
-				}
-			}
-		}
+		mesh.boundaries.emplace_back(arrays_to_boundary("wall",_nwall,_idxwall,0,nullptr));
 	}
 
 	// then the open boundary
 	if (_nopen > 0) {
-		mesh.boundaries.emplace_back(boundary());
-		boundary& thisbdry = mesh.boundaries.back();
-
-		thisbdry.name = "open";
-		thisbdry.N_edges = (unsigned int)_nopen / mesh.Lnod;
-		const unsigned int dtype = mesh.edge_type_node_number_inv.at(mesh.Lnod);
-		thisbdry.edges.resize(thisbdry.N_edges);
-
-		for (size_t i=0; i<thisbdry.N_edges; ++i) {
-			// make a new edge
-			mesh.edges.emplace_back(edge());
-			edge& thisedge = mesh.edges.back();
-
-			// now fill in the information
-			thisedge.edge_type = dtype;
-			thisedge.N_nodes = mesh.Lnod;
-			thisedge.nodes.resize(mesh.Lnod);
-			for (size_t j=0; j<thisedge.N_nodes; ++j) {
-				thisedge.nodes[j] = (unsigned int)_idxopen[mesh.Lnod*i+j];
-				//std::cout << "open bdry edge " << i << " node " << j << " is " << thisedge.nodes[j] << std::endl;
-			}
-			
-			// add the index to the boundary
-			thisbdry.edges[i] = (unsigned int)mesh.edges.size() - 1;
-			//std::cout << "  and is index " << thisbdry.edges[i] << std::endl;
-
-			// finally, search for the owning element
-			for (int el=0; el<mesh.N_elements; ++el) {
-				// check each side of the element
-				for (int s = south; s <= west; s++) {
-					// match first and second node idx
-					const unsigned int n0 = mesh.elements[el].nodes[s];
-					const unsigned int n1 = mesh.elements[el].nodes[(s + 1) % 4];
-					if (n0 == thisedge.nodes[0] && n1 == thisedge.nodes[1]) {
-						mesh.elements[el].edges[s] = thisbdry.edges[i];
-						//std::cout << "open edge " << thisbdry.edges[i] << " matches element " << el << std::endl;
-					}
-				}
-			}
-		}
+		mesh.boundaries.emplace_back(arrays_to_boundary("open",_nopen,_idxopen,0,nullptr));
 	}
 
 	// read in inlets and outlets after this
@@ -3687,16 +3668,18 @@ void HO_2D::load_inout_arrays_d(
 		const int32_t _noutval, const double* _velout,
 		const int32_t _nout, const int32_t* _idxout) {
 
-	if (_nin > 0) {
-		mesh.boundaries.emplace_back(boundary());
-		boundary& thisbdry = mesh.boundaries.back();
+	//std::cout << "in HO_2D::load_inout_arrays_d with " << _ninval << " " << _nin << " " << _noutval << " " << _nout << std::endl;
 
-		thisbdry.name = "inlet";
-		thisbdry.N_edges = (unsigned int)_nin / mesh.Lnod;
+	if (_nin > 0) {
+		mesh.boundaries.emplace_back(arrays_to_boundary("inlet",_nin,_idxin,_ninval,_velin));
+	}
+	if (_nout > 0) {
+		mesh.boundaries.emplace_back(arrays_to_boundary("outlet",_nout,_idxout,_noutval,_velout));
 	}
 
 	// testing - stop here
-	exit(1);
+	//exit(1);
+	std::cout << "GOT FAR ENOUGH" << std::endl;
 }
 
 // all input is done, process the mesh and boundaries

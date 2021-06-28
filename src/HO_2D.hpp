@@ -223,6 +223,9 @@ public:
 	void enable_hybrid();
 	void set_elemorder(const int32_t);
 	void allocate_hybrid_arrays(const size_t, const size_t, const size_t);
+	boundary arrays_to_boundary( const std::string,
+		const int32_t, const int32_t*,
+		const int32_t, const double*);
 	void load_mesh_arrays_d(const int32_t,
 		const int32_t, const double*,
 		const int32_t, const int32_t*,
