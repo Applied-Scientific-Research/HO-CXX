@@ -87,6 +87,9 @@ struct boundary {  //the boundary for 2D mesh
 	std::string name;  //name of the boundary
 	unsigned int N_edges=0; //number of the 1D edges constituting the boundary
 	std::vector<unsigned int> edges;  //the index of the edges that form the boundary
+	std::vector<double> normvel;  //save the geometry-aligned boundary conditions
+	std::vector<double> parlvel;  //save the geometry-aligned boundary conditions
+
 	boundary() : N_edges(0) {} //default constructor
 };
 struct side {

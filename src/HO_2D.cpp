@@ -654,6 +654,7 @@ void HO_2D::form_bases() {
 
 void HO_2D::setup_IC_BC_SRC() {
 	//setup initial condition, boundary condition and the source/sink terms
+
 	/* in this version, the Cartesian velocity BC (BC_cart_vel) are replaced with the slip and normal components.
 	Slip velocity: is always in the CCW to the boundary edges. For instance, if the top lid of cavity goes to the right, then the slip velocity is -1
 	Normal velocity: always measured in the outward to the boundary. So, incoming flux is negative and outgoing flux is positive
@@ -799,21 +800,21 @@ void HO_2D::setup_IC_BC_SRC() {
             }
         }
 
-        for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) {
-            if (mesh.boundaries[G_boundary].name == "inlet") { //vorticity, psi and normal velocity are defined
-                BC_no_slip[G_boundary] = false;
-                for (int edge_index : mesh.boundaries[G_boundary].edges) {
-                    BC_switch_diffusion[edge_index] = DirichletBC;
-                    BC_switch_Poisson[edge_index] = DirichletBC;
-                    for (int k=0; k<Knod; ++k) {
-                        double y=0.;
-                        for (int j=0; j<mesh.Lnod; ++j) y += gps_sps_basis[j][k] * mesh.nodes[ mesh.edges[edge_index].nodes[mesh.tensor2FEM(j)] ].coor.y; //y at k sps on the edge_index boundary edge
-                        BC_Poisson[edge_index][k] = y - y_min; // uniform velocity profile = 1 into the domain
-                        BC_diffusion[edge_index][k] =0.; //zero vorticity
-                        BC_normal_vel[edge_index][k] = -1.; //In the Fortran code, it is considered as the volume flux but here it is the normal out of domain VELOCITY, to be consistent with the BC_parl_vel
-                    }
-                }
-            }  //case inlet
+	    for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) {
+	        if (mesh.boundaries[G_boundary].name == "inlet") { //vorticity, psi and normal velocity are defined
+	            BC_no_slip[G_boundary] = false;
+	            for (int edge_index : mesh.boundaries[G_boundary].edges) {
+	                BC_switch_diffusion[edge_index] = DirichletBC;
+	                BC_switch_Poisson[edge_index] = DirichletBC;
+	                for (int k=0; k<Knod; ++k) {
+	                    double y=0.;
+	                    for (int j=0; j<mesh.Lnod; ++j) y += gps_sps_basis[j][k] * mesh.nodes[ mesh.edges[edge_index].nodes[mesh.tensor2FEM(j)] ].coor.y; //y at k sps on the edge_index boundary edge
+	                    BC_Poisson[edge_index][k] = y - y_min; // uniform velocity profile = 1 into the domain
+	                    BC_diffusion[edge_index][k] =0.; //zero vorticity
+	                    BC_normal_vel[edge_index][k] = -1.; //In the Fortran code, it is considered as the volume flux but here it is the normal out of domain VELOCITY, to be consistent with the BC_parl_vel
+	                }
+	            }
+	        }  //case inlet
 
             else if (mesh.boundaries[G_boundary].name == "outlet") {  //Neumann for vorticity, Neumann for psi, and slip velocity are known
                 // set slip BC to not allow diffusion
@@ -892,19 +893,28 @@ void HO_2D::setup_IC_BC_SRC() {
 					//BC_switch_advection[edge_index] = DirichletBC;
 				}
 
+			} else if (mesh.boundaries[G_boundary].name == "slipwall") {
+				assert(false && "HO_2D::setup_IC_BC_SRC - slipwall BC unsupported");
+				BC_no_slip[G_boundary] = false;
+
 			} else if (mesh.boundaries[G_boundary].name == "inlet") {
 				assert(false && "HO_2D::setup_IC_BC_SRC - inlet BC unsupported");
+				BC_no_slip[G_boundary] = false;
 
 			} else if (mesh.boundaries[G_boundary].name == "outlet") {
 				assert(false && "HO_2D::setup_IC_BC_SRC - outlet BC unsupported");
+				BC_no_slip[G_boundary] = false;
 
 			} else {
-				assert(false && "HO_2D::setup_IC_BC_SRC - BC unsupported");
+				assert(false && "HO_2D::setup_IC_BC_SRC - unknown BC in mesh");
 			}
 		}
     } //if problem_type==11
 
-    else {  //for any arbitrary problem, specify the BC's of the problem here: modify the below terms as the problem is designed
+    else {
+		//for any arbitrary problem, specify the BC's of the problem here:
+		//  modify the below terms as the problem is designed
+
         std::fill(BC_no_slip, BC_no_slip + mesh.N_Gboundary, true); // if a boundary is no-slip wall or not.
         std::fill(BC_switch_Poisson, BC_switch_Poisson + mesh.N_edges_boundary, DirichletBC);
         std::fill(&BC_Poisson[0][0], &BC_Poisson[0][0] + mesh.N_edges_boundary * Knod, 0.); //psi=0
@@ -3595,6 +3605,33 @@ boundary HO_2D::arrays_to_boundary(
 	// deal with the BCs now
     if (_nval > 0) {
 		std::cout << "boundary " << _name << " has BC values" << std::endl;
+		// this could be tangential (slip wall) or normal (inlet/outlet/bleed surface)
+		std::cout << "  " << _nval << " values over " << thisbdry.N_edges << " elements" << std::endl;
+
+		// how many vels per element?
+		const size_t nvalper = _nval / thisbdry.N_edges;
+		assert(_nval % thisbdry.N_edges == 0 && "Value array is not an even multiple of element count");
+		// if 2, then tangential is first, then normal
+		thisbdry.parlvel.resize(thisbdry.N_edges);
+		thisbdry.normvel.resize(thisbdry.N_edges);
+		std::fill(thisbdry.normvel.begin(), thisbdry.normvel.end(), 0.0);
+
+		// HOW DO WE ACCOUNT FOR HIGHER-ORDER GEOM ELEMS? HOW MANY VALS PER ELEM?
+		// note that BC_parl_vel, BC_normal_vel are not yet allocated!
+		// save one or two numbers in these - we will adjust other BCs in setup_IC_BC_SRC
+
+		if (nvalper == 1) {
+			for (size_t i=0; i<thisbdry.N_edges; ++i) {
+				thisbdry.parlvel[i] = _bc[i];
+			}
+		} else if (nvalper == 2) {
+			for (size_t i=0; i<thisbdry.N_edges; ++i) {
+				thisbdry.parlvel[i] = _bc[i*2];
+				thisbdry.normvel[i] = _bc[i*2+1];
+			}
+		} else {
+			assert(false && "Unexpected number of BCs per element in HO_2D::arrays_to_boundary");
+		}
 	}
 
 	return thisbdry;
@@ -3658,7 +3695,7 @@ void HO_2D::load_mesh_arrays_d(const int32_t _iorder,
 		mesh.boundaries.emplace_back(arrays_to_boundary("open",_nopen,_idxopen,0,nullptr));
 	}
 
-	// read in inlets and outlets after this
+	// read in optional inlets and outlets after this but before processing mesh
 }
 
 // load in any normal vels and indices for inlets and outlets
