@@ -1635,6 +1635,12 @@ char HO_2D::solve_Poisson(double const* const* const* vort_in) {
 
 	}  //if LHS_type==1 (Eigen)
 
+	else if (LHS_type == 2) { //Hypre
+		// die - there is no Hypre
+		assert("Hypre solver is unsupported in HO-CXX, quitting.");
+
+	}  //if LHS_type==2 (Hypre)
+
 	else if (LHS_type == 3) { //AMGCL
 		std::vector<double> AMGCL_sol(N_el * Ksq);
 		for (int el = 0; el < N_el; ++el)
