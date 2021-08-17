@@ -3533,7 +3533,7 @@ void HO_2D::set_defaults() {
 	time_end = 0.0;
 	dump_frequency = 100;
 	fast = 0;
-	LHS_type = 1;	// 1=Eigen, 3=amgcl
+	LHS_type = 3;	// 1=Eigen, 3=amgcl
 }
 
 void HO_2D::enable_hybrid() {
