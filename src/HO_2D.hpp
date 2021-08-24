@@ -40,16 +40,19 @@ typedef Eigen::Triplet<double> Trplet;
 typedef amgcl::backend::builtin<double> Backend;
 typedef amgcl::make_solver<amgcl::amg<Backend, amgcl::coarsening::smoothed_aggregation, amgcl::relaxation::spai0>, amgcl::solver::bicgstab<Backend>> AMGCL_Solver;
 
-
 #define DirichletBC 0
 #define NeumannBC 1
+//enum bc_type {
+//	DirichletBC,
+//	NeumannBC
+//};
 
 struct LR_boundary { // for the shape functions and Radua where everything reverts back to 1D and on the boundaries
 	double left=1., right=1.;
 };
 
 
-// the main class to hold the primitve and fundamental variables and methods
+// the main class to hold the primitve and fundamental variables and methods - the "everything" class
 class HO_2D {
 
 private:
@@ -137,6 +140,10 @@ private:
 
 	bool using_hybrid;
 	double time_start, time_end;
+	// we need these to map between a boundary edge in the edges list and that same edge in the boundary's edge list!
+	std::vector<unsigned int> orderededges;
+	std::vector<unsigned int> orderedbdry;
+	std::vector<unsigned int> orderedindex;
 	// this is where C++ is still terrible: either *** and new[] delete[], or Eigen, or Boost, or templates!
 	// values on the open boundary - relatively easy, can use Eigen matrix or double**
 	// it would be nice to use std::vector<std::array<FTYPE,K>> BC_VelNorm_start;
@@ -210,7 +217,7 @@ public:
 	void update_BCs(double time); //updates the Cartesian velocity BC(BC_u_vel, BC_v_vel), BC_diffusion. Usually BCs are fixed in time, this is just for cases where the BCs changes in time. time is the current time
 	void save_output(int time);	// debug writing only
 	void save_output_vtk(int indx); //writes the data in VTK format
-	void save_smooth_vtk(int indx); //writes the data in VTK format with averaging of 4 nodes from internal nodes (smoother than save_output_vtk)
+	void save_smooth_vtk(int indx, int subidx = -1); //writes the data in VTK format with averaging of 4 nodes from internal nodes (smoother than save_output_vtk)
 	void save_vorticity_vtk(int indx); //writes the data in VTK format for the vorticity
 	void read_process_sample_points();
 	void update_advection_BC(); //calculate/update the BC for the advective term

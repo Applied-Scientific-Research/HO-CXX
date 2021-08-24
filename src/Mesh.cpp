@@ -329,7 +329,7 @@ void Mesh::process_mesh() {
 	}
 	N_el = elements.size();  //total number of elements (2d faces)
 	elem_neighbor = new element_neighbor[N_el];
-	boundary_elem_ID = new boundary_element[N_edges_boundary];
+	boundary_edges.resize(N_edges_boundary);
 	std::cout << "  edges vector begins with " << edges.size() << " elements" << std::endl;
 
 	// *************** detect the total interior edges in the domain and add them to the edges vector (which already has boundary edges) and add them to the elements vector *********************
@@ -397,13 +397,13 @@ void Mesh::process_mesh() {
 		}
 	}
 	//*********************************************************************************************************************
-	// ****************************** form the boundary_elem_ID which has the details of all edges on the global boundary *****************************
+	// ****************************** form the boundary_edges which has the details of all edges on the global boundary *****************************
 	for (int el = 0; el < N_el; ++el) {
 		for (int s = south; s <= west; s++) {
 			if (elem_neighbor[el].is_on_boundary[s]) { //if the side s of element el is on global boundary
 				edge_index = elem_neighbor[el].boundary_index[s];
-				boundary_elem_ID[edge_index].element_index = el;
-				boundary_elem_ID[edge_index].side = (cell_sides)s;
+				boundary_edges[edge_index].element_index = el;
+				boundary_edges[edge_index].side = (cell_sides)s;
 			}
 		}
 	}
@@ -413,10 +413,10 @@ void Mesh::process_mesh() {
 	//std::vector<bool> fixed_elements(N_el, false); //the elements that are fixed by rotating the edges are turned into true
 	//fixed_elements[0] = true; //I assume element 0 is fixed, so orient the rest based on element 0
 	std::vector<bool> listed_elements_to_orient(N_el, false); //a list of the elements that are added to the vector tet_guess_for_hex_vertices
-	std::vector<boundary_element> to_be_oriented_list; //a list of the elements indices to be oriented and the side it should be fixed based upon: to be completed gradually as it runs
+	std::vector<boundary_edge> to_be_oriented_list; //a list of the elements indices to be oriented and the side it should be fixed based upon: to be completed gradually as it runs
 	to_be_oriented_list.reserve(N_el);
 	listed_elements_to_orient[0] = true;
-	boundary_element tmp_BE;
+	boundary_edge tmp_BE;
 	//tmp_BE.element_index = 0; tmp_BE.side = south;
 	to_be_oriented_list.emplace_back(0,south); //the element=0 is added and its side south should be oriented in south, sop no work on element 0
 
@@ -497,7 +497,7 @@ char Mesh::setup_mesh_problem(unsigned int prob_type) {
 	N_edges_boundary = (periodic || grid_type == 3) ? 2*N_el_i : 2 * (N_el_i + N_el_j);  //number of edges on the boundary
 	N_el = N_el_i * N_el_j; //total number of elements
 	elem_neighbor = new element_neighbor [N_el]; //resize the elem_neighbors arrays
-	boundary_elem_ID = new boundary_element[N_edges_boundary];
+	boundary_edges.resize(N_edges_boundary);
 	edges.resize(N_edges_boundary);
 	//boundary_node_ID = new unsigned int* [N_edges_boundary];
 	for (int i = 0; i < N_edges_boundary; ++i) {
@@ -719,8 +719,8 @@ char Mesh::setup_mesh_problem(unsigned int prob_type) {
 				boundaries[0].N_edges++;
 				elem_neighbor[nc].is_on_boundary[south]=true;
 				elem_neighbor[nc].boundary_index[south] = nb;
-				boundary_elem_ID[nb].element_index = nc;
-				boundary_elem_ID[nb].side = south;
+				boundary_edges[nb].element_index = nc;
+				boundary_edges[nb].side = south;
 				edges[nb].nodes[0] = elements[nc].nodes[0];
 				edges[nb].nodes[1] = elements[nc].nodes[1];
 				if (Lnod_in == 2) edges[nb].nodes[2] = elements[nc].nodes[4];
@@ -737,8 +737,8 @@ char Mesh::setup_mesh_problem(unsigned int prob_type) {
 				boundaries[top_B].N_edges++;
 				elem_neighbor[nc].is_on_boundary[north] = true;
 				elem_neighbor[nc].boundary_index[north] = nb;  //fix this later, it is wrong as of now
-				boundary_elem_ID[nb].element_index = nc;
-				boundary_elem_ID[nb].side = north;
+				boundary_edges[nb].element_index = nc;
+				boundary_edges[nb].side = north;
 				edges[nb].nodes[0] = elements[nc].nodes[3];
 				edges[nb].nodes[1] = elements[nc].nodes[2];
 				if (Lnod_in == 2) edges[nb].nodes[2] = elements[nc].nodes[6];
@@ -758,8 +758,8 @@ char Mesh::setup_mesh_problem(unsigned int prob_type) {
 					boundaries[3].N_edges++;
 					elem_neighbor[nc].is_on_boundary[west] = true;
 					elem_neighbor[nc].boundary_index[west] = nb;
-					boundary_elem_ID[nb].element_index = nc;
-					boundary_elem_ID[nb].side = west;
+					boundary_edges[nb].element_index = nc;
+					boundary_edges[nb].side = west;
 					//CCW rotation for meshing, For now, I'm assuming all sides are in positive x/y direction. NOTE: need to account for direction later
 					edges[nb].nodes[0] = elements[nc].nodes[0];
 					edges[nb].nodes[1] = elements[nc].nodes[3];
@@ -781,8 +781,8 @@ char Mesh::setup_mesh_problem(unsigned int prob_type) {
 					boundaries[1].N_edges++;
 					elem_neighbor[nc].is_on_boundary[east] = true;
 					elem_neighbor[nc].boundary_index[east] = nb;
-					boundary_elem_ID[nb].element_index = nc;
-					boundary_elem_ID[nb].side = east;
+					boundary_edges[nb].element_index = nc;
+					boundary_edges[nb].side = east;
 					edges[nb].nodes[0] = elements[nc].nodes[1];
 					edges[nb].nodes[1] = elements[nc].nodes[2];
 					if (Lnod_in == 2) edges[nb].nodes[2] = elements[nc].nodes[5];

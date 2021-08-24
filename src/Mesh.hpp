@@ -20,7 +20,6 @@
 #include <map> //for associative arrays
 
 
-enum cell_sides { south = 0, east = 1, north = 2, west = 3 }; //the 4 sides of a cell
 
 // class for 2D coordinate system
 struct Cmpnts2 {
@@ -68,37 +67,65 @@ struct Cmpnts2 {
 		x += b*Y.x; y += b*Y.y;
 	}
 };
-struct element2d { // the 2D element
+
+struct node {  //the nodes
+	unsigned int node_type;  //0 for corner, 1 for nodes on the edges and 2 for nodes on the faces
+	Cmpnts2 coor;
+};
+
+struct edge {  //the side edges of the 2D elements
+	unsigned int edge_type;
+	unsigned int N_nodes;
+	std::vector<unsigned int> nodes;
+	int bdry_index;	// index in the vector of boundary_edges, or -1 if edge is not a boundary
+
+	edge() : N_nodes(0), bdry_index(-1) {} //default constructor
+};
+
+// boundary type 0=wall, 1=slipwall, 2=inlet, 3=outlet, 4=open, ???
+enum bdry_type {
+	wall,
+	slipwall,
+	inlet,
+	outlet,
+	open
+};
+
+//the 4 sides of a cell
+enum cell_sides {
+	south = 0,
+	east = 1,
+	north = 2,
+	west = 3
+};
+
+// extra information required for edges on boundaries
+struct boundary_edge {
+	bdry_type bc_type;			// type of bc (open, wall, etc.)
+	unsigned int element_index;	// index of the parent element2d
+	cell_sides side;			// this boundary side of the parent element
+	std::vector<double> normvel;	// some number of velocities, either 1 or N_nodes
+	std::vector<double> parlvel;	// some number of velocities, either 1 or N_nodes
+};
+
+struct element2d { // the 2D quad element
 	unsigned int element_type;
 	unsigned int N_nodes;
 	std::vector<unsigned int> nodes;  //all nodes used in the formation of an element. The details of these nodes can be found in vector nodes
 	unsigned int edges[4];  //all 4 edges used in the formation of an element. The details of these edges can be found in vector edges
 };
-struct edge {  //the side edges of the 2D elements
-	unsigned int edge_type;
-	unsigned int N_nodes;
-	std::vector<unsigned int> nodes;
-};
-struct node {  //the nodes
-	unsigned int node_type;  //0 for corner, 1 for nodes on the edges and 2 for nodes on the faces
-	Cmpnts2 coor;
-};
-struct boundary {  //the boundary for 2D mesh
-	std::string name;  //name of the boundary
+
+struct boundary {  //a named boundary of a 2D mesh
+	std::string name;  //name of the boundary in the gmsh file
+	bdry_type bc_type;	// type of bc (open, wall, etc.)
 	unsigned int N_edges=0; //number of the 1D edges constituting the boundary
-	std::vector<unsigned int> edges;  //the index of the edges that form the boundary
-	std::vector<double> normvel;  //save the geometry-aligned boundary conditions
-	std::vector<double> parlvel;  //save the geometry-aligned boundary conditions
+	std::vector<unsigned int> edges;  //the index of the edges that form the boundary in the master edges list
+	//std::vector<double> normvel;  //save the geometry-aligned boundary conditions
+	//std::vector<double> parlvel;  //save the geometry-aligned boundary conditions
 
 	boundary() : N_edges(0) {} //default constructor
 };
-struct side {
-	bool west, east, north, south;
-};
-struct boundary_element {  //to store the element index of the edges that are located on the boundary and the side of the element
-	unsigned int element_index;
-	cell_sides side;
-};
+
 struct element_neighbor {
 	unsigned int neighbor[4]; //4 sides, south, east, north, west
 	bool is_on_boundary[4] = { false,false,false,false}; //by default the 4 side are not located on the boundary
@@ -112,10 +139,13 @@ private:
 	int N_elements = 0;  //# of elements read from msh file
 	int N_edges_boundary;  // total number of edges on the boundary
 	int N_Gboundary; //number of global boundaries with boundary conditions: number of boundary conditions (number of different boundaries)
+
 	std::vector<struct node> nodes; //coordinates of the nodes
 	std::vector<struct edge> edges;		 // types and nodes constituting edges of elements
+	std::vector<struct boundary_edge> boundary_edges;  // extra information stored on every boundary edge
 	std::vector<struct element2d> elements; // types and nodes constituting elements
 	std::vector<struct boundary> boundaries; // the boundaries of the problem, including the names and the edges that form each boundary
+
 	std::string input_msh_file; //default name of the mesh file. It can be read from the file too
 	int OCC_format;
 	double dx_ratio; //multiplier to expand the grid geometrically by factor dx_ratio
@@ -125,7 +155,6 @@ private:
 	int N_el;  //total number of quad elements
 	int Lnod_in; //geometry parametric order per elem (must generalize to include x, y dirs). Lnod_in is the degree of the polynomial made from the geometry nodes, so the number of nodes on the element geometry is one more than Lnod_in.e.g. 5 nodes on edge is Lnod_in = 4
 	element_neighbor* elem_neighbor; //index of the neighboring elements on the 4 sides and the boundary index (if located on the boundary). south neighbor is index0, east=1, north=2, west=3 (so CCW)
-	boundary_element* boundary_elem_ID;  //index pointing to mesh element number containing that boundary element (size is number of edges on the boundaries)
 	//boundaryPointsElemID is a 1D array that keeps the indices of the elements that have an edge on the boundary. The location of the boundary is known by elemID(1:4,nc) when it stores negative values
 	//unsigned int** node_ID; //an array to hold the indices of the nodes of the elements, going from SW CCW, redundant as elements[] have the same info
 	//unsigned int** boundary_node_ID; //The nodes that form each boundary element. redundant, as edges[] and boundaries[] have the information
@@ -152,7 +181,6 @@ public:
 
 	~Mesh() {	//destructor
 		delete[] elem_neighbor;
-		delete[] boundary_elem_ID;
 	}
 
 	char read_msh_file();
