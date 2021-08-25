@@ -547,7 +547,7 @@ char Mesh::setup_mesh_problem(unsigned int prob_type) {
 			for (int i = 1; i < N_el_i; ++i) {
 				nodes[nd++].coor.set_coor(i * dx, j * dy); //inside the domain
 				if (fac < 1.0)
-					nodes[nd - 1].coor.plus(fac * (0.5 - rand() / RAND_MAX), average_spacing);
+					nodes[nd - 1].coor.multadd(fac * (0.5 - rand() / RAND_MAX), average_spacing);
 			}
 			nodes[nd++].coor.set_coor(xL, j * dy); //east edge
 		}
