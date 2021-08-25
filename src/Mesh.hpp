@@ -85,7 +85,7 @@ struct edge {  //the side edges of the 2D elements
 	std::vector<unsigned int> nodes;
 	int bdry_index;	// index in the vector of boundary_edges, or -1 if edge is not a boundary
 
-	edge() : N_nodes(0), bdry_index(-1) {} //default constructor
+	edge() : edge_type(99999), N_nodes(0), bdry_index(-1) {} //default constructor
 };
 
 // boundary type 0=wall, 1=slipwall, 2=inlet, 3=outlet, 4=open, ???
