@@ -688,7 +688,7 @@ void HO_2D::setup_IC_BC_SRC() {
 
 						if (false) { // uniform velocity profile = 1 into the domain
 							BC_Poisson[edge_index][k] = y - y_min;
-							BC_diffusion[edge_index][k] =0.; //zero vorticity
+							BC_diffusion[edge_index][k] = 0.; //zero vorticity
 							BC_normal_vel[edge_index][k] = -1.; //In the Fortran code, it is considered as the volume flux but here it is the normal out of domain VELOCITY, to be consistent with the BC_parl_vel
 						}
 						else { //parabolic inlet profile
@@ -765,7 +765,7 @@ void HO_2D::setup_IC_BC_SRC() {
 	                    double y=0.;
 	                    for (int j=0; j<mesh.Lnod; ++j) y += gps_sps_basis[j][k] * mesh.nodes[ mesh.edges[edge_index].nodes[mesh.tensor2FEM(j)] ].coor.y; //y at k sps on the edge_index boundary edge
 	                    BC_Poisson[edge_index][k] = y - y_min; // uniform velocity profile = 1 into the domain
-	                    BC_diffusion[edge_index][k] =0.; //zero vorticity
+	                    BC_diffusion[edge_index][k] = 0.; //zero vorticity
 	                    BC_normal_vel[edge_index][k] = -1.; //In the Fortran code, it is considered as the volume flux but here it is the normal out of domain VELOCITY, to be consistent with the BC_parl_vel
 	                }
 	            }
@@ -938,8 +938,6 @@ void HO_2D::setup_IC_BC_SRC() {
 			while (isinlet[istart] or isoutlet[istart]) ++istart;
 			size_t cnt = 0;
 			orderededges.resize(mesh.N_edges_boundary+1);
-			orderedbdry.resize(mesh.N_edges_boundary+1);
-			orderedindex.resize(mesh.N_edges_boundary+1);
 			orderededges[cnt] = istart;
 			// now loop, matching secondnode of the current edge to firstnode of the next
 			do {
@@ -949,9 +947,23 @@ void HO_2D::setup_IC_BC_SRC() {
 				orderededges[++cnt] = next_edge;
 				//std::cout << "    after edge " << edge_index << " is edge " << next_edge << (isinlet[next_edge] ? " (inlet)" : "") << (isoutlet[next_edge] ? " (outlet)" : "") << std::endl;
 			} while (orderededges[cnt] != orderededges[0]);
+			// if this never quits, then we don't have a loop
 
 			std::cout << "  chained " << cnt << " edges together" << std::endl;
 			orderededges.resize(cnt);	// drop the last one
+
+			// find lengths of all edges - will need this for non-uniform inlets
+			std::vector<double> orderedlengths(mesh.N_edges_boundary+1, 0.);
+			for (size_t iedge = 0; iedge < orderededges.size(); ++iedge) {
+				const unsigned int edge_index = orderededges[iedge];
+				const edge& thisedge = mesh.edges[edge_index];
+
+				// find the length of this edge
+				Cmpnts2 dx;
+				dx.subtract(mesh.nodes[ thisedge.nodes[mesh.tensor2FEM(0)] ].coor,
+				            mesh.nodes[ thisedge.nodes[mesh.tensor2FEM(1)] ].coor);
+				orderedlengths[iedge] = dx.norm2();
+			}
 
 			// finally, assign psi values to all inlet AND WALL edges
 			double psi_end = 0.0;
@@ -963,16 +975,13 @@ void HO_2D::setup_IC_BC_SRC() {
 				assert(thisedge.bdry_index > -1 && "Edge does not have a bdry_index set!");
 
 				// find the length of this edge
-				Cmpnts2 dx;
-				dx.subtract(mesh.nodes[ thisedge.nodes[mesh.tensor2FEM(0)] ].coor,
-				            mesh.nodes[ thisedge.nodes[mesh.tensor2FEM(1)] ].coor);
-				double dxlen = dx.norm2();
-				std::cout << "  edge " << edge_index << " is " << dxlen << " long" << std::endl;
+				const double dxlen = orderedlengths[iedge];
+				//std::cout << "  edge " << edge_index << " is " << dxlen << " long" << std::endl;
 
-				Cmpnts2 xc;
-				xc.multadd(0.5, mesh.nodes[ thisedge.nodes[mesh.tensor2FEM(0)] ].coor);
-				xc.multadd(0.5, mesh.nodes[ thisedge.nodes[mesh.tensor2FEM(1)] ].coor);
-				std::cout << "    centered at " << xc.x << " " << xc.y << std::endl;
+				//Cmpnts2 xc;
+				//xc.multadd(0.5, mesh.nodes[ thisedge.nodes[mesh.tensor2FEM(0)] ].coor);
+				//xc.multadd(0.5, mesh.nodes[ thisedge.nodes[mesh.tensor2FEM(1)] ].coor);
+				//std::cout << "    centered at " << xc.x << " " << xc.y << std::endl;
 
 				// find the boundary edge, because it has important information
 				const boundary_edge& thisbdryedge = mesh.boundary_edges[thisedge.bdry_index];
@@ -995,20 +1004,39 @@ void HO_2D::setup_IC_BC_SRC() {
 					//std::cout << "    centered at y= " << 0.5*(mesh.nodes[ thisedge.nodes[mesh.tensor2FEM(0)] ].coor.y+mesh.nodes[ thisedge.nodes[mesh.tensor2FEM(1)] ].coor.y) << std::endl;
 
 					const double this_norm_vel = thisbdryedge.normvel[0];
+					const double this_width = orderedlengths[iedge];
 					//std::cout << "    normal flow is " << this_norm_vel << std::endl;
 					psi_end -= dxlen*this_norm_vel;
 
 					// must find velocity profile along this edge - but how?
 					// look at norm vels of adjacent elements
 
+					// normal vel of previous element
+					const size_t prev_idx = (iedge == 0 ? orderededges.size()-1 : iedge-1);
+					const boundary_edge prev_edge = mesh.boundary_edges[mesh.edges[orderededges[prev_idx]].bdry_index];
+					const double prev_norm_vel = (prev_edge.bc_type == inlet ? prev_edge.normvel[0] : 0.);
+					const double prev_width = orderedlengths[prev_idx];
+
+					// normal vel of next element
+					const size_t next_idx = (iedge == orderededges.size()-1 ? 0 : iedge+1);
+					const boundary_edge next_edge = mesh.boundary_edges[mesh.edges[orderededges[next_idx]].bdry_index];
+					const double next_norm_vel = (next_edge.bc_type == inlet ? next_edge.normvel[0] : 0.);
+					const double next_width = orderedlengths[next_idx];
+
+					// now...we need to be conservative here...
+					const double this_vorticity = (next_norm_vel-this_norm_vel)/(next_width+this_width)
+												+ (this_norm_vel-prev_norm_vel)/(this_width+prev_width);
+					//std::cout << "    prev, this, next vels " << prev_norm_vel << " " << this_norm_vel << " " << next_norm_vel << std::endl;
+					//std::cout << "    gives vort " << this_vorticity << std::endl;
+
 					// now set the BCs on the edge's computational nodes
 					for (int k=0; k<Knod; ++k) {
 						// this is where we assume that Lnod = 2
 						BC_Poisson[edge_index][k] = gps_sps_basis[0][k]*psi_start + gps_sps_basis[1][k]*psi_end;
-						if (k==1) std::cout << "    inlet psi is " << BC_Poisson[edge_index][k] << std::endl;
+						//if (k==1) std::cout << "    inlet psi is " << BC_Poisson[edge_index][k] << std::endl;
 
 						// and here we assume that the inlet profile is uniform
-						BC_diffusion[edge_index][k] = 0.; // vorticity
+						BC_diffusion[edge_index][k] = this_vorticity; // vorticity
 						BC_normal_vel[edge_index][k] = -this_norm_vel; // out of domain is positive, to match the BC_parl_vel
 					}
 				} else if (thisbdryedge.bc_type == outlet) {
@@ -1019,14 +1047,14 @@ void HO_2D::setup_IC_BC_SRC() {
 					psi_end -= dxlen*this_norm_vel;
 
 					// but we don't need to apply it
-					std::cout << "    outlet psi is " << 0.5*(psi_start+psi_end) << std::endl;
+					//std::cout << "    outlet psi is " << 0.5*(psi_start+psi_end) << std::endl;
 
 				} else if (thisbdryedge.bc_type == wall) {
 
 					// psi is constant, but we still need to set it
 					for (int k=0; k<Knod; ++k) {
 						BC_Poisson[edge_index][k] = psi_end;
-						if (k==1) std::cout << "    wall psi is " << BC_Poisson[edge_index][k] << std::endl;
+						//if (k==1) std::cout << "    wall psi is " << BC_Poisson[edge_index][k] << std::endl;
 					}
 				}
 			}
