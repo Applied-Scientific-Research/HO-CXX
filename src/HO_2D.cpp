@@ -1212,6 +1212,7 @@ void HO_2D::form_metrics() {
 char HO_2D::solve_vorticity_streamfunction() {
 
 	const bool debug = false;
+	current_time = time_start;
 
 	//solves the two set of equations: 1) advection diffusion of vorticity + 2) Poisson eq for streamfunction
 	for (int el = 0; el<mesh.N_el; ++el)
@@ -1226,7 +1227,7 @@ char HO_2D::solve_vorticity_streamfunction() {
 
 	// perform time integration, note ti is global step count
 	for (ti = 0; ti <= num_time_steps; ++ti) {
-		std::cout << "timestep  " << ti << std::endl;
+		std::cout << "step " << ti << " at time " << current_time << std::endl;
 
 		// do all the work
 		solve_advection_diffusion();
@@ -1252,12 +1253,14 @@ char HO_2D::solve_vorticity_streamfunction() {
 		//if you would like to calculate the streamfunction at n+1 time step
 		//solve_Poisson(vorticity);
 
+		current_time += dt;
+
 		if (!((ti+1) % dump_frequency)) {
 			//save_output(ti);
 			save_vorticity_vtk(ti+1);
 			save_smooth_vtk(ti+1);
 		}
- 	}
+	}
 
 	return 0;
 }
@@ -1648,8 +1651,7 @@ char HO_2D::Euler_time_integrate(double*** vort_in, double*** vort_out, double c
 	*/
 
 	// for now the BC are setup once in the setup_IC_BC_SRC. This is for a time-dependent BCs
-	const double current_time = (ti + coeff) * dt;
-	update_BCs(current_time);
+	update_BCs(current_time + coeff*dt);
 
 	// kinematic vorticity-velocity inversion
 	solve_Poisson(vort_in); //calculate the streamfunction corresponding to the vort_in, i.e. Laplacian(psi)=-vort_in. solves for stream_function
@@ -1761,14 +1763,14 @@ char HO_2D::solve_Poisson(double const* const* const* vort_in) {
 		Eigen::VectorXd poisson_sol = LU_Eigen.solve(RHS_Eigen); //sparseLU method
 		*/
 
-		for (int el = 0; el < N_el; ++el)
-			for (int j = 0; j < Knod; ++j)
+		for (int el = 0; el < N_el; ++el) {
+			for (int j = 0; j < Knod; ++j) {
 				for (int i = 0; i < Knod; ++i) {
-					int index = el * Ksq + j * Knod + i;
+					const int index = el * Ksq + j * Knod + i;
 					stream_function[el][j][i] = poisson_sol(index);
 				}
-
-
+			}
+		}
 
 	}  //if LHS_type==1 (Eigen)
 
@@ -1790,15 +1792,16 @@ char HO_2D::solve_Poisson(double const* const* const* vort_in) {
 		int iters;
 		double error;
 		std::tie(iters, error) = (*AMGCL_solver)(RHS_AMGCL, AMGCL_sol);
-		printf("#Iters=%d Error=%lf\n", iters, error);
+		printf("  iters=%d error=%g\n", iters, error);
 
-
-		for (int el = 0; el < N_el; ++el)
-			for (int j = 0; j < Knod; ++j)
+		for (int el = 0; el < N_el; ++el) {
+			for (int j = 0; j < Knod; ++j) {
 				for (int i = 0; i < Knod; ++i) {
-					int index = el * Ksq + j * Knod + i;
+					const int index = el * Ksq + j * Knod + i;
 					stream_function[el][j][i] = AMGCL_sol[index];
 				}
+			}
+		}
 	}
 
 	delete[] RHS;
@@ -1806,7 +1809,7 @@ char HO_2D::solve_Poisson(double const* const* const* vort_in) {
 	return 0;
 }
 
-void HO_2D::update_BCs(const double current_time) {
+void HO_2D::update_BCs(const double this_time) {
 	/* updates the BC for the slip and normal velocity for the time "time".
 	typically velocity BC is fixed over time,
 	so this gives more flexibility for velocity BC changes in time */
@@ -1815,8 +1818,9 @@ void HO_2D::update_BCs(const double current_time) {
 		for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) {
 			if (mesh.boundaries[G_boundary].name == "top") { // the proper boundary is selected
 				for (int edge_index : mesh.boundaries[G_boundary].edges) { //loop over all the edges forming the top boundary
-					for (int i = 0; i < Knod; ++i) // loop over all sps on each edge on the proper boundary
-						BC_parl_vel[edge_index][i] = -std::fabs(std::sin(M_PI/20.*current_time)); //the lid moves CW on the global boundary
+					for (int i = 0; i < Knod; ++i) { // loop over all sps on each edge on the proper boundary
+						BC_parl_vel[edge_index][i] = -std::fabs(std::sin(M_PI/20.*this_time)); //the lid moves CW on the global boundary
+					}
 				}
 			}
 		}
@@ -1837,7 +1841,7 @@ void HO_2D::update_BCs(const double current_time) {
 			}
 		}
 
-		const double time_coeff = 2.*std::fabs(std::sin(M_PI/40.*current_time));
+		const double time_coeff = 2.*std::fabs(std::sin(M_PI/40.*this_time));
 
 		for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) {
 			if (mesh.boundaries[G_boundary].name == "inlet") { //vorticity, psi and normal velocity are defined
@@ -1885,7 +1889,7 @@ void HO_2D::update_BCs(const double current_time) {
 			}
 		}
 
-		double time_coeff = 2.*std::fabs(std::sin(M_PI/40.*current_time));
+		double time_coeff = 2.*std::fabs(std::sin(M_PI/40.*this_time));
 
 		for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) {
 			if (mesh.boundaries[G_boundary].name == "inlet") { //vorticity, psi and normal velocity are defined
@@ -1932,7 +1936,7 @@ void HO_2D::update_BCs(const double current_time) {
 		// what fraction through the outer time step are we?
 		// for the beginning of the first step, weights are fac1=1.0, fac2=0.0
 		// for the end of the last step, weights are fac1=0.0, fac2=1.0
-		const double fac1 = (current_time-time_start) / (time_end-time_start);
+		const double fac1 = (this_time-time_start) / (time_end-time_start);
 		const double fac2 = 1.0-fac1;
 		std::cout << "  substep normalized time " << fac1 << std::endl;
 
@@ -2856,7 +2860,7 @@ void HO_2D::Poisson_solver_AMGCL_setup(double*** laplacian_center, double**** la
 	double error;
 	std::vector<double> AMGCL_sol(N_el * Ksq, 0.);
 	std::tie(iters, error) = (*AMGCL_solver)(RHS_AMGCL, AMGCL_sol);
-	printf("#Iters=%d Error=%lf\n", iters, error);
+	printf("  iters=%d error=%g\n", iters, error);
 */
 }
 
@@ -3180,8 +3184,7 @@ void HO_2D::save_smooth_vtk(int indx, int subidx) {
 	}
 
 	// ************ get the u,v field corresponding to vorticity at current time step *************
-	//double current_time = (indx + 1) * dt;
-	//update_BCs(current_time);
+	//update_BCs(current_time + dt);
 	//solve_Poisson(vorticity); //calculate the streamfunction corresponding to the vort_in, i.e. Laplacian(psi)=-vort_in. solves for stream_function. vorticity is at ti+1 time step
 	//calc_velocity_vector_from_streamfunction(); //calculate the Cartesian velocity field velocity_cart from psi corresponding to ti+1 time step
 
@@ -3972,6 +3975,7 @@ void HO_2D::solveto_d(const double _outerdt, const int32_t _numstep,
 	// need times for start and end of outer time step
 	// copy from old end
 	time_start = time_end;
+	current_time = time_start;
 	time_end += _outerdt;
 
 	const bool save_all_substeps = false;
@@ -3983,7 +3987,7 @@ void HO_2D::solveto_d(const double _outerdt, const int32_t _numstep,
 	for (int32_t iter = 0; iter < _numstep; ++iter) {
 
 		// refer to the global time step count
-		std::cout << "timestep  " << ti << std::endl;
+		std::cout << "step " << ti << " at time " << current_time << std::endl;
 
 		// take a time step
 		solve_advection_diffusion();
@@ -3991,8 +3995,9 @@ void HO_2D::solveto_d(const double _outerdt, const int32_t _numstep,
 		// optionally save substeps
 		if (save_all_substeps) save_smooth_vtk((int)(ti/_numstep), (int)iter+1);
 
-		// increment ti, the global time counter
+		// increment global STEP counter ti, and current time
 		++ti;
+		current_time += dt;
 	}
 }
 

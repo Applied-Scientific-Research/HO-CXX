@@ -73,16 +73,18 @@ private:
 	double*** initial_vorticity; //The initial (t=0) vorticity field
 	double*** stream_function; //The stream function field
 	Cmpnts2*** velocity_cart; //The velocity field
+
 	double Reyn_inv; // the inverse of the Reynolds number
 	int HuynhSolver_type; //based on Huynh's scheme type in Table 6.1 of his diffusion paper; types: 2 = stndard DG; 11 = higher order
 	int time_integration_type; //time integration method; 1 = Euler; 2 = Mod.Euler; 4 = RK4
 	int problem_type; //Solve different problems (types 1 and 2). prob_type=10 reads mesh from file
 	int num_time_steps; //total number of time steps to march in time
 	double dt; //time step size
-	int ti; //time step
+	int ti; //time step count
 	int advection_type=1; //1 is for original advctive flux based on discontinuous mass flux across cells, 1 is for continuous version
 	int dump_frequency; //the frequency of time saving
 	bool fast; //0 for original, 1 for compact formulation (use gLB, gRB)
+
 	int N_gps; //number of geometry nodes in the domain
 	int N_el_boundary; //number of edges on the boundaries
 	double *sps_local_coor, *sps_weight, *gps_local_coor; //the arrays to store the Gauss-Legendre and their weight, geometry points
@@ -139,7 +141,7 @@ private:
 	// data to support hybrid solvers
 
 	bool using_hybrid;
-	double time_start, time_end;
+	double time_start, time_end, current_time;
 	// we need these to map between a boundary edge in the edges list and that same edge in the boundary's edge list!
 	std::vector<unsigned int> orderededges;
 	std::vector<unsigned int> orderedbdry;
@@ -171,7 +173,8 @@ public:
 		Knod = 2;
 		using_hybrid = false;
 		time_start = 0.0;
-		time_end = 0.0;
+		time_end = time_start;
+		current_time = time_start;
 	};
 	HO_2D(const HO_2D& HO) :
 		vorticity(HO.vorticity), stream_function(HO.stream_function) {}
