@@ -3230,7 +3230,7 @@ void HO_2D::save_smooth_vtk(int indx, int subidx) {
 			const double dx_deta = face_Dx_Dxsi[elem_index][ijp][k].y;
 			const double dy_dxsi = face_Dy_Dxsi[elem_index][ijp][k].x;
 			const double dy_deta = face_Dy_Dxsi[elem_index][ijp][k].y;
-			if (el_b == 299 and k==1) std::cout << "  dxdxi " << dx_dxsi << " " << dx_deta << " " << dy_dxsi << " " << dy_deta << std::endl;
+			//if (el_b == 299 and k==1) std::cout << "  dxdxi " << dx_dxsi << " " << dx_deta << " " << dy_dxsi << " " << dy_deta << std::endl;
 
 			const double g_1_norm = std::sqrt(dx_dxsi*dx_dxsi + dy_dxsi*dy_dxsi);
 			const double g_2_norm = std::sqrt(dx_deta*dx_deta + dy_deta*dy_deta);
