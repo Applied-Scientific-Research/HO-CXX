@@ -40,21 +40,24 @@ typedef Eigen::Triplet<double> Trplet;
 typedef amgcl::backend::builtin<double> Backend;
 typedef amgcl::make_solver<amgcl::amg<Backend, amgcl::coarsening::smoothed_aggregation, amgcl::relaxation::spai0>, amgcl::solver::bicgstab<Backend>> AMGCL_Solver;
 
-
 #define DirichletBC 0
 #define NeumannBC 1
+//enum bc_type {
+//	DirichletBC,
+//	NeumannBC
+//};
 
 struct LR_boundary { // for the shape functions and Radua where everything reverts back to 1D and on the boundaries
 	double left=1., right=1.;
 };
 
 
-// the main class to hold the primitve and fundamental variables and methods
+// the main class to hold the primitve and fundamental variables and methods - the "everything" class
 class HO_2D {
 
 private:
 	Mesh mesh;
-	unsigned int Knod; //Number of sps in each direction,i.e. number of gauss point in each cell in each direction
+	int Knod; //Number of sps in each direction,i.e. number of gauss point in each cell in each direction
 	double g_prime[2]; //derivative of the correction function g on the [0]: left and [1]: right boundaries
 
 	unsigned char* BC_switch_Poisson, *BC_switch_advection, *BC_switch_diffusion; //BC_switch_advection is always Dirichlet, BC_switch_Poisson is set once and can not change anymore (because the poisson LHS matrix is set based on that)
@@ -70,18 +73,20 @@ private:
 	double*** initial_vorticity; //The initial (t=0) vorticity field
 	double*** stream_function; //The stream function field
 	Cmpnts2*** velocity_cart; //The velocity field
+
 	double Reyn_inv; // the inverse of the Reynolds number
 	int HuynhSolver_type; //based on Huynh's scheme type in Table 6.1 of his diffusion paper; types: 2 = stndard DG; 11 = higher order
 	int time_integration_type; //time integration method; 1 = Euler; 2 = Mod.Euler; 4 = RK4
-	unsigned int problem_type; //Solve different problems (types 1 and 2). prob_type=10 reads mesh from file
-	unsigned int num_time_steps; //total number of time steps to march in time
+	int problem_type; //Solve different problems (types 1 and 2). prob_type=10 reads mesh from file
+	int num_time_steps; //total number of time steps to march in time
 	double dt; //time step size
-	int ti; //time step
+	int ti; //time step count
 	int advection_type=1; //1 is for original advctive flux based on discontinuous mass flux across cells, 1 is for continuous version
-	unsigned int dump_frequency; //the frequency of time saving
+	int dump_frequency; //the frequency of time saving
 	bool fast; //0 for original, 1 for compact formulation (use gLB, gRB)
-	unsigned int N_gps; //number of geometry nodes in the domain
-	unsigned int N_el_boundary; //number of edges on the boundaries
+
+	int N_gps; //number of geometry nodes in the domain
+	int N_el_boundary; //number of edges on the boundaries
 	double *sps_local_coor, *sps_weight, *gps_local_coor; //the arrays to store the Gauss-Legendre and their weight, geometry points
 	double** sps_boundary_basis; //The value Lagrange shape function of Knod solution points on the left[0](csi=-1) and right[1] (csi=+1) boundaries
 	double** sps_boundary_grad_basis; //The derivative of Lagrange shape function of Knod solution points on the left[0](csi=-1) and right[1] (csi=+1) boundaries
@@ -136,19 +141,28 @@ private:
 	// data to support hybrid solvers
 
 	bool using_hybrid;
+	double time_start, time_end, current_time;
+	// we need these to map between a boundary edge in the edges list and that same edge in the boundary's edge list!
+	std::vector<unsigned int> orderededges;
+	std::vector<unsigned int> orderedbdry;
+	std::vector<unsigned int> orderedindex;
 	// this is where C++ is still terrible: either *** and new[] delete[], or Eigen, or Boost, or templates!
-        // values on the open boundary - relatively easy, can use Eigen matrix or double**
+	// values on the open boundary - relatively easy, can use Eigen matrix or double**
 	// it would be nice to use std::vector<std::array<FTYPE,K>> BC_VelNorm_start;
-	double** BC_VelNorm_start, ** BC_VelNorm_end;
-	double** BC_VelParl_start, ** BC_VelParl_end;
-	double** BC_Vort_start,    ** BC_Vort_end;
-        // values in the volume
-	double*** Vort_start, *** Vort_end, *** Vort_wgt;
+	double** BC_VelNorm_start = nullptr;
+	double** BC_VelNorm_end = nullptr;
+	double** BC_VelParl_start = nullptr;
+	double** BC_VelParl_end = nullptr;
+	double** BC_Vort_start = nullptr;
+	double** BC_Vort_end = nullptr;
+	// values in the volume
+	double*** Vort_start = nullptr;
+	double*** Vort_end = nullptr;
+	double*** Vort_wgt = nullptr;
 
 public:
 	HO_2D() //default constructor
 	{
-		using_hybrid = false;
 		dump_frequency = 1000;
 		dt = 0.001;
 		num_time_steps = 10000;
@@ -157,6 +171,10 @@ public:
 		HuynhSolver_type = 2;
 		Reyn_inv = 0.001;
 		Knod = 2;
+		using_hybrid = false;
+		time_start = 0.0;
+		time_end = time_start;
+		current_time = time_start;
 	};
 	HO_2D(const HO_2D& HO) :
 		vorticity(HO.vorticity), stream_function(HO.stream_function) {}
@@ -176,7 +194,6 @@ public:
 		release_memory();
 	}; // destructor
 
-	void save_output(int time);
 	void release_memory();
 	int read_input_file(const std::string filename);
 	char allocate_arrays();
@@ -201,9 +218,10 @@ public:
 	void Poisson_solver_AMGCL_setup(double*** laplacian_center, double**** laplacian_neighbor);  //setup and fill the LHS and RHS for Poisson solver via the AMGCL
 	void calc_velocity_vector_from_streamfunction(); //calculate u and v from the streamfunction field
 	void update_BCs(double time); //updates the Cartesian velocity BC(BC_u_vel, BC_v_vel), BC_diffusion. Usually BCs are fixed in time, this is just for cases where the BCs changes in time. time is the current time
-	void save_output_vtk(); //writes the data in VTK format
-	void save_smooth_vtk(); //writes the data in VTK format with averaging of 4 nodes from internal nodes (smoother than save_output_vtk)
-	void save_vorticity_vtk(); ////writes the data in VTK format for the vorticity
+	void save_output(int time);	// debug writing only
+	void save_output_vtk(int indx); //writes the data in VTK format
+	void save_smooth_vtk(int indx, int subidx = -1); //writes the data in VTK format with averaging of 4 nodes from internal nodes (smoother than save_output_vtk)
+	void save_vorticity_vtk(int indx); //writes the data in VTK format for the vorticity
 	void read_process_sample_points();
 	void update_advection_BC(); //calculate/update the BC for the advective term
 	void update_diffusion_BC(); //calculate/update the BC for the diffusion term
@@ -214,11 +232,21 @@ public:
 	void set_defaults();
 	void enable_hybrid();
 	void set_elemorder(const int32_t);
+	void allocate_hybrid_arrays(const size_t, const size_t, const size_t);
+	boundary arrays_to_boundary( const std::string,
+		const int32_t, const int32_t*,
+		const int32_t, const double*);
 	void load_mesh_arrays_d(const int32_t,
 		const int32_t, const double*,
 		const int32_t, const int32_t*,
 		const int32_t, const int32_t*,
 		const int32_t, const int32_t*);
+	void load_inout_arrays_d(
+		const int32_t, const double*,
+		const int32_t, const int32_t*,
+		const int32_t, const double*,
+		const int32_t, const int32_t*);
+	void process_mesh_input();
 	// get data from this Eulerian solver
 	int32_t getsolnptlen();
 	void getsolnpts_d(const int32_t, double*);

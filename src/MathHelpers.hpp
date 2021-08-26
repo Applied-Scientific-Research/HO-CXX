@@ -24,6 +24,7 @@ double Legendre(int n, double x) {
 	if (!n) LegendreP = 1.;
 	else if (n == 1) LegendreP = x;
 	else {
+		xn = -1.;
 		xnm2 = 1.;
 		xnm1 = x;
 		for (int i = 2; i <= n; ++i) {

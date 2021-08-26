@@ -11,7 +11,7 @@ if the file is written in OCC format or original gmsh format. zero means origina
 Exact
 false
 Reyn
-20.
+100.
 dx ratio : expanding mesh ratio. For Gmsh reading option it is not used.
 1.
 fac:  multiplier to make grids randomly non-uniform; uniform: fac=0
@@ -25,9 +25,9 @@ advection scheme: 1: original discontinuous, 2: continuous mass flux term
 problem type. 1 is lid-driven cavity, 2 is BFS, 3 is flow over cylinder
 3
 number of time steps
-10000
+100000
 dt: time step size 
-0.0005
+0.001
 dumpfreq: how many time steps are the results saved
 100
 fast: if it uses large stencil or compact stencil. fast-true means compact. It is not setup yet in the code

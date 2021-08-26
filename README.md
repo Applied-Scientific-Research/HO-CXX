@@ -24,4 +24,5 @@ This project is funded by the [National Institutes of Health (NIH)](https://www.
 It makes use of [Eigen](http://eigen.tuxfamily.org/) and [amgcl](https://github.com/ddemidov/amgcl).
 
 This code is mostly by Mohammad Hajit, based on earlier work of Adrin Gharakhani, both
-of Applied Scientific Research, Inc. Hybridization work is by Mark Stock, also ASR.
+of Applied Scientific Research, Inc. Refactoring and hybridization work by Mark Stock, also at ASR.
+

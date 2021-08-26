@@ -8,127 +8,71 @@
 
 #include "HO_2D.hpp"
 #include "MathHelpers.hpp"
+#include "MemoryHelper.hpp"
 
 #include <cmath>
- //can use templates so that we dont worry about data types, do it later.
-void deallocate_2d_array_d(double** arry, const size_t nx) {
-	for (size_t k = 0; k < nx; ++k) {
-		delete[] arry[k];
-	}
-	delete[] arry;
-}
-
-void deallocate_2d_array_c2(Cmpnts2** arry, const size_t nx) {
-	for (size_t k = 0; k < nx; ++k) {
-		delete[] arry[k];
-	}
-	delete[] arry;
-}
-
-void deallocate_3d_array_d(double*** arry, const size_t nx, const size_t ny) {
-	for (size_t k = 0; k < nx; ++k) {
-		for (size_t j = 0; j < ny; ++j) {
-			delete[] arry[k][j];
-		}
-		delete[] arry[k];
-	}
-	delete[] arry;
-}
-
-void deallocate_3d_array_c2(Cmpnts2*** arry, const size_t nx, const size_t ny) {
-	for (size_t k = 0; k < nx; ++k) {
-		for (size_t j = 0; j < ny; ++j) {
-			delete[] arry[k][j];
-		}
-		delete[] arry[k];
-	}
-	delete[] arry;
-}
 
 void HO_2D::release_memory() { //release the memory as destructor
 
-	deallocate_3d_array_d(vorticity, mesh.N_el, Knod);
-	deallocate_3d_array_d(stream_function, mesh.N_el, Knod);
-	deallocate_3d_array_d(initial_vorticity, mesh.N_el, Knod);
-	deallocate_3d_array_c2(velocity_cart, mesh.N_el, Knod);
+	free_array<double>(vorticity);
+	free_array<double>(stream_function);
+	free_array<double>(initial_vorticity);
+	free_array<Cmpnts2>(velocity_cart);
 
 	delete[] sps_local_coor;
 	delete[] sps_weight;
 	delete[] gps_local_coor;
 
-	deallocate_2d_array_d(sps_boundary_basis, Knod);
-	deallocate_2d_array_d(sps_boundary_grad_basis, Knod);
-	deallocate_2d_array_d(sps_sps_grad_basis, Knod);
-	deallocate_2d_array_d(sps_gps_basis, Knod);
-	deallocate_2d_array_d(sps_radau, Knod);
-	deallocate_2d_array_d(sps_grad_radau, Knod);
+	free_array<double>(sps_boundary_basis);
+	free_array<double>(sps_boundary_grad_basis);
+	free_array<double>(sps_sps_grad_basis);
+	free_array<double>(sps_gps_basis);
+	free_array<double>(sps_radau);
+	free_array<double>(sps_grad_radau);
 
-	deallocate_2d_array_d(gps_boundary_basis, mesh.Lnod);
-	deallocate_2d_array_d(gps_boundary_grad_basis, mesh.Lnod);
-	deallocate_2d_array_d(gps_sps_basis, mesh.Lnod);
-	deallocate_2d_array_d(gps_sps_grad_basis, mesh.Lnod);
+	free_array<double>(gps_boundary_basis);
+	free_array<double>(gps_boundary_grad_basis);
+	free_array<double>(gps_sps_basis);
+	free_array<double>(gps_sps_grad_basis);
 
-	deallocate_3d_array_c2(vol_Dx_Dxsi, mesh.N_el, Knod);
-	deallocate_3d_array_c2(vol_Dy_Dxsi, mesh.N_el, Knod);
-	deallocate_3d_array_d(vol_jac, mesh.N_el, Knod);
+	free_array<Cmpnts2>(vol_Dx_Dxsi);
+	free_array<Cmpnts2>(vol_Dy_Dxsi);
+	free_array<double>(vol_jac);
 
-    for (int i = 0; i < mesh.N_el; ++i) {
-        for (int j = 0; j < Knod; ++j) {
-            for (int r = 0; r < Knod; ++r) {
-                for (int s = 0; s < 2; ++s) delete[] G[i][j][r][s];
-                delete[] G[i][j][r];
-            }
-            delete[] G[i][j];
-        }
-        delete[] G[i];
-    }
-    delete[] G;
+	free_array<double>(G);
+	free_array<double>(GB);
 
-    for (int i = 0; i < mesh.N_el; ++i) {
-        for (int r = 0; r < 2; ++r) {
-            for (int s = 0; s < 2; ++s) {
-                for (int j = 0; j < Knod; ++j) delete[] GB[i][r][s][j];
-                delete[] GB[i][r][s];
-            }
-            delete[] GB[i][r];
-        }
-        delete[] GB[i];
-    }
-    delete[] GB;
+	free_array<double>(face_Acoef);
+	free_array<double>(face_Bcoef);
+	free_array<double>(face_jac);
+	free_array<double>(face_Anorm);
 
-	deallocate_3d_array_d(face_Acoef, mesh.N_el, 4);
-	deallocate_3d_array_d(face_Bcoef, mesh.N_el, 4);
-	deallocate_3d_array_d(face_jac, mesh.N_el, 4);
-	deallocate_3d_array_d(face_Anorm, mesh.N_el, 4);
+	free_array<Cmpnts2>(face_Dx_Dxsi);
+	free_array<Cmpnts2>(face_Dy_Dxsi);
 
-	deallocate_3d_array_c2(face_Dx_Dxsi, mesh.N_el, 4);
-	deallocate_3d_array_c2(face_Dy_Dxsi, mesh.N_el, 4);
+	free_array<double>(RHS_advective);
+	free_array<double>(RHS_diffusive);
 
-	deallocate_3d_array_d(RHS_advective, mesh.N_el, Knod);
-	deallocate_3d_array_d(RHS_diffusive, mesh.N_el, Knod);
+	free_array<double>(BC_Poisson);
+	free_array<double>(BC_advection);
+	free_array<double>(BC_diffusion);
+	free_array<double>(BC_vorticity);
+	free_array<double>(BC_parl_vel);
+	free_array<double>(BC_normal_vel);
+	free_array<double>(velocity_jump);
 
-	deallocate_2d_array_d(BC_Poisson, mesh.N_edges_boundary);
-	deallocate_2d_array_d(BC_advection, mesh.N_edges_boundary);
-	deallocate_2d_array_d(BC_diffusion, mesh.N_edges_boundary);
-	deallocate_2d_array_d(BC_vorticity, mesh.N_edges_boundary);
-	deallocate_2d_array_d(BC_parl_vel, mesh.N_edges_boundary);
-	deallocate_2d_array_d(BC_normal_vel, mesh.N_edges_boundary);
-	deallocate_2d_array_d(velocity_jump, mesh.N_edges_boundary);
-
-	deallocate_3d_array_d(boundary_source, mesh.N_edges_boundary, Knod*Knod);
+	free_array<double>(boundary_source);
 
 	delete[] BC_no_slip;
 	delete[] BC_switch_Poisson;
-	delete[] BC_switch_advection;
+	//delete[] BC_switch_advection;
 	delete[] BC_switch_diffusion;
 
-    deallocate_2d_array_c2(BC_cart_vel,mesh.N_edges_boundary);
-
-    deallocate_3d_array_d(k1, mesh.N_el, Knod); //these are used in the RK time integration
-    deallocate_3d_array_d(k2, mesh.N_el, Knod);
-    deallocate_3d_array_d(k3, mesh.N_el, Knod);
-    deallocate_3d_array_d(k4, mesh.N_el, Knod);
-    deallocate_3d_array_d(vort, mesh.N_el, Knod);
+	free_array<double>(k1); //these are used in the RK time integration
+	free_array<double>(k2);
+	free_array<double>(k3);
+	free_array<double>(k4);
+	free_array<double>(vort);
 }
 
 int HO_2D::read_input_file(const std::string filename) {
@@ -136,102 +80,102 @@ int HO_2D::read_input_file(const std::string filename) {
 	int retval=0;
 	std::string temp_string;
 	char temp_char;
-	std::cout << "     Reading problem/solver settings file   ***** " << filename << " *****   opened for reading ..." << std::endl << std::endl;
+	std::cout << "  Problem/solver settings file   ***** " << filename << " *****   opened for reading ..." << std::endl;
 
 	std::ifstream file_handle(filename);
 	if (file_handle.fail()) {
-	  std::cout << "Input file opening failed.\n";
-	  exit(1);
+		std::cout << "Input file opening failed.\n";
+		exit(1);
 	}
 
 	try {
-	  // retrieve number of quadrilateral elements in case of structured mesh (prespecified problem)
-	  std::getline(file_handle, temp_string);
-	  file_handle >> mesh.N_el_i >>temp_char>> mesh.N_el_j; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');   // ignore until next line
+		// retrieve number of quadrilateral elements in case of structured mesh (prespecified problem)
+		std::getline(file_handle, temp_string);
+		file_handle >> mesh.N_el_i >>temp_char>> mesh.N_el_j; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');   // ignore until next line
 
-	  // retrieve Knod: number of solution points in each element in each direction
-	  std::getline(file_handle, temp_string); //read stoff explaining Knod
-	  file_handle >> Knod; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+		// retrieve Knod: number of solution points in each element in each direction
+		std::getline(file_handle, temp_string); //read stoff explaining Knod
+		file_handle >> Knod; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 
-	  // read on Lnod_in: degree of the polynomial of the geometry edges: number of nodes on the elements edges -1
-	  getline(file_handle, temp_string);
-	  file_handle >> mesh.Lnod_in; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-	  mesh.Lnod = mesh.Lnod_in + 1; //number of geometry nodes on each edge
+		// read on Lnod_in: degree of the polynomial of the geometry edges: number of nodes on the elements edges -1
+		getline(file_handle, temp_string);
+		file_handle >> mesh.Lnod_in; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+		mesh.Lnod = mesh.Lnod_in + 1; //number of geometry nodes on each edge
 
-	  // read the name of the mesh file and store it in the mesh.input_msh_file
-	  std::getline(file_handle,temp_string);
-	  file_handle >> mesh.input_msh_file; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+		// read the name of the mesh file and store it in the mesh.input_msh_file
+		std::getline(file_handle,temp_string);
+		file_handle >> mesh.input_msh_file; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 
-      // read if the mesh file is written in OCC format or buildin GMSH format . 1; means OCC format, zero means original
-	  std::getline(file_handle,temp_string);
-	  file_handle >> mesh.OCC_format; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+		// read if the mesh file is written in OCC format or buildin GMSH format . 1; means OCC format, zero means original
+		std::getline(file_handle,temp_string);
+		file_handle >> mesh.OCC_format; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 
-	  //mesh.input_msh_file = temp_string.c_str();
-	  //ignore the next 2 lines as they correspond to the exact geometry for concentric cylinders
-	  std::getline(file_handle, temp_string); getline(file_handle, temp_string);
+		//mesh.input_msh_file = temp_string.c_str();
+		//ignore the next 2 lines as they correspond to the exact geometry for concentric cylinders
+		std::getline(file_handle, temp_string); getline(file_handle, temp_string);
 
-	  // read in the Reynolds number and store the inverse of Reynolds number in Reyn_inv
-	  std::getline(file_handle, temp_string);
-	  file_handle >> Reyn_inv; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-	  Reyn_inv = Reyn_inv > 1.e-3 ? 1. / Reyn_inv : -1.; //if negative then ignore the vicous term
+		// read in the Reynolds number and store the inverse of Reynolds number in Reyn_inv
+		std::getline(file_handle, temp_string);
+		file_handle >> Reyn_inv; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+		Reyn_inv = Reyn_inv > 1.e-3 ? 1. / Reyn_inv : -1.; //if negative then ignore the vicous term
 
-	  // read inmultiplier to expand the grid geometrically by factor dx_ratio
-	  std::getline(file_handle, temp_string);
-	  file_handle >> mesh.dx_ratio; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+		// read inmultiplier to expand the grid geometrically by factor dx_ratio
+		std::getline(file_handle, temp_string);
+		file_handle >> mesh.dx_ratio; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 
-	  // read in multiplier to make grids randomly non-uniform; uniform: fac=0.
-	  std::getline(file_handle, temp_string);
-	  file_handle >> mesh.fac; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+		// read in multiplier to make grids randomly non-uniform; uniform: fac=0.
+		std::getline(file_handle, temp_string);
+		file_handle >> mesh.fac; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 
-	  // read in HuynhSolver_type
-	  std::getline(file_handle, temp_string);
-	  file_handle >> HuynhSolver_type; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+		// read in HuynhSolver_type
+		std::getline(file_handle, temp_string);
+		file_handle >> HuynhSolver_type; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 
-	  // read in time integration method, 1 = Euler; 2 = Mod.Euler; 4 = RK4
-	  std::getline(file_handle, temp_string);
-	  file_handle >> time_integration_type; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+		// read in time integration method, 1 = Euler; 2 = Mod.Euler; 4 = RK4
+		std::getline(file_handle, temp_string);
+		file_handle >> time_integration_type; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 
-	  // read in the advective term discretization method, 1 = original discontinuous mass flux field; 2 = Modified continuous mass flux across cell interfaces
-	  std::getline(file_handle, temp_string);
-	  file_handle >> advection_type; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+		// read in the advective term discretization method, 1 = original discontinuous mass flux field; 2 = Modified continuous mass flux across cell interfaces
+		std::getline(file_handle, temp_string);
+		file_handle >> advection_type; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 
-	  // read in problem type
-	  std::getline(file_handle, temp_string);
-	  file_handle >> problem_type; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+		// read in problem type
+		std::getline(file_handle, temp_string);
+		file_handle >> problem_type; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 
-	  // read in total number of time steps
-	  std::getline(file_handle, temp_string);
-	  file_handle >> num_time_steps; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+		// read in total number of time steps
+		std::getline(file_handle, temp_string);
+		file_handle >> num_time_steps; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 
-	  // read in time step size
-	  std::getline(file_handle, temp_string);
-	  file_handle >> dt; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+		// read in time step size
+		std::getline(file_handle, temp_string);
+		file_handle >> dt; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 
-	  // read in file saving frequency
-	  std::getline(file_handle, temp_string);
-	  file_handle >> dump_frequency; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+		// read in file saving frequency
+		std::getline(file_handle, temp_string);
+		file_handle >> dump_frequency; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 
-	  // read in if it uses large stencil or compact stencil. fast-true means compact
-	  std::getline(file_handle, temp_string);
-	  file_handle >> fast; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+		// read in if it uses large stencil or compact stencil. fast-true means compact
+		std::getline(file_handle, temp_string);
+		file_handle >> fast; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 
-	  // read in the type of matrix formation for poisson equation (1=Eigen, 2=Hypre, 3=amgcl)
-	  std::getline(file_handle, temp_string);
-	  file_handle >> LHS_type; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+	// read in the type of matrix formation for poisson equation (1=Eigen, 2=Hypre, 3=amgcl)
+		std::getline(file_handle, temp_string);
+		file_handle >> LHS_type; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 
-	  // read in the name of the sample points file
-	  std::getline(file_handle, temp_string);
-	  file_handle >> sample_points_file; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+		// read in the name of the sample points file
+		std::getline(file_handle, temp_string);
+		file_handle >> sample_points_file; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 
-	  // Later add to read in the type of solver and preconditioner. for now dont worry about it
+		// Later add to read in the type of solver and preconditioner. for now dont worry about it
 
-	  std::cout << "         Done" << std::endl;
-	  file_handle.close();
+		std::cout << "         Done" << std::endl;
+		file_handle.close();
 	}
 
 	catch (...) {
-	  //		error.printError();
-	  retval = 2;
+		// error.printError();
+		retval = 2;
 	}
 
 	return retval;
@@ -301,7 +245,7 @@ void HO_2D::read_process_sample_points() {
 		if (!found_element) { //no element is found to contain the sampling point sp. so loop over all nodes of all elements and take element with the closest node distance to sampling point sp
 			tmp_coor.subtract(sample_points_coor[sp], mesh.nodes[mesh.elements[0].nodes[0]].coor);
 			double distance = tmp_coor.norm2()+1.;  //initiated distance as distance between sp and node 0 of the element 0 +1. +1 is to make sure it will change in the search process below
-			int containing_element;
+			int containing_element = -1;
 			for (int el = 0; el < N_el; ++el) {
 				for (int i = 0; i < mesh.Lnod * mesh.Lnod; ++i) {
 					tmp_coor.subtract(sample_points_coor[sp], mesh.nodes[mesh.elements[el].nodes[i]].coor);
@@ -364,8 +308,8 @@ void HO_2D::read_process_sample_points() {
 			double df_dxsi=0.,df_deta=0., dg_dxsi=0., dg_deta = 0.;
 			for (int j = 0; j < Lnod; j++) {
 				for (int i = 0; i < Lnod; ++i) {
-					int gps_index = loc_ID[j*Lnod + i];
-					int node_index = mesh.elements[el].nodes[gps_index];
+					const int gps_index = loc_ID[j*Lnod + i];
+					const int node_index = mesh.elements[el].nodes[gps_index];
 					f -= gps_sp_basis_xsi[i] * gps_sp_basis_eta[j] * mesh.nodes[node_index].coor.x;
 					g -= gps_sp_basis_xsi[i] * gps_sp_basis_eta[j] * mesh.nodes[mesh.elements[el].nodes[gps_index]].coor.y;
 					df_dxsi -= gps_sp_basis_eta[j] * gps_sp_grad_basis_xsi[i] * mesh.nodes[node_index].coor.x;
@@ -396,9 +340,8 @@ void HO_2D::read_process_sample_points() {
 
 char HO_2D::setup_mesh() {
 	//based on the problem type (problem_type variable) creates the proper mesh. if problem_type is 10 then read from msh file
-	char success;
-	success = mesh.read_msh_file();
-	return success;
+	auto errorcode = mesh.read_msh_file();
+	return errorcode;
 }
 
 void HO_2D::setup_sps_gps() {
@@ -469,159 +412,77 @@ void HO_2D::setup_sps_gps() {
 
 }
 
-// allocator helpers
-// there is a better way to do this, where all data is held in a contiguous memory chunk
-// and we can even do it in a templated function: allocate_2d_array<double>(nx, ny);
-
-double** allocate_2d_array_d(const size_t nx, const size_t ny) {
-	double** outptr = NULL;
-	outptr = new double* [nx];
-	for (size_t j = 0; j < nx; ++j) {
-		outptr[j] = new double [ny];
-	}
-	return outptr;
-}
-
-double*** allocate_3d_array_d(const size_t nx, const size_t ny, const size_t nz) {
-	double*** outptr = NULL;
-	outptr = new double** [nx];
-	for (size_t j = 0; j < nx; ++j) {
-		outptr[j] = new double* [ny];
-		for (int i = 0; i < ny; ++i) {
-			outptr[j][i] = new double[nz];
-		}
-	}
-	return outptr;
-}
-
-double**** allocate_4d_array_d(const size_t nx, const size_t ny, const size_t nz, const size_t nq) {
-	double**** outptr = NULL;
-	outptr = new double*** [nx];
-	for (size_t i = 0; i < nx; ++i) {
-		outptr[i] = new double** [ny];
-		for (size_t j = 0; j < ny; ++j) {
-			outptr[i][j] = new double* [nz];
-			for (size_t k = 0; k < nz; ++k) {
-				outptr[i][j][k] = new double[nq];
-			}
-		}
-	}
-	return outptr;
-}
-
-Cmpnts2** allocate_2d_array_c2(const size_t nx, const size_t ny) {
-	Cmpnts2** outptr = NULL;
-	outptr = new Cmpnts2* [nx];
-	for (size_t j = 0; j < nx; ++j) {
-		outptr[j] = new Cmpnts2 [ny];
-	}
-	return outptr;
-}
-
-Cmpnts2*** allocate_3d_array_c2(const size_t nx, const size_t ny, const size_t nz) {
-	Cmpnts2*** outptr = NULL;
-	outptr = new Cmpnts2** [nx];
-	for (size_t j = 0; j < nx; ++j) {
-		outptr[j] = new Cmpnts2* [ny];
-		for (int i = 0; i < ny; ++i) {
-			outptr[j][i] = new Cmpnts2[nz];
-		}
-	}
-	return outptr;
-}
-
 char HO_2D::allocate_arrays() {
 	//allocate the memory for the arrays and resize them.
 	int N_el = mesh.N_el;
 	int Lnod = mesh.Lnod;
 
-	initial_vorticity = allocate_3d_array_d(N_el, Knod, Knod);
-	vorticity = allocate_3d_array_d(N_el, Knod, Knod);
-	stream_function = allocate_3d_array_d(N_el, Knod, Knod);
+	initial_vorticity = allocate_array<double>(N_el, Knod, Knod);
+	vorticity = allocate_array<double>(N_el, Knod, Knod);
+	stream_function = allocate_array<double>(N_el, Knod, Knod);
 
-	velocity_cart = allocate_3d_array_c2(N_el, Knod, Knod);
+	velocity_cart = allocate_array<Cmpnts2>(N_el, Knod, Knod);
 
 	sps_local_coor = new double[Knod];
 	sps_weight = new double[Knod];
 	gps_local_coor = new double[Lnod];
 
-	sps_boundary_basis = allocate_2d_array_d(Knod, 2);
-	sps_boundary_grad_basis = allocate_2d_array_d(Knod, 2);
-	sps_sps_grad_basis = allocate_2d_array_d(Knod, Knod);
+	sps_boundary_basis = allocate_array<double>(Knod, 2);
+	sps_boundary_grad_basis = allocate_array<double>(Knod, 2);
+	sps_sps_grad_basis = allocate_array<double>(Knod, Knod);
 
-	gps_boundary_basis = allocate_2d_array_d(Lnod, 2);
-	gps_boundary_grad_basis = allocate_2d_array_d(Lnod, 2);
-	gps_sps_basis = allocate_2d_array_d(Lnod, Knod);
-	sps_gps_basis = allocate_2d_array_d(Knod, Lnod);
-	gps_sps_grad_basis = allocate_2d_array_d(Lnod, Knod);
+	gps_boundary_basis = allocate_array<double>(Lnod, 2);
+	gps_boundary_grad_basis = allocate_array<double>(Lnod, 2);
+	gps_sps_basis = allocate_array<double>(Lnod, Knod);
+	sps_gps_basis = allocate_array<double>(Knod, Lnod);
+	gps_sps_grad_basis = allocate_array<double>(Lnod, Knod);
 
-	sps_radau = allocate_2d_array_d(Knod, 2);
-	sps_grad_radau = allocate_2d_array_d(Knod, 2);
+	sps_radau = allocate_array<double>(Knod, 2);
+	sps_grad_radau = allocate_array<double>(Knod, 2);
 
-	vol_Dx_Dxsi = allocate_3d_array_c2(N_el, Knod, Knod);
-	vol_Dy_Dxsi = allocate_3d_array_c2(N_el, Knod, Knod);
-	vol_jac = allocate_3d_array_d(N_el, Knod, Knod);
+	vol_Dx_Dxsi = allocate_array<Cmpnts2>(N_el, Knod, Knod);
+	vol_Dy_Dxsi = allocate_array<Cmpnts2>(N_el, Knod, Knod);
+	vol_jac = allocate_array<double>(N_el, Knod, Knod);
 
-	G = new double**** [N_el];
-	GB = new double**** [N_el];
-	for (int i = 0; i < N_el; ++i) {
-		G[i] = new double*** [Knod];
-		GB[i] = new double*** [2]; //for the direction d
-		for (int j = 0; j < Knod; ++j) {
-			G[i][j] = new double** [Knod];
-			for (int r = 0; r < Knod; ++r) {
-				G[i][j][r] = new double* [2];
-				for (int s = 0; s < 2; ++s) G[i][j][r][s] = new double[2];
-			}
-		}
-		for (int r = 0; r < 2; ++r) {
-			GB[i][r] = new double** [2];
-			for (int s = 0; s < 2; ++s) {
-				GB[i][r][s] = new double* [Knod];
-				for (int j = 0; j < Knod; ++j)
-					GB[i][r][s][j] = new double[2];
-			}
-		}
-	}
+	G = allocate_array<double>(N_el, Knod, Knod, 2, 2);
+	GB = allocate_array<double>(N_el, 2, 2, Knod, 2);
 
-	face_Acoef = allocate_3d_array_d(N_el, 4, Knod);
-	face_Bcoef = allocate_3d_array_d(N_el, 4, Knod);
-	face_jac   = allocate_3d_array_d(N_el, 4, Knod);
-	face_Anorm = allocate_3d_array_d(N_el, 4, Knod);
-	face_Dx_Dxsi = allocate_3d_array_c2(N_el, 4, Knod);
-	face_Dy_Dxsi = allocate_3d_array_c2(N_el, 4, Knod);
+	face_Acoef = allocate_array<double>(N_el, 4, Knod);
+	face_Bcoef = allocate_array<double>(N_el, 4, Knod);
+	face_jac   = allocate_array<double>(N_el, 4, Knod);
+	face_Anorm = allocate_array<double>(N_el, 4, Knod);
+	face_Dx_Dxsi = allocate_array<Cmpnts2>(N_el, 4, Knod);
+	face_Dy_Dxsi = allocate_array<Cmpnts2>(N_el, 4, Knod);
 
-	RHS_advective = allocate_3d_array_d(N_el, Knod, Knod);
-	RHS_diffusive = allocate_3d_array_d(N_el, Knod, Knod);
+	RHS_advective = allocate_array<double>(N_el, Knod, Knod);
+	RHS_diffusive = allocate_array<double>(N_el, Knod, Knod);
 
 	BC_no_slip = new bool[mesh.N_Gboundary]; //Set NoSlip to all walls (as default)
 
 	BC_switch_Poisson = new unsigned char[mesh.N_edges_boundary];
 	//BC_switch_psi = new unsigned char[mesh.N_edges_boundary];
-	BC_switch_advection = new unsigned char[mesh.N_edges_boundary];
+	//BC_switch_advection = new unsigned char[mesh.N_edges_boundary];
 	BC_switch_diffusion = new unsigned char[mesh.N_edges_boundary];
 
-	boundary_source = allocate_3d_array_d(mesh.N_edges_boundary, Knod*Knod, Knod);
+	boundary_source = allocate_array<double>(mesh.N_edges_boundary, Knod*Knod, Knod);
 
-	BC_Poisson = allocate_2d_array_d(mesh.N_edges_boundary, Knod);
-	//BC_psi = allocate_2d_array_d(mesh.N_edges_boundary, Knod);
-	BC_advection = allocate_2d_array_d(mesh.N_edges_boundary, Knod);
-	BC_diffusion = allocate_2d_array_d(mesh.N_edges_boundary, Knod);
+	BC_Poisson = allocate_array<double>(mesh.N_edges_boundary, Knod);
+	//BC_psi = allocate_array<double>(mesh.N_edges_boundary, Knod);
+	BC_advection = allocate_array<double>(mesh.N_edges_boundary, Knod);
+	BC_diffusion = allocate_array<double>(mesh.N_edges_boundary, Knod);
 
-	BC_vorticity = allocate_2d_array_d(mesh.N_edges_boundary, Knod);
-	velocity_jump = allocate_2d_array_d(mesh.N_edges_boundary, Knod);
-	BC_parl_vel = allocate_2d_array_d(mesh.N_edges_boundary, Knod);
-	BC_normal_vel = allocate_2d_array_d(mesh.N_edges_boundary, Knod);
+	BC_vorticity = allocate_array<double>(mesh.N_edges_boundary, Knod);
+	velocity_jump = allocate_array<double>(mesh.N_edges_boundary, Knod);
+	BC_parl_vel = allocate_array<double>(mesh.N_edges_boundary, Knod);
+	BC_normal_vel = allocate_array<double>(mesh.N_edges_boundary, Knod);
 
-	BC_cart_vel = allocate_2d_array_c2(mesh.N_edges_boundary, Knod);
+	k1 = allocate_array<double>(N_el, Knod, Knod); //these are used in the RK time integration
+	k2 = allocate_array<double>(N_el, Knod, Knod);
+	k3 = allocate_array<double>(N_el, Knod, Knod);
+	k4 = allocate_array<double>(N_el, Knod, Knod);
+	vort = allocate_array<double>(N_el, Knod, Knod);
 
-    k1 = allocate_3d_array_d(N_el, Knod, Knod); //these are used in the RK time integration
-    k2 = allocate_3d_array_d(N_el, Knod, Knod);
-    k3 = allocate_3d_array_d(N_el, Knod, Knod);
-    k4 = allocate_3d_array_d(N_el, Knod, Knod);
-    vort = allocate_3d_array_d(N_el, Knod, Knod);
-
-
+	// like main, 0 means success
 	return 0;
 }
 
@@ -633,7 +494,7 @@ void HO_2D::form_bases() {
 	// calculates the derivative of the Lagrange shape functions of Knod solution points on the local left (-1) and right (+1) boundaries(sps_boundary_grad_basis).
 	// calculates the derivative of Knod solution points on the Knod solution points(sps_sps_grad_basis). the Knod sps is the first index(say i) and other nodes are second index(say j) : sps_sps_grad_basis(i, j)
 
-	unsigned int Lnod = mesh.Lnod;
+	int Lnod = mesh.Lnod;
 	double denominator;
 	double grad_numerator[2];
 	double* sps_grad_numerator = new double [Knod];
@@ -748,6 +609,7 @@ void HO_2D::form_bases() {
 
 void HO_2D::setup_IC_BC_SRC() {
 	//setup initial condition, boundary condition and the source/sink terms
+
 	/* in this version, the Cartesian velocity BC (BC_cart_vel) are replaced with the slip and normal components.
 	Slip velocity: is always in the CCW to the boundary edges. For instance, if the top lid of cavity goes to the right, then the slip velocity is -1
 	Normal velocity: always measured in the outward to the boundary. So, incoming flux is negative and outgoing flux is positive
@@ -756,6 +618,7 @@ void HO_2D::setup_IC_BC_SRC() {
 	Problem_type=1 : Cavity flow
 	problem_type=2: Backward facing step (BFS)
 	problem_type=3: Flow over a cylinder
+	problem_type=11: Hybrid run driven by Omega2D
 	other problems: change the proper boundary conditions as required.
 	*/
 
@@ -770,13 +633,13 @@ void HO_2D::setup_IC_BC_SRC() {
 	}
 
 	if (problem_type==1) { //cavity flow: the mass flux is zero and the slip velocity is -1 on the top plane (lid moves to the right, so CCW)
-        	for (int el_b = 0; el_b < mesh.N_edges_boundary; ++el_b) {
-            		for (int j = 0; j < Knod; ++j) {
-                		BC_Poisson[el_b][j] = 0.; //psi=0
-                		BC_normal_vel[el_b][j] = 0.;
-                		BC_parl_vel[el_b][j] = 0.;
-            		}
-        	}
+		for (int el_b = 0; el_b < mesh.N_edges_boundary; ++el_b) {
+			for (int j = 0; j < Knod; ++j) {
+				BC_Poisson[el_b][j] = 0.; //psi=0
+				BC_normal_vel[el_b][j] = 0.;
+				BC_parl_vel[el_b][j] = 0.;
+			}
+		}
 
 		// std::fill works if all the data is contiguous in memory, which is currently is not
 		std::fill(BC_no_slip, BC_no_slip + mesh.N_Gboundary, true); // if a boundary is no-slip wall or not.
@@ -799,7 +662,7 @@ void HO_2D::setup_IC_BC_SRC() {
 
     else if (problem_type==2) {  //Backward Facing step
         //BFS: inlet: specific normal vel ---> calculate psi based on the mass flux
-        double y_min, y_max;
+        double y_min = 0, y_max = 0;
         for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) { //find the min and max y at the inlet
             if (mesh.boundaries[G_boundary].name != "inlet") continue;
             y_min = mesh.nodes[ mesh.edges[ mesh.boundaries[G_boundary].edges[0] ].nodes[0] ].coor.y;
@@ -812,56 +675,56 @@ void HO_2D::setup_IC_BC_SRC() {
             }
         }
 
-        for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) {
-            if (mesh.boundaries[G_boundary].name == "inlet") { //vorticity, psi and normal velocity are defined
-                BC_no_slip[G_boundary] = false;
-                for (int edge_index : mesh.boundaries[G_boundary].edges) {
-                    BC_switch_diffusion[edge_index] = DirichletBC;
-                    BC_switch_Poisson[edge_index] = DirichletBC;
+		for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) {
+			if (mesh.boundaries[G_boundary].name == "inlet") { //vorticity, psi and normal velocity are defined
+				BC_no_slip[G_boundary] = false;
+				for (int edge_index : mesh.boundaries[G_boundary].edges) {
+					BC_switch_diffusion[edge_index] = DirichletBC;
+					BC_switch_Poisson[edge_index] = DirichletBC;
 
-                    for (int k=0; k<Knod; ++k) {
-                        double y=0.;
-                        for (int j=0; j<mesh.Lnod; ++j) y += gps_sps_basis[j][k] * mesh.nodes[ mesh.edges[edge_index].nodes[mesh.tensor2FEM(j)] ].coor.y; //y at k sps on the edge_index boundary edge
+					for (int k=0; k<Knod; ++k) {
+						double y=0.;
+						for (int j=0; j<mesh.Lnod; ++j) y += gps_sps_basis[j][k] * mesh.nodes[ mesh.edges[edge_index].nodes[mesh.tensor2FEM(j)] ].coor.y; //y at k sps on the edge_index boundary edge
 
-                        if (false) { // uniform velocity profile = 1 into the domain
-                            BC_Poisson[edge_index][k] = y - y_min;
-                            BC_diffusion[edge_index][k] =0.; //zero vorticity
-                            BC_normal_vel[edge_index][k] = -1.; //In the Fortran code, it is considered as the volume flux but here it is the normal out of domain VELOCITY, to be consistent with the BC_parl_vel
-                        }
-                        else { //parabolic inlet profile
-                            BC_Poisson[edge_index][k] = pow(y - y_min,2.) * (3.*y_max-y_min-2.*y)/ pow(y_max-y_min,2.); //psi BC
-                            BC_diffusion[edge_index][k] = 6.*(2.*y-y_min-y_max)/ pow(y_max-y_min,2.);  //vorticity BC
-                            BC_normal_vel[edge_index][k] = 6.*(y-y_min)*(y-y_max)/pow(y_max-y_min,2.);
-                        }
-                    }
-                }
-            }  //case inlet
+						if (false) { // uniform velocity profile = 1 into the domain
+							BC_Poisson[edge_index][k] = y - y_min;
+							BC_diffusion[edge_index][k] = 0.; //zero vorticity
+							BC_normal_vel[edge_index][k] = -1.; //In the Fortran code, it is considered as the volume flux but here it is the normal out of domain VELOCITY, to be consistent with the BC_parl_vel
+						}
+						else { //parabolic inlet profile
+							BC_Poisson[edge_index][k] = pow(y - y_min,2.) * (3.*y_max-y_min-2.*y)/ pow(y_max-y_min,2.); //psi BC
+							BC_diffusion[edge_index][k] = 6.*(2.*y-y_min-y_max)/ pow(y_max-y_min,2.);  //vorticity BC
+							BC_normal_vel[edge_index][k] = 6.*(y-y_min)*(y-y_max)/pow(y_max-y_min,2.);
+						}
+					}
+				}
+			}  //case inlet
 
-            else if (mesh.boundaries[G_boundary].name == "outlet") {  //Neumann for vorticity, Neumann for psi, and slip velocity are known
-                // set slip BC to not allow diffusion
-                BC_no_slip[G_boundary] = false;
-                for (int edge_index : mesh.boundaries[G_boundary].edges) {
-                    BC_switch_diffusion[edge_index] = NeumannBC;
-                    BC_switch_Poisson[edge_index] = NeumannBC;
-                    for (int k=0; k<Knod; ++k) {
-                        BC_diffusion[edge_index][k] = 0.;  //zero domega/dn
-                        BC_Poisson[edge_index][k] = 0.;
-                    }
-                }
-            }
+			else if (mesh.boundaries[G_boundary].name == "outlet") {  //Neumann for vorticity, Neumann for psi, and slip velocity are known
+				// set slip BC to not allow diffusion
+				BC_no_slip[G_boundary] = false;
+				for (int edge_index : mesh.boundaries[G_boundary].edges) {
+					BC_switch_diffusion[edge_index] = NeumannBC;
+					BC_switch_Poisson[edge_index] = NeumannBC;
+					for (int k=0; k<Knod; ++k) {
+						BC_diffusion[edge_index][k] = 0.;  //zero domega/dn
+						BC_Poisson[edge_index][k] = 0.;
+					}
+				}
+			}
 
-            else if (mesh.boundaries[G_boundary].name == "bottom") {  //psi is given on the bottom wall. domega/dn is derived in the code while running, and both the tangential and normal velocities are known
-                BC_no_slip[G_boundary] = true;
-                for (int edge_index : mesh.boundaries[G_boundary].edges) {
-                    BC_switch_Poisson[edge_index] = DirichletBC;
-                    BC_switch_diffusion[edge_index] = NeumannBC; //BC_diffusion is calculated in the code during runtime when BC_no_slip is true
-                    for (int k=0; k<Knod; ++k) {
-                        BC_Poisson[edge_index][k] = 0.;
-                        BC_normal_vel[edge_index][k] = 0.;
-                        BC_parl_vel[edge_index][k] = 0.; // it is used to calculate the normal derivative of vorticity
-                    }
-                }
-            }
+			else if (mesh.boundaries[G_boundary].name == "bottom") {  //psi is given on the bottom wall. domega/dn is derived in the code while running, and both the tangential and normal velocities are known
+				BC_no_slip[G_boundary] = true;
+				for (int edge_index : mesh.boundaries[G_boundary].edges) {
+					BC_switch_Poisson[edge_index] = DirichletBC;
+					BC_switch_diffusion[edge_index] = NeumannBC; //BC_diffusion is calculated in the code during runtime when BC_no_slip is true
+					for (int k=0; k<Knod; ++k) {
+						BC_Poisson[edge_index][k] = 0.;
+						BC_normal_vel[edge_index][k] = 0.;
+						BC_parl_vel[edge_index][k] = 0.; // it is used to calculate the normal derivative of vorticity
+					}
+				}
+			}
 
             else if (mesh.boundaries[G_boundary].name == "top") {
                 BC_no_slip[G_boundary] = true;
@@ -879,7 +742,7 @@ void HO_2D::setup_IC_BC_SRC() {
     }  //else if problem_type ==2
 
     else if (problem_type==3) { //flow over an object
-        double y_min, y_max;
+        double y_min = 0, y_max = 0;
         for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) { //find the min and max y at the inlet
             if (mesh.boundaries[G_boundary].name != "inlet") continue;
             y_min = mesh.nodes[ mesh.edges[ mesh.boundaries[G_boundary].edges[0] ].nodes[0] ].coor.y;
@@ -892,21 +755,21 @@ void HO_2D::setup_IC_BC_SRC() {
             }
         }
 
-        for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) {
-            if (mesh.boundaries[G_boundary].name == "inlet") { //vorticity, psi and normal velocity are defined
-                BC_no_slip[G_boundary] = false;
-                for (int edge_index : mesh.boundaries[G_boundary].edges) {
-                    BC_switch_diffusion[edge_index] = DirichletBC;
-                    BC_switch_Poisson[edge_index] = DirichletBC;
-                    for (int k=0; k<Knod; ++k) {
-                        double y=0.;
-                        for (int j=0; j<mesh.Lnod; ++j) y += gps_sps_basis[j][k] * mesh.nodes[ mesh.edges[edge_index].nodes[mesh.tensor2FEM(j)] ].coor.y; //y at k sps on the edge_index boundary edge
-                        BC_Poisson[edge_index][k] = y - y_min; // uniform velocity profile = 1 into the domain
-                        BC_diffusion[edge_index][k] =0.; //zero vorticity
-                        BC_normal_vel[edge_index][k] = -1.; //In the Fortran code, it is considered as the volume flux but here it is the normal out of domain VELOCITY, to be consistent with the BC_parl_vel
-                    }
-                }
-            }  //case inlet
+	    for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) {
+	        if (mesh.boundaries[G_boundary].name == "inlet") { //vorticity, psi and normal velocity are defined
+	            BC_no_slip[G_boundary] = false;
+	            for (int edge_index : mesh.boundaries[G_boundary].edges) {
+	                BC_switch_diffusion[edge_index] = DirichletBC;
+	                BC_switch_Poisson[edge_index] = DirichletBC;
+	                for (int k=0; k<Knod; ++k) {
+	                    double y=0.;
+	                    for (int j=0; j<mesh.Lnod; ++j) y += gps_sps_basis[j][k] * mesh.nodes[ mesh.edges[edge_index].nodes[mesh.tensor2FEM(j)] ].coor.y; //y at k sps on the edge_index boundary edge
+	                    BC_Poisson[edge_index][k] = y - y_min; // uniform velocity profile = 1 into the domain
+	                    BC_diffusion[edge_index][k] = 0.; //zero vorticity
+	                    BC_normal_vel[edge_index][k] = -1.; //In the Fortran code, it is considered as the volume flux but here it is the normal out of domain VELOCITY, to be consistent with the BC_parl_vel
+	                }
+	            }
+	        }  //case inlet
 
             else if (mesh.boundaries[G_boundary].name == "outlet") {  //Neumann for vorticity, Neumann for psi, and slip velocity are known
                 // set slip BC to not allow diffusion
@@ -947,42 +810,289 @@ void HO_2D::setup_IC_BC_SRC() {
                 }
             }
 
-            else if (mesh.boundaries[G_boundary].name == "object") {
-                BC_no_slip[G_boundary] = true; // if a boundary is no-slip wall or not.
-                for (int edge_index : mesh.boundaries[G_boundary].edges) {
-                BC_switch_Poisson[edge_index] = DirichletBC;
-                BC_switch_diffusion[edge_index] = NeumannBC;  //calculate domega/dn during runtime
-                    for (int k=0; k<Knod; ++k) {
-                        BC_Poisson[edge_index][k] = 0.5*(y_max-y_min); //psi=0
-                        BC_normal_vel[edge_index][k] = 0.;
-                        BC_parl_vel[edge_index][k] = 0.;
-                    }
-                }
-            }
-        } //for Gboundary
-    } //if problem_type==3
+			else if (mesh.boundaries[G_boundary].name == "object") {
+				BC_no_slip[G_boundary] = true; // if a boundary is no-slip wall or not.
+				for (int edge_index : mesh.boundaries[G_boundary].edges) {
+					BC_switch_Poisson[edge_index] = DirichletBC;
+					BC_switch_diffusion[edge_index] = NeumannBC;  //calculate domega/dn during runtime
+					for (int k=0; k<Knod; ++k) {
+						BC_Poisson[edge_index][k] = 0.5*(y_max-y_min); //psi=0
+						BC_normal_vel[edge_index][k] = 0.;
+						BC_parl_vel[edge_index][k] = 0.;
+					}
+				}
+			}
+		} //for Gboundary
+	} //if problem_type==3
 
-    else {  //for any arbitrary problem, specify the BC's of the problem here: modify the below terms as the problem is designed
-        std::fill(BC_no_slip, BC_no_slip + mesh.N_Gboundary, true); // if a boundary is no-slip wall or not.
-        std::fill(BC_switch_Poisson, BC_switch_Poisson + mesh.N_edges_boundary, DirichletBC);
-        std::fill(&BC_Poisson[0][0], &BC_Poisson[0][0] + mesh.N_edges_boundary * Knod, 0.); //psi=0
-        std::fill(BC_switch_diffusion, BC_switch_diffusion + mesh.N_edges_boundary, NeumannBC);
-        std::fill(&BC_normal_vel[0][0], &BC_normal_vel[0][0] + mesh.N_edges_boundary * Knod, 0.);
-        std::fill(&BC_parl_vel[0][0], &BC_parl_vel[0][0] + mesh.N_edges_boundary * Knod, 0.);
-    }
+	else if (problem_type==11) { //hybrid run
 
-    // Now convert the outward normal directions into the local h direction
-    for (int el_b=0; el_b<mesh.N_edges_boundary; ++el_b) {
-        int element_index = mesh.boundary_elem_ID[el_b].element_index; //index of the element that has a face on the global boundary
-		int elem_side = mesh.boundary_elem_ID[el_b].side; //side of the element that has the edge on the global boundary
-		int ijp = f2i[elem_side];
-        double sign = 2.*(ijp%2) - 1.;
+		// track whether we need to do a bit of work calculating inlet psi values
+		bool have_inlets = false;
+
+		// first, set switches for entire boundaries
+		for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) {
+
+			if (mesh.boundaries[G_boundary].name == "open") {
+				BC_no_slip[G_boundary] = false;
+				for (auto edge_index : mesh.boundaries[G_boundary].edges) {
+					//std::cout << "open edge index " << edge_index << std::endl;
+					BC_switch_Poisson[edge_index] = NeumannBC;
+					BC_switch_diffusion[edge_index] = DirichletBC;
+					//BC_switch_advection[edge_index] = DirichletBC;
+					for (int k=0; k<Knod; ++k) {
+						BC_Poisson[edge_index][k] = 0.;	// will reset in update_BCs
+					}
+				}
+
+			} else if (mesh.boundaries[G_boundary].name == "wall") {
+				BC_no_slip[G_boundary] = true;
+				for (auto edge_index : mesh.boundaries[G_boundary].edges) {
+					//std::cout << "wall edge index " << edge_index << std::endl;
+					BC_switch_Poisson[edge_index] = DirichletBC;
+					BC_switch_diffusion[edge_index] = NeumannBC;
+					//BC_switch_advection[edge_index] = DirichletBC;
+					for (int k=0; k<Knod; ++k) {
+						//BC_Poisson[edge_index][k] = 0.;	// will set below
+						BC_normal_vel[edge_index][k] = 0.;
+						BC_parl_vel[edge_index][k] = 0.; // it is used to calculate the normal derivative of vorticity
+					}
+				}
+
+			} else if (mesh.boundaries[G_boundary].name == "slipwall") {
+				assert(false && "HO_2D::setup_IC_BC_SRC - slipwall BC unsupported");
+				BC_no_slip[G_boundary] = false;
+
+			} else if (mesh.boundaries[G_boundary].name == "inlet") {
+				//assert(false && "HO_2D::setup_IC_BC_SRC - inlet BC unsupported");
+				have_inlets = true;
+				BC_no_slip[G_boundary] = false;
+				for (auto edge_index : mesh.boundaries[G_boundary].edges) {
+					//std::cout << "inlet edge index " << edge_index << std::endl;
+					BC_switch_Poisson[edge_index] = DirichletBC;
+					BC_switch_diffusion[edge_index] = DirichletBC;
+					//BC_switch_advection[edge_index] = DirichletBC;
+				}
+				// need to generate outline of fluid with all inlets/outlets!!!
+
+			} else if (mesh.boundaries[G_boundary].name == "outlet") {
+				//assert(false && "HO_2D::setup_IC_BC_SRC - outlet BC unsupported");
+				BC_no_slip[G_boundary] = false;
+				for (auto edge_index : mesh.boundaries[G_boundary].edges) {
+					//std::cout << "outlet edge index " << edge_index << std::endl;
+					BC_switch_Poisson[edge_index] = NeumannBC;
+					BC_switch_diffusion[edge_index] = NeumannBC;
+					//BC_switch_advection[edge_index] = DirichletBC;
+					for (int k=0; k<Knod; ++k) {
+						BC_Poisson[edge_index][k] = 0.;
+						BC_diffusion[edge_index][k] = 0.;  //zero domega/dn
+					}
+				}
+
+			} else {
+				assert(false && "HO_2D::setup_IC_BC_SRC - unknown BC in mesh");
+			}
+		}
+
+		// then set the psi on all inlet boundaries - general case
+		if (have_inlets) {
+			// must put all edges into a list
+			std::cout << "  in HO_2D::setup_IC_BC_SRC" << std::endl;
+			std::vector<unsigned int> firstnode(mesh.N_nodes, 0);
+			std::vector<unsigned int> secondnode(mesh.N_nodes, 0);
+			std::vector<bool> isinlet(mesh.N_edges_boundary, false);
+			std::vector<bool> isoutlet(mesh.N_edges_boundary, false);
+			//std::vector<unsigned int> inletidx(mesh.N_edges_boundary, 0);
+			//std::vector<unsigned int> outletidx(mesh.N_edges_boundary, 0);
+
+			// search *all* edges for nodes
+			for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) {
+				if (mesh.boundaries[G_boundary].name != "open") {
+					for (auto edge_index : mesh.boundaries[G_boundary].edges) {
+						firstnode[mesh.edges[edge_index].nodes[0]] = edge_index;
+						secondnode[mesh.edges[edge_index].nodes[1]] = edge_index;
+						//std::cout << "    edge " << edge_index << " goes from node " << mesh.edges[edge_index].nodes[0] << " to " << mesh.edges[edge_index].nodes[1] << std::endl;
+					}
+				}
+				if (mesh.boundaries[G_boundary].name == "inlet") {
+					for (unsigned int iedge=0; iedge<mesh.boundaries[G_boundary].N_edges; ++iedge) {
+						unsigned int edge_index = mesh.boundaries[G_boundary].edges[iedge];
+						//inletidx[edge_index] = iedge;
+						isinlet[edge_index] = true;
+					}
+					//for (auto edge_index : mesh.boundaries[G_boundary].edges) {
+					//	isinlet[edge_index] = true;
+					//}
+				}
+				if (mesh.boundaries[G_boundary].name == "outlet") {
+					for (auto edge_index : mesh.boundaries[G_boundary].edges) {
+						isoutlet[edge_index] = true;
+					}
+				}
+			}
+			std::cout << "  found " << std::count(isinlet.begin(), isinlet.end(), true) << " inlet edges out of " << mesh.N_edges_boundary << std::endl;
+			std::cout << "    and " << std::count(isoutlet.begin(), isoutlet.end(), true) << " outlet edges" << std::endl;
+
+			// now put them together, starting with any non-inlet/outlet edge
+			size_t istart = 0;
+			while (isinlet[istart] or isoutlet[istart]) ++istart;
+			size_t cnt = 0;
+			orderededges.resize(mesh.N_edges_boundary+1);
+			orderededges[cnt] = istart;
+			// now loop, matching secondnode of the current edge to firstnode of the next
+			do {
+				unsigned int edge_index = orderededges[cnt];
+				unsigned int lookfornode = mesh.edges[edge_index].nodes[1];
+				unsigned int next_edge = firstnode[lookfornode];
+				orderededges[++cnt] = next_edge;
+				//std::cout << "    after edge " << edge_index << " is edge " << next_edge << (isinlet[next_edge] ? " (inlet)" : "") << (isoutlet[next_edge] ? " (outlet)" : "") << std::endl;
+			} while (orderededges[cnt] != orderededges[0]);
+			// if this never quits, then we don't have a loop
+
+			std::cout << "  chained " << cnt << " edges together" << std::endl;
+			orderededges.resize(cnt);	// drop the last one
+
+			// find lengths of all edges - will need this for non-uniform inlets
+			std::vector<double> orderedlengths(mesh.N_edges_boundary+1, 0.);
+			for (size_t iedge = 0; iedge < orderededges.size(); ++iedge) {
+				const unsigned int edge_index = orderededges[iedge];
+				const edge& thisedge = mesh.edges[edge_index];
+
+				// find the length of this edge
+				Cmpnts2 dx;
+				dx.subtract(mesh.nodes[ thisedge.nodes[mesh.tensor2FEM(0)] ].coor,
+				            mesh.nodes[ thisedge.nodes[mesh.tensor2FEM(1)] ].coor);
+				orderedlengths[iedge] = dx.norm2();
+			}
+
+			// finally, assign psi values to all inlet AND WALL edges
+			double psi_end = 0.0;
+			for (size_t iedge = 0; iedge < orderededges.size(); ++iedge) {
+				const unsigned int edge_index = orderededges[iedge];
+				const edge& thisedge = mesh.edges[edge_index];
+
+				// these are all boundary edges!
+				assert(thisedge.bdry_index > -1 && "Edge does not have a bdry_index set!");
+
+				// find the length of this edge
+				const double dxlen = orderedlengths[iedge];
+				//std::cout << "  edge " << edge_index << " is " << dxlen << " long" << std::endl;
+
+				//Cmpnts2 xc;
+				//xc.multadd(0.5, mesh.nodes[ thisedge.nodes[mesh.tensor2FEM(0)] ].coor);
+				//xc.multadd(0.5, mesh.nodes[ thisedge.nodes[mesh.tensor2FEM(1)] ].coor);
+				//std::cout << "    centered at " << xc.x << " " << xc.y << std::endl;
+
+				// find the boundary edge, because it has important information
+				const boundary_edge& thisbdryedge = mesh.boundary_edges[thisedge.bdry_index];
+
+				// psi at start and end of this edge
+				const double psi_start = psi_end;
+				psi_end = psi_start;
+				// this assumes that mesh.Lnod is 2 (geom node at each end of the edge)
+				assert(mesh.Lnod == 2 && "HO_2D::setup_IC_BC_SRC - Lnod must be 2 for inlets to work");
+
+				// TODO: to support multiple inlets/outlets, we need to compute the flow rate
+				// out each of the outlets, so we can march psi along the boundary correctly!
+				// But for now, with only 1 inlet and 1 outlet, we can ignore outlets!
+				// for starters, assume linearly-varying values (assume Knod=2)
+
+				//if (thisbdryedge.bc_type == inlet or thisbdryedge.bc_type == outlet) {
+				if (thisbdryedge.bc_type == inlet) {
+					assert(thisbdryedge.normvel.size() > 0 && "Boundary edge does not have vel BCs");
+					//std::cout << "  inlet edge " << edge_index << " is " << dxlen << " long" << std::endl;
+					//std::cout << "    centered at y= " << 0.5*(mesh.nodes[ thisedge.nodes[mesh.tensor2FEM(0)] ].coor.y+mesh.nodes[ thisedge.nodes[mesh.tensor2FEM(1)] ].coor.y) << std::endl;
+
+					const double this_norm_vel = thisbdryedge.normvel[0];
+					const double this_width = orderedlengths[iedge];
+					//std::cout << "    normal flow is " << this_norm_vel << std::endl;
+					psi_end -= dxlen*this_norm_vel;
+
+					// must find velocity profile along this edge - but how?
+					// look at norm vels of adjacent elements
+
+					// normal vel of previous element
+					const size_t prev_idx = (iedge == 0 ? orderededges.size()-1 : iedge-1);
+					const boundary_edge prev_edge = mesh.boundary_edges[mesh.edges[orderededges[prev_idx]].bdry_index];
+					const double prev_norm_vel = (prev_edge.bc_type == inlet ? prev_edge.normvel[0] : 0.);
+					const double prev_width = orderedlengths[prev_idx];
+
+					// normal vel of next element
+					const size_t next_idx = (iedge == orderededges.size()-1 ? 0 : iedge+1);
+					const boundary_edge next_edge = mesh.boundary_edges[mesh.edges[orderededges[next_idx]].bdry_index];
+					const double next_norm_vel = (next_edge.bc_type == inlet ? next_edge.normvel[0] : 0.);
+					const double next_width = orderedlengths[next_idx];
+
+					// now...we need to be conservative here...
+					const double this_vorticity = (next_norm_vel-this_norm_vel)/(next_width+this_width)
+												+ (this_norm_vel-prev_norm_vel)/(this_width+prev_width);
+					//std::cout << "    prev, this, next vels " << prev_norm_vel << " " << this_norm_vel << " " << next_norm_vel << std::endl;
+					//std::cout << "    gives vort " << this_vorticity << std::endl;
+
+					// now set the BCs on the edge's computational nodes
+					for (int k=0; k<Knod; ++k) {
+						// this is where we assume that Lnod = 2
+						BC_Poisson[edge_index][k] = gps_sps_basis[0][k]*psi_start + gps_sps_basis[1][k]*psi_end;
+						//if (k==1) std::cout << "    inlet psi is " << BC_Poisson[edge_index][k] << std::endl;
+
+						// and here we assume that the inlet profile is uniform
+						BC_diffusion[edge_index][k] = this_vorticity; // vorticity
+						BC_normal_vel[edge_index][k] = -this_norm_vel; // out of domain is positive, to match the BC_parl_vel
+					}
+				} else if (thisbdryedge.bc_type == outlet) {
+
+					// we still need to track psi
+					assert(thisbdryedge.normvel.size() > 0 && "Boundary edge does not have vel BCs");
+					const double this_norm_vel = thisbdryedge.normvel[0];
+					psi_end -= dxlen*this_norm_vel;
+
+					// but we don't need to apply it
+					//std::cout << "    outlet psi is " << 0.5*(psi_start+psi_end) << std::endl;
+
+				} else if (thisbdryedge.bc_type == wall) {
+
+					// psi is constant, but we still need to set it
+					for (int k=0; k<Knod; ++k) {
+						BC_Poisson[edge_index][k] = psi_end;
+						//if (k==1) std::cout << "    wall psi is " << BC_Poisson[edge_index][k] << std::endl;
+					}
+				}
+			}
+		}
+		//std::cout << "Lnod is " << mesh.Lnod << " and Knod is " << Knod << std::endl;
+		//std::cout << "gps_sps_basis[0][] is " << gps_sps_basis[0][0] << " " << gps_sps_basis[0][1] << " " << gps_sps_basis[0][2] << std::endl;
+		//std::cout << "gps_sps_basis[1][] is " << gps_sps_basis[1][0] << " " << gps_sps_basis[1][1] << " " << gps_sps_basis[1][2] << std::endl;
+		//std::cout << "gps_sps_basis[2][] is " << gps_sps_basis[2][0] << " " << gps_sps_basis[2][1] << " " << gps_sps_basis[2][2] << std::endl;
+		//std::cout << "gps_sps_basis[3][] is " << gps_sps_basis[3][0] << " " << gps_sps_basis[3][1] << " " << gps_sps_basis[3][2] << std::endl;
+		//assert(false && "HO_2D::setup_IC_BC_SRC - most BCs unsupported");
+
+	} //if problem_type==11
+
+	else {
+		assert(false && "HO_2D::setup_IC_BC_SRC - problem_type unsupported");
+
+		//for any arbitrary problem, specify the BC's of the problem here:
+		//  modify the below terms as the problem is designed
+
+		std::fill(BC_no_slip, BC_no_slip + mesh.N_Gboundary, true); // if a boundary is no-slip wall or not.
+		std::fill(BC_switch_Poisson, BC_switch_Poisson + mesh.N_edges_boundary, DirichletBC);
+		std::fill(&BC_Poisson[0][0], &BC_Poisson[0][0] + mesh.N_edges_boundary * Knod, 0.); //psi=0
+		std::fill(BC_switch_diffusion, BC_switch_diffusion + mesh.N_edges_boundary, NeumannBC);
+		std::fill(&BC_normal_vel[0][0], &BC_normal_vel[0][0] + mesh.N_edges_boundary * Knod, 0.);
+		std::fill(&BC_parl_vel[0][0], &BC_parl_vel[0][0] + mesh.N_edges_boundary * Knod, 0.);
+	}
+
+	// Now convert the outward normal directions into the local h direction
+	for (int el_b=0; el_b<mesh.N_edges_boundary; ++el_b) {
+		//int element_index = mesh.boundary_edges[el_b].element_index; //index of the element that has a face on the global boundary
+		const int elem_side = mesh.boundary_edges[el_b].side; //side of the element that has the edge on the global boundary
+		const int ijp = f2i[elem_side];
+        const double sign = 2.*(ijp%2) - 1.;
         for (int k=0; k<Knod; ++k) {
             BC_normal_vel[el_b][k] *= sign;
             if (BC_switch_diffusion[el_b]==NeumannBC) BC_diffusion[el_b][k] *= sign;
         }
-    }
-
+	}
 }
 
 void HO_2D::form_metrics() {
@@ -1002,7 +1112,7 @@ void HO_2D::form_metrics() {
 	*/
 
 
-	unsigned int Lnod = mesh.Lnod;
+	int Lnod = mesh.Lnod;
 	double dx_dxsi, dy_dxsi, dx_deta, dy_deta;
 	Cmpnts2 g[2]; //to store g_0=(-partial(x)/partial(eta),partial(y)/partial(eta)) and g_1=(partial(x)/partial(csi),-partial(y)/partial(csi))
 	Cmpnts2** local_coor = new Cmpnts2 * [Lnod]; //local array tp store the coor of the gps in an element, dont really need it just for convenience
@@ -1128,50 +1238,57 @@ void HO_2D::form_metrics() {
 }
 
 char HO_2D::solve_vorticity_streamfunction() {
+
+	const bool debug = false;
+	current_time = time_start;
+
 	//solves the two set of equations: 1) advection diffusion of vorticity + 2) Poisson eq for streamfunction
 	for (int el = 0; el<mesh.N_el; ++el)
 		for (int j = 0; j < Knod; ++j)
-			for (int i = 0; i < Knod; ++i)
+			for (int i = 0; i < Knod; ++i) {
 				vorticity[el][j][i] = initial_vorticity[el][j][i];
+			}
 
 
-	//save_output(0);  // for validation of cases, it exports the quantities and calculates the error norm versus analytical results.
+	// for validation of cases, it exports the quantities and calculates the error norm versus analytical results.
+	if (debug) save_output(0);
 
+	// perform time integration, note ti is global step count
 	for (ti = 0; ti <= num_time_steps; ++ti) {
-		std::cout << "timestep  " << ti << std::endl;
+		std::cout << "step " << ti << " at time " << current_time << std::endl;
 
+		// do all the work
 		solve_advection_diffusion();
 
-		/* for debugging purposes and testing only
-		//temporarily set the right hand side (vorticity) of the poisson equation
-		for (int el = 0; el < mesh.N_el; ++el) {
-			for (int j = 0; j < Knod; ++j) {
-				for (int i = 0; i < Knod; ++i) {
-					Cmpnts2 coor(0., 0.); //coordinate of sps[j][i]
-					for (int ny = 0; ny < mesh.Lnod; ++ny)
-						for (int nx = 0; nx < mesh.Lnod; ++nx) {
-							int node_index = mesh.elements[el].nodes[mesh.tensor2FEM(nx, ny)];
-							coor.plus(gps_sps_basis[ny][j] * gps_sps_basis[nx][i], mesh.nodes[node_index].coor);
-						}
-					double ym = M_PI * (1. - coor.y);
-					//vorticity[el][j][i] = M_PI * std::sin(M_PI * coor.x) * (ym * (1. + 2. * std::cos(ym)) + 2. * std::sin(ym));
-					//vorticity[el][j][i] = std::sin(M_PI * coor.y);
-					//vorticity[el][j][i] = M_PI*std::sin(M_PI*coor.x)*(2.*std::sin(M_PI*coor.y) + 2.*M_PI*coor.y*std::cos(M_PI*coor.y) + M_PI*coor.y);
-					vorticity[el][j][i] = -4. * (coor.x * coor.x + coor.y * coor.y + 1.) * std::exp(coor.x * coor.x + coor.y * coor.y);
-					//vorticity[el][j][i] = -4.;
+		// for debugging purposes and testing only
+		if (debug) {
+			//temporarily set the right hand side (vorticity) of the poisson equation
+			for (int el = 0; el < mesh.N_el; ++el) for (int j = 0; j < Knod; ++j) for (int i = 0; i < Knod; ++i) {
+				Cmpnts2 coor(0., 0.); //coordinate of sps[j][i]
+				for (int ny = 0; ny < mesh.Lnod; ++ny) for (int nx = 0; nx < mesh.Lnod; ++nx) {
+					const int node_index = mesh.elements[el].nodes[mesh.tensor2FEM(nx, ny)];
+					coor.multadd(gps_sps_basis[ny][j] * gps_sps_basis[nx][i], mesh.nodes[node_index].coor);
 				}
+				//double ym = M_PI * (1. - coor.y);
+				//vorticity[el][j][i] = M_PI * std::sin(M_PI * coor.x) * (ym * (1. + 2. * std::cos(ym)) + 2. * std::sin(ym));
+				//vorticity[el][j][i] = std::sin(M_PI * coor.y);
+				//vorticity[el][j][i] = M_PI*std::sin(M_PI*coor.x)*(2.*std::sin(M_PI*coor.y) + 2.*M_PI*coor.y*std::cos(M_PI*coor.y) + M_PI*coor.y);
+				vorticity[el][j][i] = -4. * (coor.x * coor.x + coor.y * coor.y + 1.) * std::exp(coor.x * coor.x + coor.y * coor.y);
+				//vorticity[el][j][i] = -4.;
 			}
 		}
-		*/
 
-		//solve_Poisson(vorticity); //if you would like to calculate the streamfunction at n+1 time step
+		//if you would like to calculate the streamfunction at n+1 time step
+		//solve_Poisson(vorticity);
+
+		current_time += dt;
 
 		if (!((ti+1) % dump_frequency)) {
 			//save_output(ti);
-			save_vorticity_vtk();
-			save_smooth_vtk();
+			save_vorticity_vtk(ti+1);
+			save_smooth_vtk(ti+1);
 		}
- 	}
+	}
 
 	return 0;
 }
@@ -1179,45 +1296,103 @@ char HO_2D::solve_vorticity_streamfunction() {
 char HO_2D::solve_advection_diffusion() {
 	//solves the advection diffusion eq. for the vorticity field: VTE
 
-	int N_el = mesh.N_el;
+	const int N_el = mesh.N_el; 
 
-	if (time_integration_type == 1) { // first order Euler time integration method
-		Euler_time_integrate(vorticity, k1, 0.); //calculate the RHS terms for the advective term and diffusive terms, i.e. -div(vw) and Laplacian(w)
-		for (int el = 0; el < N_el; ++el) for (int j = 0; j < Knod; ++j) for (int i = 0; i < Knod; ++i) vorticity[el][j][i] += k1[el][j][i]; //vorticity at time step n+1
+	//static bool are_allocated = false;
+	//static int orig_nel = N_el, orig_knod = Knod;
+	//static double*** k1, ***k2, ***k3, ***k4, ***vort;
+
+/*
+	if (not are_allocated) {
+		// if anything changed since last allocation, free first
+		if (N_el != orig_nel or Knod != orig_knod) {
+			free_array(k1);
+			free_array(k2);
+			free_array(k3);
+			free_array(k4);
+			free_array(vort);
+		}
+
+		// allocate here
+		k1 = allocate_array<double>(N_el, Knod, Knod);
+		k2 = allocate_array<double>(N_el, Knod, Knod);
+		k3 = allocate_array<double>(N_el, Knod, Knod);
+		k4 = allocate_array<double>(N_el, Knod, Knod);
+		vort = allocate_array<double>(N_el, Knod, Knod);
+
+		// and remember what we did here
+		orig_nel = N_el;
+		orig_knod = Knod;
+		are_allocated = true;
+	}
+*/
+
+	// first order Euler time integration method
+	if (time_integration_type == 1) {
+
+		//calculate the RHS terms for the advective term and diffusive terms, i.e. -div(vw) and Laplacian(w)
+		Euler_time_integrate(vorticity, k1, 0.);
+
+		//vorticity at time step n+1
+		for (int el = 0; el < N_el; ++el) for (int j = 0; j < Knod; ++j) for (int i = 0; i < Knod; ++i) {
+			vorticity[el][j][i] += k1[el][j][i];
+		}
 	}
 
-	else if (time_integration_type == 2) { // explicit RK2 time integration
-		Euler_time_integrate(vorticity, k1, RK2_coeff[0]); //calculate the RHS terms for the advective term and diffusive terms, i.e. -div(vw) and Laplacian(w)
+	// explicit RK2 time integration
+	else if (time_integration_type == 2) {
 
-		for (int el = 0; el < N_el; ++el) for (int j = 0; j < Knod; ++j) for (int i = 0; i < Knod; ++i) vort[el][j][i] = vorticity[el][j][i] + RK2_coeff[1] * k1[el][j][i];
-		Euler_time_integrate(vort, k2, RK2_coeff[1]); //calculate the RHS terms for the advective term and diffusive terms, i.e. -div(vw) and Laplacian(w)
+		//calculate the RHS terms for the advective term and diffusive terms, i.e. -div(vw) and Laplacian(w)
+		Euler_time_integrate(vorticity, k1, RK2_coeff[0]);
 
-		for (int el = 0; el < N_el; ++el) for (int j = 0; j < Knod; ++j) for (int i = 0; i < Knod; ++i)
-			vorticity[el][j][i] += 0.5 * (k1[el][j][i] + k2[el][j][i]); //calc vorticity at time step n+1
+		for (int el = 0; el < N_el; ++el) for (int j = 0; j < Knod; ++j) for (int i = 0; i < Knod; ++i) {
+			vort[el][j][i] = vorticity[el][j][i] + RK2_coeff[1] * k1[el][j][i];
+		}
+		//calculate the RHS terms for the advective term and diffusive terms, i.e. -div(vw) and Laplacian(w)
+		Euler_time_integrate(vort, k2, RK2_coeff[1]);
+
+		//calc vorticity at time step n+1
+		for (int el = 0; el < N_el; ++el) for (int j = 0; j < Knod; ++j) for (int i = 0; i < Knod; ++i) {
+			vorticity[el][j][i] += 0.5 * (k1[el][j][i] + k2[el][j][i]);
+		}
 	}
 
-	else if (time_integration_type == 4) { //explicit RK4 time integration https://lpsa.swarthmore.edu/NumInt/NumIntFourth.html
-		Euler_time_integrate(vorticity, k1, RK4_coeff[0]); //calculate the RHS terms for the advective term and diffusive terms, i.e. -div(vw) and Laplacian(w)
+	//explicit RK4 time integration https://lpsa.swarthmore.edu/NumInt/NumIntFourth.html
+	else if (time_integration_type == 4) {
 
-		for (int el = 0; el < N_el; ++el) for (int j = 0; j < Knod; ++j) for (int i = 0; i < Knod; ++i) vort[el][j][i] = vorticity[el][j][i] + RK4_coeff[1] * k1[el][j][i];
-		Euler_time_integrate(vort, k2, RK4_coeff[1]); //calculate the RHS terms for the advective term and diffusive terms, i.e. -div(vw) and Laplacian(w)
+		//calculate the RHS terms for the advective term and diffusive terms, i.e. -div(vw) and Laplacian(w)
+		Euler_time_integrate(vorticity, k1, RK4_coeff[0]);
 
-		for (int el = 0; el < N_el; ++el) for (int j = 0; j < Knod; ++j) for (int i = 0; i < Knod; ++i) vort[el][j][i] = vorticity[el][j][i] + RK4_coeff[2] * k2[el][j][i];
-		Euler_time_integrate(vort, k3, RK4_coeff[2]); //calculate the RHS terms for the advective term and diffusive terms, i.e. -div(vw) and Laplacian(w)
+		for (int el = 0; el < N_el; ++el) for (int j = 0; j < Knod; ++j) for (int i = 0; i < Knod; ++i) {
+			vort[el][j][i] = vorticity[el][j][i] + RK4_coeff[1] * k1[el][j][i];
+		}
+		//calculate the RHS terms for the advective term and diffusive terms, i.e. -div(vw) and Laplacian(w)
+		Euler_time_integrate(vort, k2, RK4_coeff[1]);
 
-		for (int el = 0; el < N_el; ++el) for (int j = 0; j < Knod; ++j) for (int i = 0; i < Knod; ++i) vort[el][j][i] = vorticity[el][j][i] + RK4_coeff[3] * k3[el][j][i];
-		Euler_time_integrate(vort, k4, RK4_coeff[3]); //calculate the RHS terms for the advective term and diffusive terms, i.e. -div(vw) and Laplacian(w)
+		for (int el = 0; el < N_el; ++el) for (int j = 0; j < Knod; ++j) for (int i = 0; i < Knod; ++i) {
+			vort[el][j][i] = vorticity[el][j][i] + RK4_coeff[2] * k2[el][j][i];
+		}
+		//calculate the RHS terms for the advective term and diffusive terms, i.e. -div(vw) and Laplacian(w)
+		Euler_time_integrate(vort, k3, RK4_coeff[2]);
 
-		for (int el = 0; el < N_el; ++el) for (int j = 0; j < Knod; ++j) for (int i = 0; i < Knod; ++i)
-			vorticity[el][j][i] += (k1[el][j][i] + 2.*k2[el][j][i] + 2.*k3[el][j][i] + k4[el][j][i]) / 6.; //calc vorticity at time step n+1
+		for (int el = 0; el < N_el; ++el) for (int j = 0; j < Knod; ++j) for (int i = 0; i < Knod; ++i) {
+			vort[el][j][i] = vorticity[el][j][i] + RK4_coeff[3] * k3[el][j][i];
+		}
+		//calculate the RHS terms for the advective term and diffusive terms, i.e. -div(vw) and Laplacian(w)
+		Euler_time_integrate(vort, k4, RK4_coeff[3]);
+
+		//calc vorticity at time step n+1
+		for (int el = 0; el < N_el; ++el) for (int j = 0; j < Knod; ++j) for (int i = 0; i < Knod; ++i) {
+			vorticity[el][j][i] += (k1[el][j][i] + 2.*k2[el][j][i] + 2.*k3[el][j][i] + k4[el][j][i]) / 6.;
+		}
 	}
 
     // do not delete memory, but if we wanted to, we would do this
-    //deallocate_3d_array_d(k1, N_el, Knod);
-    //deallocate_3d_array_d(k2, N_el, Knod);
-    //deallocate_3d_array_d(k3, N_el, Knod);
-    //deallocate_3d_array_d(k4, N_el, Knod);
-    //deallocate_3d_array_d(vort, N_el, Knod);
+    //free_array<double>(k1);
+    //free_array<double>(k2);
+    //free_array<double>(k3);
+    //free_array<double>(k4);
+    //free_array<double>(vort);
 
 	return 0;
 }
@@ -1226,29 +1401,20 @@ void HO_2D:: form_Laplace_operator_matrix() {
 	// This subroutine forms the left hand side matrix derived form the Laplace discretization. The matrix is sparse and in Eigen format
 	// The type of BC for the psi are defined in BC_switch_psi which is specified in setup_IC_BC_SRC
 	int N_el = mesh.N_el;
-	int a, b, q, Mq; //temporary indices as in my notes
-	int eln, ijp, ijpm; //neighbor element; element side, neighbor element side
+	int eln, ijpm; //neighbor element; element side, neighbor element side
 	int dn, tn; // the direction and boundary side of the neighboring element eln, adjacent to d direction and t side of the element el
-	int rs, ij, i1, j1; // temporary indices
 	double coeff, tmp2, tmp3;
-	unsigned int Ksq = Knod * Knod;
-	unsigned int Km1 = Knod - 1;
-	unsigned int K4 = Ksq * Ksq;
+	const int Ksq = Knod * Knod;
+	//unsigned int Km1 = Knod - 1;
+	const int K4 = Ksq * Ksq;
 	//The coefficients in the left hand side matrix that has contribution from the element itself. it has the coefficients for element el, sps ij=j*Knod+i and rs=r*Knod+s, so laplacian_center[el][ij][rs]
-	double*** laplacian_center = allocate_3d_array_d(N_el, Ksq, Ksq);
-	double**** laplacian_neighbor = new double*** [N_el]; //The coefficients in the left hand side matrix that has contribution from the 4 neighboring element (if are not located on the global boundary). it has the coefficients for element el per cell side, sps ij=j*Knod+i and rs=r*Knod+s of the neighbor element, so laplacian_center[el][4][ij][rs]
+	double*** laplacian_center = allocate_array<double>(N_el, Ksq, Ksq);
+	//The coefficients in the left hand side matrix that has contribution from the 4 neighboring element (if are not located on the global boundary). it has the coefficients for element el per cell side, sps ij=j*Knod+i and rs=r*Knod+s of the neighbor element, so laplacian_center[el][4][ij][rs]
+	double**** laplacian_neighbor = allocate_array<double>(N_el, 4, Ksq, Ksq);
 	//double** NeuMatrix_Orig = new double* [Knod], **NeuMatrix = new double* [Knod]; //small dense matrix to obtain comx(per element) for a given Neumann BC
 	Eigen::MatrixXd NeuMatrix_Orig(Knod, Knod), NeuMatrix(Knod, Knod); //I am using Eigen here to save energy and time
 
 	//std::fill(BC_switch, BC_switch + mesh.N_edges_boundary, /*NeumannBC*/ DirichletBC); //to test the poisson solver
-
-	for (int i = 0; i < N_el; ++i) {
-		laplacian_neighbor[i] = new double** [4];
-		for (int j = 0; j < 4; ++j) {
-			laplacian_neighbor[i][j] = new double* [Ksq];
-			for (int k = 0; k < Ksq; ++k) laplacian_neighbor[i][j][k] = new double [Ksq];
-		}
-	}
 
 	for (int el = 0; el < N_el; ++el) {
 		for (int ij = 0; ij < Ksq; ++ij) {
@@ -1269,22 +1435,22 @@ void HO_2D:: form_Laplace_operator_matrix() {
 		// **************** effect of the all-cases term (unrelated to the element boundaries)*********************
 		for (int j = 0; j < Knod; ++j) {
 			for (int i = 0; i < Knod; ++i) {
-				ij = j * Knod + i; //local cumulative sps index in element k
+				const int ij = j * Knod + i; //local cumulative sps index in element k
 
 				for (int m = 0; m < Knod; ++m) {
 					for (int r = 0; r < 2; r++) {
-						a = m * (1 - r) + i * r;
-						b = m * r + j * (1 - r);
+						const int a = m * (1 - r) + i * r;
+						const int b = m * r + j * (1 - r);
 						tmp3 = 0.;
 						for (int s = 0; s < 2; s++) tmp3 += sps_boundary_basis[m][s] * sps_grad_radau[j * r + i * (1 - r)][s]; //from the M,N,P,Q of ADrins note
 						double SNGLB1 = sps_sps_grad_basis[m][i * (1 - r) + j * r];
 						for (int d = 0; d < 2; ++d) {
-							double A = G[el][b][a][r][d]; //(g_r . g_d)/J at k,a,b
-							int tmp1 = a * (1 - d) + b * d; //the second index for SNGLB
+							const double A = G[el][b][a][r][d]; //(g_r . g_d)/J at k,a,b
+							const int tmp1 = a * (1 - d) + b * d; //the second index for SNGLB
 							for (int p = 0; p < Knod; ++p) {
-								j1 = p * d + b * (1 - d);
-								i1 = p * (1 - d) + a * d;
-								rs = j1 * Knod + i1;
+								const int j1 = p * d + b * (1 - d);
+								const int i1 = p * (1 - d) + a * d;
+								const int rs = j1 * Knod + i1;
 								tmp2 = 0.;
 								for (int t = 0; t < 2; ++t) tmp2 += 0.5 * sps_boundary_basis[p][t] * sps_grad_radau[tmp1][t];
 								laplacian_center[el][ij][rs] += A * SNGLB1 * (sps_sps_grad_basis[p][tmp1] - tmp2);  //from the L term on page 7 of Adrin's note; page 1 of my notes, 3 feb 2021
@@ -1300,30 +1466,32 @@ void HO_2D:: form_Laplace_operator_matrix() {
 		// effect of the elements faces
 		for (int d = 0; d < 2; ++d) {
 			for (int t = 0; t < 2; ++t) {
-				ijp = 2 * d + t;
-				cell_sides elem_side = i2f[ijp]; //the side of current element corresponding to combination of ibnd and idir
+				const int ijp = 2 * d + t;
+				const cell_sides elem_side = i2f[ijp]; //the side of current element corresponding to combination of ibnd and idir
 
 				if (mesh.elem_neighbor[el].is_on_boundary[elem_side]) { // if this face is on the global boundary:
-					int edge_index = mesh.elem_neighbor[el].boundary_index[elem_side];  // the index of the edge that is on global boundary, which is on the d direction and t side of element el
+					const int edge_index = mesh.elem_neighbor[el].boundary_index[elem_side];  // the index of the edge that is on global boundary, which is on the d direction and t side of element el
+					assert(edge_index < mesh.N_edges_boundary && "boundary_index exceeds array bounds");
+
 					if (BC_switch_Poisson[edge_index] == DirichletBC) { // Dirichlet boundary condition
 						//******************************* The dirichlet BC case: *********************************
 						for (int j = 0; j < Knod; ++j) {
 							for (int i = 0; i < Knod; ++i) {
-								ij = j * Knod + i; //local cumulative sps index in element k
+								const int ij = j * Knod + i; //local cumulative sps index in element k
 								for (int m = 0; m < Knod; ++m) {
-									for (int r = 0; r < 2; r++) {
-										a = m * (1 - r) + i * r;
-										b = m * r + j * (1 - r);
-										q = a * d + b * (1 - d);
+									for (int r = 0; r < 2; ++r) {
+										const int a = m * (1 - r) + i * r;
+										const int b = m * r + j * (1 - r);
+										const int q = a * d + b * (1 - d);
 										double SNGLB1 = sps_sps_grad_basis[m][i * (1 - r) + j * r];
 										double NGR1 = sps_grad_radau[a * (1 - d) + b * d][t];
 										double A = G[el][b][a][r][d]; //(g_r . g_d)/J at k,a,b
 										tmp2 = 0.;
 										for (int s = 0; s < 2; s++) tmp2 += sps_boundary_basis[m][s] * sps_grad_radau[j * r + i * (1 - r)][s];
 										for (int p = 0; p < Knod; ++p) {
-											j1 = p * d + b * (1 - d);
-											i1 = p * (1 - d) + a * d;
-											rs = j1 * Knod + i1; //cumulative index
+											const int j1 = p * d + b * (1 - d);
+											const int i1 = p * (1 - d) + a * d;
+											const int rs = j1 * Knod + i1; //cumulative index
 											laplacian_center[el][ij][rs] -= 0.5 * SNGLB1 * A * sps_boundary_basis[p][t] * NGR1;  //page 1 of my notes 3 Feb 2021
 											laplacian_center[el][ij][rs] += 0.5 * tmp2 * A * sps_boundary_basis[p][t] * NGR1;  //page 2 of my notes 3 Feb 2021
 										}
@@ -1337,18 +1505,18 @@ void HO_2D:: form_Laplace_operator_matrix() {
 
 						for (int j = 0; j < Knod; ++j) {
 							for (int i = 0; i < Knod; ++i) {
-								ij = j * Knod + i; //local cumulative sps index in element k
-								int alpha = i * d + j * (1 - d);
-								double A = GB[el][d][t][alpha][d];  //[(g_d . g_d)/J]|k,d,t,alpha
-								double NGR1 = sps_grad_radau[j * d + i * (1 - d)][t];
+								const int ij = j * Knod + i; //local cumulative sps index in element k
+								const int alpha = i * d + j * (1 - d);
+								const double A = GB[el][d][t][alpha][d];  //[(g_d . g_d)/J]|k,d,t,alpha
+								const double NGR1 = sps_grad_radau[j * d + i * (1 - d)][t];
 								for (int m = 0; m < Knod; ++m) {
-									j1 = m * d + j * (1 - d);
-									i1 = m * (1 - d) + i * d;
-									rs = j1 * Knod + i1;
+									const int j1 = m * d + j * (1 - d);
+									const int i1 = m * (1 - d) + i * d;
+									const int rs = j1 * Knod + i1;
 									laplacian_center[el][ij][rs] += A * (sps_boundary_grad_basis[m][t] - g_prime[t] * sps_boundary_basis[m][t]) * NGR1; //page 3 of my notes 3 Feb 2021
 								}
 								boundary_source[edge_index][ij][(elem_side / 2) * (Knod - 2 * alpha - 1) + alpha] += A * g_prime[t] * NGR1; //page 3 of my notes 3 Feb 2021
-								double B = GB[el][d][t][alpha][1 - d];
+								const double B = GB[el][d][t][alpha][1 - d];
 								for (int m = 0; m < Knod; ++m) {
 									boundary_source[edge_index][ij][(elem_side / 2) * (Knod - 2 * m - 1) + m] += B * sps_sps_grad_basis[m][alpha] * NGR1; //page 3 of my notes 3 Feb 2021
 								}
@@ -1367,30 +1535,30 @@ void HO_2D:: form_Laplace_operator_matrix() {
 
 						NeuMatrix = NeuMatrix_Orig.inverse();
 
-						double sign = t ? 1. : -1.;
+						const double sign = t ? 1. : -1.;
 
 						for (int j = 0; j < Knod; ++j) {
 							for (int i = 0; i < Knod; ++i) {
-								ij = j * Knod + i; //local cumulative sps index in element k
+								const int ij = j * Knod + i; //local cumulative sps index in element k
 
-								int alpha = i * d + j * (1 - d);
+								const int alpha = i * d + j * (1 - d);
 								boundary_source[edge_index][ij][(elem_side / 2) * (Knod - 2 * alpha - 1) + alpha] += sign * sps_grad_radau[j * d + i * (1 - d)][t]
 									 * std::sqrt(GB[el][d][t][alpha][d]*face_jac[el][ijp][alpha]); //page 9 on my notes 17 Feb 2021, effect of NBC, according to the edge[edge_index] direction
 
 								for (int m = 0; m < Knod; ++m) {
 									for (int r = 0; r < 2; r++) {
-										a = m * (1 - r) + i * r;
-										b = m * r + j * (1 - r);
-										q = a * d + b * (1 - d);
+										const int a = m * (1 - r) + i * r;
+										const int b = m * r + j * (1 - r);
+										const int q = a * d + b * (1 - d);
 										double SNGLB1 = sps_sps_grad_basis[m][i * (1 - r) + j * r];
 										double NGR1 = sps_grad_radau[a * (1 - d) + b * d][t];
 										double A = G[el][b][a][r][d]; //(g_r . g_d)/J at k,a,b
 										tmp2 = 0.;
 										for (int s = 0; s < 2; s++) tmp2 += sps_boundary_basis[m][s] * sps_grad_radau[j * r + i * (1 - r)][s];
 										for (int p = 0; p < Knod; ++p) {
-											j1 = p * d + b * (1 - d);
-											i1 = p * (1 - d) + a * d;
-											rs = j1 * Knod + i1; //cumulative index
+											const int j1 = p * d + b * (1 - d);
+											const int i1 = p * (1 - d) + a * d;
+											const int rs = j1 * Knod + i1; //cumulative index
 											laplacian_center[el][ij][rs] -= 0.5 * SNGLB1 * A * sps_boundary_basis[p][t] * NGR1;  //last term of page 8 of my notes 17 Feb 2021
 											laplacian_center[el][ij][rs] += 0.5 * tmp2 * A * sps_boundary_basis[p][t] * NGR1;  //last term of page 9 of my notes 17 Feb 2021
 
@@ -1399,9 +1567,9 @@ void HO_2D:: form_Laplace_operator_matrix() {
 
 											double tmp4 = sps_boundary_grad_basis[p][t] - g_prime[t] * sps_boundary_basis[p][t]; //SNGLB(p,t)-gLp(t)*SBLB(p,t)
 											for (int c = 0; c < Knod; ++c) {
-												j1 = p * d + c * (1 - d);
-												i1 = p * (1 - d) + c * d;
-												rs = j1 * Knod + i1; //cumulative index
+												const int j1 = p * d + c * (1 - d);
+												const int i1 = p * (1 - d) + c * d;
+												const int rs = j1 * Knod + i1; //cumulative index
 												laplacian_center[el][ij][rs] += SNGLB1 * A * NGR1 * tmp4 * NeuMatrix(q,c) * GB[el][d][t][c][d]; //page 8 of my notes 17 Feb 2021
 												laplacian_center[el][ij][rs] -= tmp2 * A * NGR1 * tmp4 * NeuMatrix(q, c) * GB[el][d][t][c][d];  //page 9 of my notes 17 Feb 2021
 											}
@@ -1427,19 +1595,19 @@ void HO_2D:: form_Laplace_operator_matrix() {
 							int ij = j * Knod + i; //local cumulative sps index in element k
 							for (int m = 0; m < Knod; ++m) {
 								for (int r = 0; r < 2; r++) {
-									a = m * (1 - r) + i * r;
-									b = m * r + j * (1 - r);
-									q = a * d + b * (1 - d);
-									Mq = ((d + t + dn + tn + 1) % 2) * (Knod - 2 * q - 1) + q; //index of the flux point in the neighbor element
+									const int a = m * (1 - r) + i * r;
+									const int b = m * r + j * (1 - r);
+									const int q = a * d + b * (1 - d);
+									const int Mq = ((d + t + dn + tn + 1) % 2) * (Knod - 2 * q - 1) + q; //index of the flux point in the neighbor element
 									double SNGLB1 = sps_sps_grad_basis[m][i * (1 - r) + j * r];
 									double NGR1 = sps_grad_radau[a * (1 - d) + b * d][t];
 									double A = G[el][b][a][r][d]; //(g_r . g_d)/J at k,a,b
 									tmp2 = 0.;
 									for (int s = 0; s < 2; s++) tmp2 += sps_boundary_basis[m][s] * sps_grad_radau[j * r + i * (1 - r)][s];
 									for (int p = 0; p < Knod; ++p) {
-										j1 = p * dn + Mq * (1 - dn); //j of the neighbor element
-										i1 = p * (1 - dn) + Mq * dn; //i of the neighbor element
-										rs = j1 * Knod + i1; //cumulative index in the neighbor element
+										const int j1 = p * dn + Mq * (1 - dn); //j of the neighbor element
+										const int i1 = p * (1 - dn) + Mq * dn; //i of the neighbor element
+										const int rs = j1 * Knod + i1; //cumulative index in the neighbor element
 										laplacian_neighbor[el][elem_side][ij][rs] += 0.5 * SNGLB1 * A * sps_boundary_basis[p][tn] * NGR1;  //contribution to the L term, page 1 of my notes, 3 Feb 2021
 										laplacian_neighbor[el][elem_side][ij][rs] -= 0.5 * tmp2   * A * sps_boundary_basis[p][tn] * NGR1;  //contribution to the M,N,P,Q term, page 2 of my notes, 3 Feb 2021
 									}
@@ -1450,7 +1618,7 @@ void HO_2D:: form_Laplace_operator_matrix() {
 					//page 3 of my notes, 3 Feb 2021
 					for (int j = 0; j < Knod; ++j) {
 						for (int i = 0; i < Knod; ++i) {
-							ij = j * Knod + i; //local cumulative sps index in element k
+							const int ij = j * Knod + i; //local cumulative sps index in element k
 							int alpha = i * d + j * (1 - d);
 							int Malpha = ((d + t + dn + tn + 1) % 2) * (Knod - 2 * alpha - 1) + alpha;
 							double A = GB[el][d][t][alpha][d];  //[(g_d . g_d)/J]|k,d,t,alpha
@@ -1462,9 +1630,9 @@ void HO_2D:: form_Laplace_operator_matrix() {
 
 							for (int m = 0; m < Knod; ++m) {
 								int Mm = ((d + t + dn + tn + 1) % 2) * (Knod - 2 * m - 1) + m;
-								j1 = m * d + j * (1 - d);
-								i1 = m * (1 - d) + i * d;
-								rs = j1 * Knod + i1;
+								int j1 = m * d + j * (1 - d);
+								int i1 = m * (1 - d) + i * d;
+								int rs = j1 * Knod + i1;
 								laplacian_center[el][ij][rs] += (0.5 * A * sps_boundary_grad_basis[m][t] - 0.25 * g_prime[t] * A * sps_boundary_basis[m][t] +
 									0.25 * sign * g_prime[tn] * An * sps_boundary_basis[m][t]) * NGR1;
 
@@ -1498,18 +1666,8 @@ void HO_2D:: form_Laplace_operator_matrix() {
 	else if (LHS_type==3) Poisson_solver_AMGCL_setup(laplacian_center, laplacian_neighbor);//use AMGCL to solve for the linear system
 
 	//  **************** free unnecessary memory ****************
-	deallocate_3d_array_d(laplacian_center, N_el, Ksq);
-
-	for (int i = 0; i < N_el; ++i) {
-		for (int j = 0; j < 4; ++j) {
-			for (int k = 0; k < Ksq; ++k)
-				delete[] laplacian_neighbor[i][j][k];
-			delete[] laplacian_neighbor[i][j];
-		}
-		delete[] laplacian_neighbor[i];
-	}
-	delete[] laplacian_neighbor;
-
+	free_array<double>(laplacian_center);
+	free_array<double>(laplacian_neighbor);
 }
 
 char HO_2D::Euler_time_integrate(double*** vort_in, double*** vort_out, double coeff) {
@@ -1520,22 +1678,30 @@ char HO_2D::Euler_time_integrate(double*** vort_in, double*** vort_out, double c
 	Then using this velocity field, the advection diffusion equation for the vorticity is solved to calculate vort_out (k2,k3,k4)
 	*/
 
-	double current_time =  (ti + coeff) * dt;
-	update_BCs(current_time); // for now the BC are setup once in the setup_IC_BC_SRC. This is for a time-dependent BCs
+	// for now the BC are setup once in the setup_IC_BC_SRC. This is for a time-dependent BCs
+	update_BCs(current_time + coeff*dt);
+
+	// kinematic vorticity-velocity inversion
 	solve_Poisson(vort_in); //calculate the streamfunction corresponding to the vort_in, i.e. Laplacian(psi)=-vort_in. solves for stream_function
 	calc_velocity_vector_from_streamfunction(); //calculate the Cartesian velocity field velocity_cart from psi
+
+	// diffusion steps
 	update_diffusion_BC();  //sets the BC for the vorticity
 	calc_RHS_diffusion(vort_in);  //stores Laplace(w) in RHS_diffusive[el][Knod][Knod]
-	update_advection_BC(); //sets the BC for the advection term
-	if (advection_type==1) calc_RHS_advection(vort_in); //stores -div(vw) in RHS_advective[el][Knod][Knod]
-	else if (advection_type == 2) calc_RHS_advection_continuous(vort_in); //stores -div(vw) in RHS_advective[el][Knod][Knod]
 
+	// finish vorticity transport
+	update_advection_BC(); //sets the BC for the advection term
+	//stores -div(vw) in RHS_advective[el][Knod][Knod]
+	if (advection_type == 1) calc_RHS_advection(vort_in);
+	else if (advection_type == 2) calc_RHS_advection_continuous(vort_in);
+	else assert("HO_2D::Euler_time_integrate - advection_type is not 1 or 2");
 
 	//update the vorticity field now
 	for (int el = 0; el < mesh.N_el; ++el)
 		for (int ky = 0; ky < Knod; ++ky)
 			for (int kx = 0; kx < Knod; ++kx)
 				vort_out[el][ky][kx] = dt * (RHS_advective[el][ky][kx] + RHS_diffusive[el][ky][kx]);
+
 	return 0;
 }
 
@@ -1557,7 +1723,7 @@ char HO_2D::solve_Poisson(double const* const* const* vort_in) {
 			Cmpnts2 coor(0., 0.); //coordinate of sps[j][i]
 			for (int n = 0; n < mesh.Lnod; ++n) {
 				int node_index = mesh.edges[el_b].nodes[mesh.tensor2FEM(n)];
-				coor.plus(gps_sps_basis[n][m], mesh.nodes[node_index].coor);
+				coor.multadd(gps_sps_basis[n][m], mesh.nodes[node_index].coor);
 			}
 
 			//BC_values[el_b][m] = coor.x + coor.y; //set the Dirichlet value for the sai values at the flux points on the boundary
@@ -1593,7 +1759,7 @@ char HO_2D::solve_Poisson(double const* const* const* vort_in) {
 		for (int j = 0; j < Knod; ++j) {
 			for (int i = 0; i < Knod; ++i) {
 				int ij = j * Knod + i;
-				int el = mesh.boundary_elem_ID[el_b].element_index;
+				int el = mesh.boundary_edges[el_b].element_index;
 				for (int alpha = 0; alpha < Knod; ++alpha)
 					RHS[el * Ksq + ij] -= boundary_source[el_b][ij][alpha] * BC_Poisson[el_b][alpha];
 			}
@@ -1616,24 +1782,31 @@ char HO_2D::solve_Poisson(double const* const* const* vort_in) {
 
 
 		Eigen::VectorXd poisson_sol = bicg_Eigen.solve(RHS_Eigen);  //biCGstab method
-		std::cout << "#iterations:     " << bicg_Eigen.iterations() << std::endl;
-		std::cout << "estimated error: " << bicg_Eigen.error() << std::endl;
+		//std::cout << "  iterations:     " << bicg_Eigen.iterations() << std::endl;
+		//std::cout << "  estimated error: " << bicg_Eigen.error() << std::endl;
+		std::cout << "  iters:  " << bicg_Eigen.iterations() << "  and error:  " << bicg_Eigen.error() << std::endl;
 
 
 		/*
 		Eigen::VectorXd poisson_sol = LU_Eigen.solve(RHS_Eigen); //sparseLU method
 		*/
 
-		for (int el = 0; el < N_el; ++el)
-			for (int j = 0; j < Knod; ++j)
+		for (int el = 0; el < N_el; ++el) {
+			for (int j = 0; j < Knod; ++j) {
 				for (int i = 0; i < Knod; ++i) {
-					int index = el * Ksq + j * Knod + i;
+					const int index = el * Ksq + j * Knod + i;
 					stream_function[el][j][i] = poisson_sol(index);
 				}
-
-
+			}
+		}
 
 	}  //if LHS_type==1 (Eigen)
+
+	else if (LHS_type == 2) { //Hypre
+		// die - there is no Hypre
+		assert("Hypre solver is unsupported in HO-CXX, quitting.");
+
+	}  //if LHS_type==2 (Hypre)
 
 	else if (LHS_type == 3) { //AMGCL
 		std::vector<double> AMGCL_sol(N_el * Ksq);
@@ -1647,15 +1820,16 @@ char HO_2D::solve_Poisson(double const* const* const* vort_in) {
 		int iters;
 		double error;
 		std::tie(iters, error) = (*AMGCL_solver)(RHS_AMGCL, AMGCL_sol);
-		printf("#Iters=%d Error=%lf\n", iters, error);
+		printf("  iters=%d error=%g\n", iters, error);
 
-
-		for (int el = 0; el < N_el; ++el)
-			for (int j = 0; j < Knod; ++j)
+		for (int el = 0; el < N_el; ++el) {
+			for (int j = 0; j < Knod; ++j) {
 				for (int i = 0; i < Knod; ++i) {
-					int index = el * Ksq + j * Knod + i;
+					const int index = el * Ksq + j * Knod + i;
 					stream_function[el][j][i] = AMGCL_sol[index];
 				}
+			}
+		}
 	}
 
 	delete[] RHS;
@@ -1663,7 +1837,7 @@ char HO_2D::solve_Poisson(double const* const* const* vort_in) {
 	return 0;
 }
 
-void HO_2D::update_BCs(double time) {
+void HO_2D::update_BCs(const double this_time) {
 	/* updates the BC for the slip and normal velocity for the time "time".
 	typically velocity BC is fixed over time,
 	so this gives more flexibility for velocity BC changes in time */
@@ -1672,8 +1846,9 @@ void HO_2D::update_BCs(double time) {
 		for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) {
 			if (mesh.boundaries[G_boundary].name == "top") { // the proper boundary is selected
 				for (int edge_index : mesh.boundaries[G_boundary].edges) { //loop over all the edges forming the top boundary
-					for (int i = 0; i < Knod; ++i) // loop over all sps on each edge on the proper boundary
-						BC_parl_vel[edge_index][i] = -std::fabs(std::sin(M_PI/20.*time)); //the lid moves CW on the global boundary
+					for (int i = 0; i < Knod; ++i) { // loop over all sps on each edge on the proper boundary
+						BC_parl_vel[edge_index][i] = -std::fabs(std::sin(M_PI/20.*this_time)); //the lid moves CW on the global boundary
+					}
 				}
 			}
 		}
@@ -1681,7 +1856,7 @@ void HO_2D::update_BCs(double time) {
 
 	else if (problem_type==2) {  //Backward Facing step: the inlet velocity goes from 0 to 2 and reverts back
 		//BFS: inlet: specific normal vel ---> calculate psi based on the mass flux
-		double y_min, y_max;
+		double y_min = 0, y_max = 0;
 		for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) { //find the min and max y at the inlet
 			if (mesh.boundaries[G_boundary].name != "inlet") continue;
 			y_min = mesh.nodes[ mesh.edges[ mesh.boundaries[G_boundary].edges[0] ].nodes[0] ].coor.y;
@@ -1694,7 +1869,7 @@ void HO_2D::update_BCs(double time) {
 			}
 		}
 
-		double time_coeff = 2.*std::fabs(std::sin(M_PI/40.*time));
+		const double time_coeff = 2.*std::fabs(std::sin(M_PI/40.*this_time));
 
 		for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) {
 			if (mesh.boundaries[G_boundary].name == "inlet") { //vorticity, psi and normal velocity are defined
@@ -1729,7 +1904,7 @@ void HO_2D::update_BCs(double time) {
 	}  //else if problem_type ==2
 
 	else if (problem_type==3) { //flow over an object
-		double y_min, y_max;
+		double y_min = 0, y_max = 0;
 		for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) { //find the min and max y at the inlet
 			if (mesh.boundaries[G_boundary].name != "inlet") continue;
 			y_min = mesh.nodes[ mesh.edges[ mesh.boundaries[G_boundary].edges[0] ].nodes[0] ].coor.y;
@@ -1742,7 +1917,7 @@ void HO_2D::update_BCs(double time) {
 			}
 		}
 
-		double time_coeff = 2.*std::fabs(std::sin(M_PI/40.*time));
+		double time_coeff = 2.*std::fabs(std::sin(M_PI/40.*this_time));
 
 		for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) {
 			if (mesh.boundaries[G_boundary].name == "inlet") { //vorticity, psi and normal velocity are defined
@@ -1784,6 +1959,95 @@ void HO_2D::update_BCs(double time) {
 		} //for Gboundary
 	} //if problem_type==3
 
+	else if (problem_type==11) { //hybrid run
+
+		// what fraction through the outer time step are we?
+		// for the beginning of the first step, weights are fac1=1.0, fac2=0.0
+		// for the end of the last step, weights are fac1=0.0, fac2=1.0
+		const double fac1 = (this_time-time_start) / (time_end-time_start);
+		const double fac2 = 1.0-fac1;
+		std::cout << "  substep normalized time " << fac1 << std::endl;
+
+		// then set BC values for each element
+		// note that the hybrid BC_VelNorm_start, etc. arrays are indexed only for the open bdry
+		// but the simulation BCs BC_normal_vel, etc. are indexed over all boundary edges!
+		unsigned int eoffset = 0;
+		for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) {
+			auto& bdry = mesh.boundaries[G_boundary];
+
+			if (bdry.name == "open") {
+
+				for (unsigned int i=0; i<bdry.N_edges; ++i) {
+					const int eidx = eoffset + i;	// edge index in the master list
+					//std::cout << "  open bdry edge idx same? " << mesh.edges[bdry.edges[i]].bdry_index << " and " << eidx << std::endl;
+					for (int j=0; j<Knod; ++j) {
+						// set normal and parallel vels
+						BC_normal_vel[eidx][j] = -(fac1*BC_VelNorm_start[i][j] + fac2*BC_VelNorm_end[i][j]);
+						BC_parl_vel[eidx][j]   = -(fac1*BC_VelParl_start[i][j] + fac2*BC_VelParl_end[i][j]);
+						//if (i<1500 and j==1) std::cout << "  open bc vel on " << eidx << " " << i << " " << j << " to " << BC_normal_vel[eidx][j] << " " << BC_parl_vel[eidx][j] << std::endl;
+						BC_Poisson[eidx][j]    = BC_parl_vel[eidx][j];
+						//if (j==1) std::cout << "  set BC_normal_vel on " << eidx << " to " << BC_normal_vel[eidx][j] << std::endl;
+
+						// and vorticity for diffusion - is this right? BC_vorticity is set in calc_RHS_diffusion:2407
+						//BC_vorticity[eidx][j] = fac1*BC_Vort_start[i][j] + fac2*BC_Vort_end[i][j];
+						BC_diffusion[eidx][j] = fac1*BC_Vort_start[i][j] + fac2*BC_Vort_end[i][j];
+						//if (i>150) std::cout << "set bc vort on " << eidx << " " << i << " " << j << " to " << BC_vorticity[eidx][j] << std::endl;
+					}
+					// these are already reprojected into eta, xsi components
+				}
+
+			} else if (bdry.name == "wall") {
+
+				// apply parallel and normal velocities on the wall boundary
+				for (unsigned int i=0; i<bdry.N_edges; ++i) {
+					const int eidx = eoffset + i;	// edge index in the master list
+					//std::cout << "  wall bdry edge idx same? " << mesh.edges[bdry.edges[i]].bdry_index << " and " << eidx << std::endl;
+					for (int j=0; j<Knod; ++j) {
+						BC_normal_vel[eidx][j] = 0.0;
+						BC_parl_vel[eidx][j]   = 0.0;
+						//if (i<1500 and j==1) std::cout << "  wall bc vel on " << eidx << " " << i << " " << j << " to " << BC_normal_vel[eidx][j] << " " << BC_parl_vel[eidx][j] << std::endl;
+						// let calc_RHS_diffusion calculate BC_vorticity
+						// and keep BC_Poisson from setup_BC...
+					}
+					// do we need to reproject into eta, xi components?
+				}
+				// no need to set BC_vorticity - the solver takes care of the walls
+
+			} else if (bdry.name == "inlet") {
+
+				// these NEED to be set because the loop below could FLIP them
+				for (unsigned int i=0; i<bdry.N_edges; ++i) {
+					const int eidx = eoffset + i;	// edge index in the master list
+					//std::cout << "  inlet bdry edge idx same? " << mesh.edges[bdry.edges[i]].bdry_index << " and " << eidx << std::endl;
+					const boundary_edge& thisbdryedge = mesh.boundary_edges[eidx];
+					const double this_norm_vel = thisbdryedge.normvel[0];
+
+					for (int j=0; j<Knod; ++j) {
+						//if (i<1500 and j==1) std::cout << "  inlet bc vel on " << eidx << " " << i << " " << j << " to " << BC_normal_vel[eidx][j] << " " << BC_parl_vel[eidx][j] << " and BC_Pois " << BC_Poisson[eidx][j] << std::endl;
+						BC_normal_vel[eidx][j] = -this_norm_vel; // out of domain is positive, to match the BC_parl_vel
+					}
+				}
+
+			} else if (bdry.name == "outlet") {
+
+				// as the outlet is Neumann BCs with all zeros, the values should stay the same
+
+			}
+
+			// keep track of where in the full list of boundary edges this boundary's edges begin
+			eoffset += bdry.N_edges;
+		}
+
+		// finally, apply the vorticity times the weight to all of the elements
+		for (int i=0; i<mesh.N_el; ++i) {
+			for (int j=0; j<Knod; ++j) for (int k=0; k<Knod; ++k) {
+				vorticity[i][j][k] = (1.0-Vort_wgt[i][j][k]) * vorticity[i][j][k]
+										+ Vort_wgt[i][j][k]*(fac1*Vort_start[i][j][k] + fac2*Vort_end[i][j][k]);
+			}
+		}
+
+	}  //else if problem_type ==11
+
 	else {  //for any arbitrary problem, specify the BC's of the problem here: modify the below terms as the problem is designed
 		std::fill(BC_no_slip, BC_no_slip + mesh.N_Gboundary, true);
 		std::fill(BC_switch_Poisson, BC_switch_Poisson + mesh.N_edges_boundary, DirichletBC);
@@ -1795,13 +2059,16 @@ void HO_2D::update_BCs(double time) {
 
 	// Now convert the outward normal directions into the local h direction
 	for (int el_b=0; el_b<mesh.N_edges_boundary; ++el_b) {
-		int element_index = mesh.boundary_elem_ID[el_b].element_index; //index of the element that has a face on the global boundary
-		int elem_side = mesh.boundary_elem_ID[el_b].side; //side of the element that has the edge on the global boundary
-		int ijp = f2i[elem_side];
-		double sign = 2.*(ijp%2) - 1.;
+		//int element_index = mesh.boundary_edges[el_b].element_index; //index of the element that has a face on the global boundary
+		const int elem_side = mesh.boundary_edges[el_b].side; //side of the element that has the edge on the global boundary
+		const int ijp = f2i[elem_side];
+		const double sign = 2.*(ijp%2) - 1.;
 		for (int k=0; k<Knod; ++k) {
+			// set and check normal velocity
 			BC_normal_vel[el_b][k] *= sign;
+			//if (k==1) std::cout << "  then flipped BC_normal_vel on " << el_b << " to " << BC_normal_vel[el_b][k] << std::endl;
 			if (BC_switch_diffusion[el_b]==NeumannBC) BC_diffusion[el_b][k] *= sign;
+			// what about parallel/tangential velocity?
 		}
 	}
 
@@ -1811,18 +2078,22 @@ void HO_2D::update_advection_BC() {
 	// ************************ form the BC_advection *************************
 	//std::fill(BC_switch_advection, BC_switch_advection + mesh.N_edges_boundary, DirichletBC); //pick Dirichlet BC for advection term based on the Fortran code
 	for (int edge_index = 0; edge_index < mesh.N_edges_boundary; ++edge_index) {
-		int element_index = mesh.boundary_elem_ID[edge_index].element_index; //index of the element that has a face on the global boundary
-		int elem_side = mesh.boundary_elem_ID[edge_index].side; //side of the element that has the edge on the global boundary
-		int ijp = f2i[elem_side];
-		int direction = ijp / 2; //0 means xsi, 1 means eta direction
+		const int element_index = mesh.boundary_edges[edge_index].element_index; //index of the element that has a face on the global boundary
+		const int elem_side = mesh.boundary_edges[edge_index].side; //side of the element that has the edge on the global boundary
+		const int ijp = f2i[elem_side];
+		//int direction = ijp / 2; //0 means xsi, 1 means eta direction
 
 		for (int i = 0; i < Knod; ++i) {
-			int edge_flux_point_index = (elem_side / 2) * (Knod - 2 * i - 1) + i;
+			const int edge_flux_point_index = (elem_side / 2) * (Knod - 2 * i - 1) + i;
 			/*double volumetric_flux_boundary[2] = {
 							BC_cart_vel[edge_index][edge_flux_point_index].x * face_Dy_Dxsi[element_index][ijp][i].y - BC_cart_vel[edge_index][edge_flux_point_index].y * face_Dx_Dxsi[element_index][ijp][i].y,
 							-BC_cart_vel[edge_index][edge_flux_point_index].x * face_Dy_Dxsi[element_index][ijp][i].x + BC_cart_vel[edge_index][edge_flux_point_index].y * face_Dx_Dxsi[element_index][ijp][i].x };*/
 
 			//BC_advection[edge_index][edge_flux_point_index] = BC_vorticity[edge_index][edge_flux_point_index] * volumetric_flux_boundary[direction];
+			//
+			// NOTE Adrin thinks this following line should not have the face_Anorm multiplier (05-14),
+			//      but Mohammad explained in Discord on 05/16
+			//
 			BC_advection[edge_index][edge_flux_point_index] = BC_vorticity[edge_index][edge_flux_point_index]  * BC_normal_vel[edge_index][edge_flux_point_index] * face_Anorm[element_index][ijp][i];
 		}
 	}
@@ -1834,38 +2105,35 @@ char HO_2D::calc_RHS_advection(double*** vort_in) {
 
 	// *********************************************************************
 
-	int ijp, ijpm, eln, neighbor_side, jn;
-	double bndr_vel;
-	double** local_vort; //local array to hold the vorticity along a row of csi [0], and row of eta [1] direction
-	double** local_vel; //local array to hold the contravariant flux on a row of csi [0] (xsi dir), and row of eta [1] direction (eta dir)
+	//local array to hold the vorticity along a row of csi [0], and row of eta [1] direction
+	double** local_vort = allocate_array<double>(Knod, 2);
+	//local array to hold the contravariant flux on a row of csi [0] (xsi dir), and row of eta [1] direction (eta dir)
+	double** local_vel = allocate_array<double>(Knod, 2);
 
 	//quantities per element, per ijp face per sps index
-	double*** bndr_vort; //interpolated vorticity from a row/column of K nodes on the ijp faces
-	double*** bndr_flx; //interpolated flux of uw and vw in ijp faces, i.e. w*f^tilda on ijp=0,1 faces and w*g^tilda on ijp=2,3 faces
-	double*** upwnd_flx; //flux values at el element, in idir direction, at row_col row or column at k sps, hence [el][idir][row_col][k]= f^tilda[k] w[k] if idir=0 AND g^tilda[k] w[k] if idir=1
-
-	local_vort = allocate_2d_array_d(Knod, 2);
-	local_vel  = allocate_2d_array_d(Knod, 2);
-	bndr_vort  = allocate_3d_array_d(mesh.N_el, 4, Knod);
-	bndr_flx   = allocate_3d_array_d(mesh.N_el, 4, Knod);
-	upwnd_flx  = allocate_3d_array_d(mesh.N_el, 4, Knod);
+	//interpolated vorticity from a row/column of K nodes on the ijp faces
+	double*** bndr_vort = allocate_array<double>(mesh.N_el, 4, Knod);
+	//interpolated flux of uw and vw in ijp faces, i.e. w*f^tilda on ijp=0,1 faces and w*g^tilda on ijp=2,3 faces
+	double*** bndr_flx = allocate_array<double>(mesh.N_el, 4, Knod);
+	//flux values at el element, in idir direction, at row_col row or column at k sps, hence [el][idir][row_col][k]= f^tilda[k] w[k] if idir=0 AND g^tilda[k] w[k] if idir=1
+	double*** upwnd_flx = allocate_array<double>(mesh.N_el, 4, Knod);
 
 	//0 for xsi and 1: eta directions, so 0 means f^tilda and 1 means g^tilda
-	double**** disc_flx = allocate_4d_array_d(mesh.N_el, 2, Knod, Knod);
+	double**** disc_flx = allocate_array<double>(mesh.N_el, 2, Knod, Knod);
 
 	for (int i = 0; i < mesh.N_el; ++i)
 		for (int j = 0; j < 2; j++)
 			for (int k = 0; k < Knod; k++)
 				for (int m = 0; m < Knod; m++) disc_flx[i][j][k][m] = 0.;
 
-	double** bndr_disc_flx = allocate_2d_array_d(4,Knod);	//4 side of a cells
+	double** bndr_disc_flx = allocate_array<double>(4,Knod);	//4 side of a cells
 
 	// ****************************************************************
 
 	//Extrapolate the unknown, Phi and the Flux to the mesh boundaries using Lagrange polynomials of order Knod - 1
 	for (int el = 0; el < mesh.N_el; el++) { //form flux (U^1w/U^2w on xsi/eta dirs, respectively) on the 4 boundaries (bndr_flx) and all interior sps of all elements (disc_flx)
 		for (int row_col = 0; row_col < Knod; ++row_col) {
-			for (ijp = 0; ijp < 4; ++ijp) bndr_vort[el][ijp][row_col] = bndr_flx[el][ijp][row_col] = upwnd_flx[el][ijp][row_col] = 0.;
+			for (int ijp = 0; ijp < 4; ++ijp) bndr_vort[el][ijp][row_col] = bndr_flx[el][ijp][row_col] = upwnd_flx[el][ijp][row_col] = 0.;
 			for (int i = 0; i < Knod; i++) {
 				local_vort[i][0] = vort_in[el][row_col][i];  // xsi direction
 				local_vort[i][1] = vort_in[el][i][row_col];  //eta direction
@@ -1873,14 +2141,14 @@ char HO_2D::calc_RHS_advection(double*** vort_in) {
 				local_vel[i][1] = -velocity_cart[el][i][row_col].x * vol_Dy_Dxsi[el][i][row_col].x + velocity_cart[el][i][row_col].y * vol_Dx_Dxsi[el][i][row_col].x;  //U^2/J = volumetric flux = contravariant eta FLUX component along eta direction,
 			}
 
-			ijp = 0; //ijp=0 (ibnd=idir=0)
+			int ijp = 0; //ijp=0 (ibnd=idir=0)
 			for (int idir = 0; idir < 2; ++idir) { //idir=0 (xsi); idir=1: eta direction
 				//discontinuous flux values (f^tilda, g^tilda) on (row_col,1:Knod) solution points for xsi direction and on(row_col, 1:Knod) solution points for eta direction
 				for (int i = 0; i < Knod; ++i) disc_flx[el][idir][row_col][i] = local_vel[i][idir] * local_vort[i][idir];
 
 				for (int ibnd = 0; ibnd < 2; ++ibnd) { //ibnd=0: left/south); ibnd=1: right/north
 					for (int m = 0; m < Knod; m++) bndr_vort[el][ijp][row_col] += local_vort[m][idir] * sps_boundary_basis[m][ibnd];
-					int elem_side = i2f[ijp]; //the side of current element corresponding to combination of ibnd and idir
+					const int elem_side = i2f[ijp]; //the side of current element corresponding to combination of ibnd and idir
 					if (mesh.elem_neighbor[el].is_on_boundary[elem_side]) {
 
 						int edge_index = mesh.elem_neighbor[el].boundary_index[elem_side];
@@ -1906,27 +2174,27 @@ char HO_2D::calc_RHS_advection(double*** vort_in) {
 	}
 
 	for (int el = 0; el < mesh.N_el; el++) {
-		for (ijp = 0; ijp < 4; ++ijp) {
-			int elem_side = i2f[ijp]; //the side of current element corresponding to combination of ibnd and idir
+		for (int ijp = 0; ijp < 4; ++ijp) {
+			const int elem_side = i2f[ijp]; //the side of current element corresponding to combination of ibnd and idir
 			if (mesh.elem_neighbor[el].is_on_boundary[elem_side])
 				for (int j = 0; j < Knod; ++j)
 					upwnd_flx[el][ijp][j] = bndr_flx[el][ijp][j];
 			else {
-				eln = mesh.elem_neighbor[el].neighbor[elem_side]; //element number of the neighbor
-				ijpm = f2i[mesh.elem_neighbor[el].neighbor_common_side[elem_side]];
+				const int eln = mesh.elem_neighbor[el].neighbor[elem_side]; //element number of the neighbor
+				const int ijpm = f2i[mesh.elem_neighbor[el].neighbor_common_side[elem_side]];
 
-				double sign = 2. * ((ijp + ijpm) % 2) - 1.;  //to see if the normal fluxes are in different orientations
-				int revert_coeff = (ijp + ijpm - ijp / 2 - ijpm / 2 + 1) % 2; //equal to (d+t+dn+tn+1)%2 = (ijp-d+ijpm-dn+1)%2
+				const double sign = 2. * ((ijp + ijpm) % 2) - 1.;  //to see if the normal fluxes are in different orientations
+				const int revert_coeff = (ijp + ijpm - ijp / 2 - ijpm / 2 + 1) % 2; //equal to (d+t+dn+tn+1)%2 = (ijp-d+ijpm-dn+1)%2
 				//bool revert_tangent = (ijp == ijpm) || (ijp + ijpm == 3);
 				//bool revert_normal = (ijp == ijpm) || (std::fabs(ijp - ijpm) == 2);
 				//double sign = revert_normal? -1. : 1.;
 				for (int j = 0; j < Knod; ++j) {
 					//kk = (revert_tangent) ? Knod - 1 - j : j;
-					jn = revert_coeff * (Knod - 2 * j - 1) + j; // the neighbor side of the common face index (either j or Knod-j-1)
+					const int jn = revert_coeff * (Knod - 2 * j - 1) + j; // the neighbor side of the common face index (either j or Knod-j-1)
 					upwnd_flx[el][ijp][j] = 0.5 * (bndr_flx[el][ijp][j] + sign * bndr_flx[eln][ijpm][jn]);
 					double vort_diff = bndr_vort[el][ijp][j] - bndr_vort[eln][ijpm][jn];
 					if (std::fabs(vort_diff) > 1.e-4) {
-						bndr_vel = (bndr_flx[el][ijp][j] - sign * bndr_flx[eln][ijpm][jn]) / vort_diff; //a_tilda
+						const double bndr_vel = (bndr_flx[el][ijp][j] - sign * bndr_flx[eln][ijpm][jn]) / vort_diff; //a_tilda
 						upwnd_flx[el][ijp][j] += 0.5 * sgn[ijp] * std::fabs(bndr_vel) * vort_diff;
 					}
 				}
@@ -1935,7 +2203,7 @@ char HO_2D::calc_RHS_advection(double*** vort_in) {
 	}
 
 	for (int el = 0; el < mesh.N_el; el++) {
-		ijp = 0;
+		int ijp = 0;
 		for (int idir = 0; idir < 2; ++idir) { //idir=0 (xsi); idir=1: eta direction
 			for (int ibnd = 0; ibnd < 2; ++ibnd) { //ibnd=0: left/south); ibnd=1: right/north
 				for (int j = 0; j < Knod; ++j) {
@@ -1962,101 +2230,57 @@ char HO_2D::calc_RHS_advection(double*** vort_in) {
 	}
 
 	// ********************** free memory on the heap*****************
-	deallocate_2d_array_d(bndr_disc_flx, 4);
-
-	for (int i = 0; i < mesh.N_el; ++i) {
-		for (int j = 0; j < 2; j++) {
-			for (int k = 0; k < Knod; k++)
-				delete[] disc_flx[i][j][k];
-			delete[] disc_flx[i][j];
-		}
-		delete[] disc_flx[i];
-	}
-	delete[] disc_flx;
-
-	deallocate_3d_array_d(bndr_vort, mesh.N_el, 4);
-	deallocate_3d_array_d(bndr_flx, mesh.N_el, 4);
-	deallocate_3d_array_d(upwnd_flx, mesh.N_el, 4);
-
-	deallocate_2d_array_d(local_vort, Knod);
-	deallocate_2d_array_d(local_vel, Knod);
+	free_array<double>(bndr_disc_flx);
+	free_array<double>(disc_flx);
+	free_array<double>(bndr_vort);
+	free_array<double>(bndr_flx);
+	free_array<double>(upwnd_flx);
+	free_array<double>(local_vort);
+	free_array<double>(local_vel);
 
 	return 0;
 }
 
 char HO_2D::calc_RHS_advection_continuous(double*** vort_in) {
 	// ********* This subroutine calculates the - div(VW), V is Cartesian velocity vector, W is vorticity *********
+
 	// *********************************************************************
 
-	int ijp, ijpm, eln, neighbor_side, jn;
-	double bndr_vel;
-	double** local_vort = new double* [Knod]; //local array to hold the vorticity along a row of csi [0], and row of eta [1] direction
-	for (int i = 0; i < Knod; ++i) local_vort[i] = new double[2];
-	double** local_vel = new double* [Knod]; //local array to hold the contravariant flux on a row of csi [0] (xsi dir), and row of eta [1] direction (eta dir)
-	for (int i = 0; i < Knod; ++i) local_vel[i] = new double[2];
+	//local array to hold the vorticity along a row of csi [0], and row of eta [1] direction
+	double** local_vort = allocate_array<double>(Knod, 2);
+	//local array to hold the contravariant flux on a row of csi [0] (xsi dir), and row of eta [1] direction (eta dir)
+	double** local_vel = allocate_array<double>(Knod, 2);
 
-	double*** bndr_vort, *** bndr_flx, *** upwnd_flx; //quantities per element, per ijp face per sps index
-	bndr_vort = new double** [mesh.N_el]; //interpolated vorticity from a row/column of K nodes on the ijp faces
-	bndr_flx = new double** [mesh.N_el]; //interpolated flux of uw and vw in ijp faces, i.e. w*f^tilda on ijp=0,1 faces and w*g^tilda on ijp=2,3 faces
-	upwnd_flx = new double** [mesh.N_el]; //flux values at el element, in idir direction, at row_col row or column at k sps, hence [el][idir][row_col][k]= f^tilda[k] w[k] if idir=0 AND g^tilda[k] w[k] if idir=1
+	//quantities per element, per ijp face per sps index
+	//interpolated vorticity from a row/column of K nodes on the ijp faces
+	double*** bndr_vort = allocate_array<double>(mesh.N_el, 4, Knod);
+	//interpolated flux of uw and vw in ijp faces, i.e. w*f^tilda on ijp=0,1 faces and w*g^tilda on ijp=2,3 faces
+	double*** bndr_flx = allocate_array<double>(mesh.N_el, 4, Knod);
+	//flux values at el element, in idir direction, at row_col row or column at k sps, hence [el][idir][row_col][k]= f^tilda[k] w[k] if idir=0 AND g^tilda[k] w[k] if idir=1
+	double*** upwnd_flx = allocate_array<double>(mesh.N_el, 4, Knod);
 
-	for (int i = 0; i < mesh.N_el; ++i) {
-		bndr_vort[i] = new double* [4];
-		bndr_flx[i] = new double* [4];
-		upwnd_flx[i] = new double* [4];
-		for (int j = 0; j < 4; ++j) {
-			bndr_vort[i][j] = new double[Knod];
-			bndr_flx[i][j] = new double[Knod];
-			upwnd_flx[i][j] = new double[Knod];
-		}
-	}
+	// 2nd is 0 for xsi and 1: eta directions, so 0 means f^tilda and 1 means g^tilda
+	double**** disc_flx = allocate_array<double>(mesh.N_el, 2, Knod, Knod);
 
-	double**** disc_flx = new double*** [mesh.N_el];
-	for (int i = 0; i < mesh.N_el; ++i) {
-		disc_flx[i] = new double** [2]; //0 for xsi and 1: eta directions, so 0 means f^tilda and 1 means g^tilda
-		for (int j = 0; j < 2; j++) {
-			disc_flx[i][j] = new double* [Knod];
-			for (int k = 0; k < Knod; k++) disc_flx[i][j][k] = new double[Knod];
-		}
-	}
-
-	double**** disc_vol_flux = new double*** [mesh.N_el]; //the volumetric flux in xsi and eta directions in all elements at i,j sps
-	double**** cont_vol_flux = new double*** [mesh.N_el]; //the continuous volumetric flux in xsi and eta directions in all elements at i,j sps
-	for (int el = 0; el < mesh.N_el; el++) {
-		disc_vol_flux[el] = new double** [Knod];
-		cont_vol_flux[el] = new double** [Knod];
-		for (int j = 0; j < Knod; ++j) {
-			disc_vol_flux[el][j] = new double* [Knod];
-			cont_vol_flux[el][j] = new double* [Knod];
-			for (int i = 0; i < Knod; ++i) {
-				disc_vol_flux[el][j][i] = new double[2]; //in the xsi and eta directions
-				cont_vol_flux[el][j][i] = new double[2]; //in the xsi and eta directions
-			}
-		}
-	}
+	//the volumetric flux in xsi and eta directions in all elements at i,j sps
+	double**** disc_vol_flux = allocate_array<double>(mesh.N_el, Knod, Knod, 2);
+	//the continuous volumetric flux in xsi and eta directions in all elements at i,j sps
+	double**** cont_vol_flux = allocate_array<double>(mesh.N_el, Knod, Knod, 2);
+	// last 2 are in the xsi and eta directions
 
 	for (int i = 0; i < mesh.N_el; ++i)
 		for (int j = 0; j < 2; j++)
 			for (int k = 0; k < Knod; k++)
 				for (int m = 0; m < Knod; m++) disc_flx[i][j][k][m] = 0.;
 
-	double** bndr_disc_flx = new double* [4];  //4 side of a cells
-	for (int i = 0; i < 4; ++i) bndr_disc_flx[i] = new double[Knod];
+	//4 side of a cell
+	double** bndr_disc_flx = allocate_array<double>(4, Knod);
 
 	// Here I am using the continuous volumetric flux field for the advective term
-	double*** bndr_vol_flux; //volumetric flux at sps of the L/R (0:1) and S/N (2:3) boundaries of all elements
-	double*** comm_vol_flux; //common volumetric flux per element, per face (west, east, south, north) per sps index
-	bndr_vol_flux = new double** [mesh.N_el];
-	comm_vol_flux = new double** [mesh.N_el];
-
-	for (int i = 0; i < mesh.N_el; ++i) {
-		bndr_vol_flux[i] = new double* [4];
-		comm_vol_flux[i] = new double* [4];
-		for (int j = 0; j < 4; ++j) {
-			bndr_vol_flux[i][j] = new double[Knod];
-			comm_vol_flux[i][j] = new double[Knod];
-		}
-	}
+	//volumetric flux at sps of the L/R (0:1) and S/N (2:3) boundaries of all elements
+	double*** bndr_vol_flux = allocate_array<double>(mesh.N_el, 4, Knod);
+	//common volumetric flux per element, per face (west, east, south, north) per sps index
+	double*** comm_vol_flux = allocate_array<double>(mesh.N_el, 4, Knod);
 
 	// ****************************************************************
 	// ******* calculate the original discontinuous volumetric flux at the sps of all elements ********
@@ -2069,7 +2293,7 @@ char HO_2D::calc_RHS_advection_continuous(double*** vort_in) {
 	// *************************************************************************
 	// ******* calculate the disc_vol_flux on the elements faces by extrapolation, store in bndr_vol_flux *******
 	for (int el = 0; el < mesh.N_el; el++) {
-		ijp = 0; //ijp=0 (ibnd=idir=0)
+		int ijp = 0; //ijp=0 (ibnd=idir=0)
 		for (int idir = 0; idir < 2; ++idir) { //idir=0 (xsi); idir=1: eta direction
 			for (int ibnd = 0; ibnd < 2; ++ibnd) { //ibnd=0: left/south); ibnd=1: right/north
 				for (int alpha = 0; alpha < Knod; ++alpha) {  //alpha is either i or j, depending on the direction idir
@@ -2102,8 +2326,8 @@ char HO_2D::calc_RHS_advection_continuous(double*** vort_in) {
 					}
 				}
 				else {
-					eln = mesh.elem_neighbor[el].neighbor[elem_side]; //element number of the neighbor
-					ijpm = f2i[mesh.elem_neighbor[el].neighbor_common_side[elem_side]];
+					const int eln = mesh.elem_neighbor[el].neighbor[elem_side]; //element number of the neighbor
+					const int ijpm = f2i[mesh.elem_neighbor[el].neighbor_common_side[elem_side]];
 					double sign = 2. * ((ijp + ijpm) % 2) - 1.;  //to see if the normal fluxes are in different orientations
 					int revert_coeff = (ijp + ijpm - ijp / 2 - ijpm / 2 + 1) % 2; //equal to (d+t+dn+tn+1)%2 = (ijp-d+ijpm-dn+1)%2
 					for (int m = 0; m < Knod; ++m) {
@@ -2129,7 +2353,7 @@ char HO_2D::calc_RHS_advection_continuous(double*** vort_in) {
 	//Extrapolate the unknown, Phi and the Flux to the mesh boundaries using Lagrange polynomials of order Knod - 1
 	for (int el = 0; el < mesh.N_el; el++) { //form flux (U^1w/U^2w on xsi/eta dirs, respectively) on the 4 boundaries (bndr_flx) and all interior sps of all elements (disc_flx)
 		for (int row_col = 0; row_col < Knod; ++row_col) {
-			for (ijp = 0; ijp < 4; ++ijp) bndr_vort[el][ijp][row_col] = upwnd_flx[el][ijp][row_col] = 0.;
+			for (int ijp = 0; ijp < 4; ++ijp) bndr_vort[el][ijp][row_col] = upwnd_flx[el][ijp][row_col] = 0.;
 			for (int i = 0; i < Knod; i++) {
 				local_vort[i][0] = vort_in[el][row_col][i];  // xsi direction
 				local_vort[i][1] = vort_in[el][i][row_col];  //eta direction
@@ -2137,7 +2361,7 @@ char HO_2D::calc_RHS_advection_continuous(double*** vort_in) {
 				local_vel[i][1] = cont_vol_flux[el][i][row_col][1];
 			}
 
-			ijp = 0; //ijp=0 (ibnd=idir=0)
+			int ijp = 0; //ijp=0 (ibnd=idir=0)
 			for (int idir = 0; idir < 2; ++idir) { //idir=0 (xsi); idir=1: eta direction
 				for (int i = 0; i < Knod; ++i) disc_flx[el][idir][row_col][i] = local_vel[i][idir] * local_vort[i][idir];
 
@@ -2159,19 +2383,19 @@ char HO_2D::calc_RHS_advection_continuous(double*** vort_in) {
 	}
 
 	for (int el = 0; el < mesh.N_el; el++) {
-		for (ijp = 0; ijp < 4; ++ijp) {
-			int elem_side = i2f[ijp]; //the side of current element corresponding to combination of ibnd and idir
+		for (int ijp = 0; ijp < 4; ++ijp) {
+			const int elem_side = i2f[ijp]; //the side of current element corresponding to combination of ibnd and idir
 			if (mesh.elem_neighbor[el].is_on_boundary[elem_side])
 				for (int j = 0; j < Knod; ++j)
 					upwnd_flx[el][ijp][j] = bndr_flx[el][ijp][j];
 			else {
-				double t = (double)(ijp%2); //the ibnd of the current ijp
-				eln = mesh.elem_neighbor[el].neighbor[elem_side]; //element number of the neighbor
-				ijpm = f2i[mesh.elem_neighbor[el].neighbor_common_side[elem_side]];
-				double sign = 2. * ((ijp + ijpm) % 2) - 1.;  //to see if the normal fluxes are in different orientations
-				int revert_coeff = (ijp + ijpm - ijp / 2 - ijpm / 2 + 1) % 2; //equal to (d+t+dn+tn+1)%2 = (ijp-d+ijpm-dn+1)%2
+				const double t = (double)(ijp%2); //the ibnd of the current ijp
+				const int eln = mesh.elem_neighbor[el].neighbor[elem_side]; //element number of the neighbor
+				const int ijpm = f2i[mesh.elem_neighbor[el].neighbor_common_side[elem_side]];
+				//double sign = 2. * ((ijp + ijpm) % 2) - 1.;  //to see if the normal fluxes are in different orientations
+				const int revert_coeff = (ijp + ijpm - ijp / 2 - ijpm / 2 + 1) % 2; //equal to (d+t+dn+tn+1)%2 = (ijp-d+ijpm-dn+1)%2
 				for (int j = 0; j < Knod; ++j) {
-					jn = revert_coeff * (Knod - 2 * j - 1) + j; // the neighbor side of the common face index (either j or Knod-j-1)
+					const int jn = revert_coeff * (Knod - 2 * j - 1) + j; // the neighbor side of the common face index (either j or Knod-j-1)
 					if (comm_vol_flux[el][ijp][j] > 0.)
 						upwnd_flx[el][ijp][j] = comm_vol_flux[el][ijp][j] * (t * bndr_vort[el][ijp][j] + (1. - t) * bndr_vort[eln][ijpm][jn]);
 					else
@@ -2182,7 +2406,7 @@ char HO_2D::calc_RHS_advection_continuous(double*** vort_in) {
 	}
 
 	for (int el = 0; el < mesh.N_el; el++) {
-		ijp = 0;
+		int ijp = 0;
 		for (int idir = 0; idir < 2; ++idir) { //idir=0 (xsi); idir=1: eta direction
 			for (int ibnd = 0; ibnd < 2; ++ibnd) { //ibnd=0: left/south); ibnd=1: right/north
 				for (int j = 0; j < Knod; ++j) {
@@ -2210,70 +2434,18 @@ char HO_2D::calc_RHS_advection_continuous(double*** vort_in) {
 	}
 
 	// ********************** free memory on the heap*****************
-	for (int el = 0; el < mesh.N_el; ++el) {
-		for (int ijp = 0; ijp < 4; ++ijp) {
-			delete[] bndr_vol_flux[el][ijp];
-			delete[] comm_vol_flux[el][ijp];
-		}
-		delete[] bndr_vol_flux[el];
-		delete[] comm_vol_flux[el];
-	}
-	delete[] bndr_vol_flux;
-	delete[] comm_vol_flux;
+	free_array<double>(bndr_vol_flux);
+	free_array<double>(comm_vol_flux);
+	free_array<double>(disc_vol_flux);
+	free_array<double>(cont_vol_flux);
+	free_array<double>(bndr_disc_flx);
+	free_array<double>(disc_flx);
+	free_array<double>(bndr_vort);
+	free_array<double>(bndr_flx);
+	free_array<double>(upwnd_flx);
+	free_array<double>(local_vort);
+	free_array<double>(local_vel);
 
-
-
-	for (int el = 0; el < mesh.N_el; ++el) {
-		for (int j = 0; j < Knod; ++j) {
-			for (int i = 0; i < Knod; ++i) {
-				delete[] disc_vol_flux[el][j][i];
-				delete[] cont_vol_flux[el][j][i];
-			}
-			delete[] disc_vol_flux[el][j];
-			delete[] cont_vol_flux[el][j];
-		}
-		delete[] disc_vol_flux[el];
-		delete[] cont_vol_flux[el];
-	}
-	delete[] disc_vol_flux;
-	delete[] cont_vol_flux;
-
-
-
-	for (int i = 0; i < 4; ++i)
-		delete[] bndr_disc_flx[i];
-	delete[] bndr_disc_flx;
-
-	for (int i = 0; i < mesh.N_el; ++i) {
-		for (int j = 0; j < 2; j++) {
-			for (int k = 0; k < Knod; k++)
-				delete[] disc_flx[i][j][k];
-			delete[] disc_flx[i][j];
-		}
-		delete[] disc_flx[i];
-	}
-	delete[] disc_flx;
-
-	for (int i = 0; i < mesh.N_el; ++i) {
-		for (int j = 0; j < 4; ++j) {
-			delete[] bndr_vort[i][j];
-			delete[] bndr_flx[i][j];
-			delete[] upwnd_flx[i][j];
-		}
-		delete[] bndr_vort[i];
-		delete[] bndr_flx[i];
-		delete[] upwnd_flx[i];
-	}
-	delete[] bndr_vort;
-	delete[] bndr_flx;
-	delete[] upwnd_flx;
-
-	for (int i = 0; i < Knod; ++i) {
-		delete[] local_vort[i];
-		delete[] local_vel[i];
-	}
-	delete[] local_vort;
-	delete[] local_vel;
 	return 0;
 }
 
@@ -2281,10 +2453,11 @@ void HO_2D::update_diffusion_BC() {
 	//updates the BC values for vorticity (BC_diffusion) when BC_no_slip is true
 
 	//std::fill(BC_switch_diffusion, BC_switch_diffusion + mesh.N_edges_boundary, NeumannBC); //pick Neumann BC for diffusion term based on the Fortran code
+
 	for (int Gboundary = 0; Gboundary < mesh.N_Gboundary; ++Gboundary) { //usually 4 in case of square
 		if (BC_no_slip[Gboundary]) {  //no slip condition on the global boundary element Gboundary, so if no slip wall then
 			for (int edge_index : mesh.boundaries[Gboundary].edges) {  //loop over edges on the Gboundary global boundary
-				double sign = (f2i[mesh.boundary_elem_ID[edge_index].side] % 2)*2. - 1.; //it gives -1 if the edge_index belongs to west and south of element, other wise +1
+				double sign = (f2i[mesh.boundary_edges[edge_index].side] % 2)*2. - 1.; //it gives -1 if the edge_index belongs to west and south of element, other wise +1
 				for (int m = 0; m < Knod; ++m) velocity_jump[edge_index][m] += sign * BC_parl_vel[edge_index][m]; //if S and W of the element is located on the global boundary the sign is negative
 				for (int m = 0; m < Knod; ++m) BC_diffusion[edge_index][m] = velocity_jump[edge_index][m] / (dt * Reyn_inv);
 			}
@@ -2300,45 +2473,26 @@ char HO_2D::calc_RHS_diffusion(double*** vort_in) {
 	//this method calculates the 1/Re * Laplacian of vorticity at all sps of all elements stored in Lap_vorticity[el][ky][kx]
 
 	// ****************** definition, memory allocation and initialization ****************
-	double du_dxsi, du_deta;
-	int eln;
+	//double du_dxsi, du_deta;
 	unsigned char ijp, ijpm; //left boundary(xsi): ijp=0, right_boundary (xsi): ijp=1; south boundary (eta): ijp=2; north boundary (eta): ijp = 3
-	double** local_vort = new double* [Knod]; //local array to hold the vorticity along a row of csi [0], and row of eta [1] direction
-	for (int i = 0; i < Knod; ++i) local_vort[i] = new double[2];
 
-	double*** bndr_vort, *** bndr_grad_vort; //vorticity and grad of vorticity at sps of the L/R (0:1) and S/N (2:3) boundaries of all elements
-	double ***comm_vort, *** comm_grad_vort; //common vorticity and common grad vorticity per element, per face (west, east, south, north) per sps index
-	bndr_vort = new double** [mesh.N_el];
-	bndr_grad_vort = new double** [mesh.N_el];
-	comm_vort = new double** [mesh.N_el];
-	comm_grad_vort = new double** [mesh.N_el];
+	//local array to hold the vorticity along a row of csi [0], and row of eta [1] direction
+	double** local_vort = allocate_array<double>(Knod, 2);
 
-	for (int i = 0; i < mesh.N_el; ++i) {
-		bndr_vort[i] = new double* [4];
-		bndr_grad_vort[i] = new double* [4];
-		comm_vort[i] = new double* [4];
-		comm_grad_vort[i] = new double* [4];
-		for (int j = 0; j < 4; ++j) {
-			bndr_vort[i][j] = new double[Knod];
-			bndr_grad_vort[i][j] = new double[Knod];
-			comm_vort[i][j] = new double[Knod];
-			comm_grad_vort[i][j] = new double[Knod];
-		}
-	}
+	//vorticity and grad of vorticity at sps of the L/R (0:1) and S/N (2:3) boundaries of all elements
+	double*** bndr_vort = allocate_array<double>(mesh.N_el, 4, Knod);
+	double*** bndr_grad_vort = allocate_array<double>(mesh.N_el, 4, Knod);
 
-	double** f_tilda, ** g_tilda;
-	f_tilda = new double* [Knod]; //f_tilda is the derivative of the continuous vorticity function at all sps, i.e. d/dxsi(w^C)
-	g_tilda = new double* [Knod];  //g_tilda is the derivative of the continuous vorticity function at all sps, i.e. d/deta(w^C)
-	for (int i = 0; i < Knod; ++i) {
-		f_tilda[i] = new double[Knod];
-		g_tilda[i] = new double[Knod];
-	}
+	//common vorticity and common grad vorticity per element, per face (west, east, south, north) per sps index
+	double*** comm_vort = allocate_array<double>(mesh.N_el, 4, Knod);
+	double*** comm_grad_vort = allocate_array<double>(mesh.N_el, 4, Knod);
 
-	double **f_tilda_B = new double* [2], **g_tilda_B = new double* [2];
-	for (int i = 0; i < 2; ++i) {
-		f_tilda_B[i] = new double[Knod];
-		g_tilda_B[i] = new double[Knod];
-	}
+	//f_tilda is the derivative of the continuous vorticity function at all sps, i.e. d/dxsi(w^C)
+	double** f_tilda = allocate_array<double>(Knod, Knod);
+	double** f_tilda_B = allocate_array<double>(2, Knod);
+	//g_tilda is the derivative of the continuous vorticity function at all sps, i.e. d/deta(w^C)
+	double** g_tilda = allocate_array<double>(Knod, Knod);
+	double** g_tilda_B = allocate_array<double>(2, Knod);
 
 
 	//**********************************************************************
@@ -2369,19 +2523,19 @@ char HO_2D::calc_RHS_diffusion(double*** vort_in) {
 			ijp = 0;
 			for (int idir = 0; idir < 2; ++idir) { //idir=0 (xsi); idir=1: eta direction
 				for (int ibnd = 0; ibnd < 2; ++ibnd) { //ibnd=0: left/south); ibnd=1: right/north
-					cell_sides elem_side = i2f[ijp]; //the side of current element corresponding to combination of ibnd and idir
+					const cell_sides elem_side = i2f[ijp]; //the side of current element corresponding to combination of ibnd and idir
 					if (mesh.elem_neighbor[el].is_on_boundary[elem_side]) {
-						int el_B = mesh.elem_neighbor[el].boundary_index[elem_side];
-						calc_boundary_comm_vals_meth2(el, el_B, ijp, ibnd, bndr_vort[el][ijp], bndr_grad_vort[el][ijp],
-							comm_vort[el][ijp], comm_grad_vort[el][ijp], BC_switch_diffusion[el_B], BC_diffusion[el_B]);
+						const int el_b = mesh.elem_neighbor[el].boundary_index[elem_side];
+						calc_boundary_comm_vals_meth2(el, el_b, ijp, ibnd, bndr_vort[el][ijp], bndr_grad_vort[el][ijp],
+							comm_vort[el][ijp], comm_grad_vort[el][ijp], BC_switch_diffusion[el_b], BC_diffusion[el_b]);
 
 						for (int m=0; m<Knod; ++m)
-							BC_vorticity[el_B][(elem_side / 2) * (Knod - 2 * m - 1) + m] = comm_vort[el][ijp][m]; //get the BC_vorticity from the comm_vort values
+							BC_vorticity[el_b][(elem_side / 2) * (Knod - 2 * m - 1) + m] = comm_vort[el][ijp][m]; //get the BC_vorticity from the comm_vort values
 
-						//for (int k = 0; k < Knod; ++k) velocity_jump[el_B][k] = comm_vort[el][ijp][k];
+						//for (int k = 0; k < Knod; ++k) velocity_jump[el_b][k] = comm_vort[el][ijp][k];
 					}
 					else { //if the element boundary ijp is internal
-						eln = mesh.elem_neighbor[el].neighbor[elem_side]; //element number of the neighbor
+						const int eln = mesh.elem_neighbor[el].neighbor[elem_side]; //element number of the neighbor
 						ijpm = f2i[mesh.elem_neighbor[el].neighbor_common_side[elem_side]];
 
 						calc_internal_comm_vals_meth2(el, ijp, ijpm, ibnd, bndr_vort[el][ijp], bndr_vort[eln][ijpm], bndr_grad_vort[el][ijp], comm_vort[el][ijp]);
@@ -2395,7 +2549,7 @@ char HO_2D::calc_RHS_diffusion(double*** vort_in) {
 			for (ijp = 0; ijp < 4; ++ijp) {
 				cell_sides elem_side = i2f[ijp]; //the side of current element corresponding to ijp
 				if (!(mesh.elem_neighbor[el].is_on_boundary[elem_side])) { //if it is internal local boundary
-					eln = mesh.elem_neighbor[el].neighbor[elem_side]; //element number of the neighbor
+					const int eln = mesh.elem_neighbor[el].neighbor[elem_side]; //element number of the neighbor
 					ijpm = f2i[mesh.elem_neighbor[el].neighbor_common_side[elem_side]];
 					//comm_grad_vort[el][ijp][Knod] is Average of bndr_grad_vort[el][ijp][Knod] + [eln][ijpm][Knod]; same works for Left, South, and North
 					double sign = 2. * ((ijp + ijpm) % 2) - 1.;  //to see if the normal fluxes are in different orientations
@@ -2443,7 +2597,7 @@ char HO_2D::calc_RHS_diffusion(double*** vort_in) {
 					- dw_dxsi * (vol_Dx_Dxsi[el][ky][kx].x * vol_Dx_Dxsi[el][ky][kx].y + vol_Dy_Dxsi[el][ky][kx].x * vol_Dy_Dxsi[el][ky][kx].y)) / vol_jac[el][ky][kx];
 			}
 		}
-		// calculate tailda values at the mesh boundaries
+		// calculate tilda values at the mesh boundaries
 		for (int ibnd = 0; ibnd < 2; ++ibnd) {
 			for (int k = 0; k < Knod; k++) {
 				f_tilda_B[ibnd][k] = comm_grad_vort[el][ibnd][k];
@@ -2469,40 +2623,15 @@ char HO_2D::calc_RHS_diffusion(double*** vort_in) {
 	}
 
 	// ******************* free memory on heap ***************
-	for (int i = 0; i < Knod; ++i)
-		delete[] local_vort[i];
-	delete[] local_vort;
-
-	for (int j = 0; j < mesh.N_el; ++j) {
-		for (int i = 0; i < 4; ++i) {
-			delete[] bndr_vort[j][i];
-			delete[] bndr_grad_vort[j][i];
-			delete[] comm_vort[j][i];
-			delete[] comm_grad_vort[j][i];
-		}
-		delete[] bndr_vort[j];
-		delete[] bndr_grad_vort[j];
-		delete[] comm_vort[j];
-		delete[] comm_grad_vort[j];
-	}
-	delete[] bndr_vort;
-	delete[] bndr_grad_vort;
-	delete[] comm_vort;
-	delete[] comm_grad_vort;
-
-	for (int i = 0; i < Knod; ++i) {
-		delete[] f_tilda[i];
-		delete[] g_tilda[i];
-	}
-	delete[] f_tilda;
-	delete[] g_tilda;
-
-	for (int i = 0; i < 2; ++i) {
-		delete[] f_tilda_B[i];
-		delete[] g_tilda_B[i];
-	}
-	delete[] f_tilda_B;
-	delete[] g_tilda_B;
+	free_array<double>(local_vort);
+	free_array<double>(bndr_vort);
+	free_array<double>(bndr_grad_vort);
+	free_array<double>(comm_vort);
+	free_array<double>(comm_grad_vort);
+	free_array<double>(f_tilda);
+	free_array<double>(f_tilda_B);
+	free_array<double>(g_tilda);
+	free_array<double>(g_tilda_B);
 
 	return 0;
 }
@@ -2607,7 +2736,6 @@ void HO_2D::Poisson_solver_Hypre_setup(double*** laplacian_center, double**** la
 	// sets up the LHS of the Poisson equation via the HYPRE library
 	//Create_Hypre_Matrix(laplacian_center, laplacian_neighbor);
 	//Create_Hypre_Vector();
-
 }
 
 void HO_2D::Create_Hypre_Matrix () {
@@ -2631,8 +2759,9 @@ void HO_2D::Create_Hypre_Matrix () {
 
 void HO_2D::Poisson_solver_Eigen_setup(double*** laplacian_center, double**** laplacian_neighbor) {
 	// sets up the LHS of the Poisson equation via the Eigen library
-	int N_el = mesh.N_el;
-	int Ksq = Knod * Knod, K4 = Ksq * Ksq;;
+	const int N_el = mesh.N_el;
+	const int Ksq = Knod * Knod;
+	//const int K4 = Ksq * Ksq;;
 	std::vector<Trplet> coefficientsVec;            // list of non-zeros coefficients in the LHS matrix
 	coefficientsVec.reserve(nnz);  //maximum number of triplets
 	nnz = 0;
@@ -2647,7 +2776,7 @@ void HO_2D::Poisson_solver_Eigen_setup(double*** laplacian_center, double**** la
 	for (int el = 0; el < N_el; ++el)
 		for (int elem_side = south; elem_side <= west; elem_side++)
 			if (!(mesh.elem_neighbor[el].is_on_boundary[elem_side])) {
-				int eln = mesh.elem_neighbor[el].neighbor[elem_side]; //element number of the neighbor
+				const int eln = mesh.elem_neighbor[el].neighbor[elem_side]; //element number of the neighbor
 				for (int ij = 0; ij < Ksq; ++ij)
 					for (int rs = 0; rs < Ksq; ++rs)
 						if (std::fabs(laplacian_neighbor[el][elem_side][ij][rs]) > 1.e-14) {
@@ -2687,8 +2816,9 @@ void HO_2D::Poisson_solver_Eigen_setup(double*** laplacian_center, double**** la
 
 void HO_2D::Poisson_solver_AMGCL_setup(double*** laplacian_center, double**** laplacian_neighbor) {
 	// sets up the LHS of the Poisson equation via the Eigen library
-	int N_el = mesh.N_el;
-	int Ksq = Knod * Knod, K4 = Ksq * Ksq;;
+	const int N_el = mesh.N_el;
+	const int Ksq = Knod * Knod;
+	//const int K4 = Ksq * Ksq;
 
 	std::vector<int>    ptr, col; //col_start = ptr[row]; col_end = ptr[row + 1], col has all the column indices
 	std::vector<double> val; //val has all the matrix coeffients
@@ -2699,7 +2829,7 @@ void HO_2D::Poisson_solver_AMGCL_setup(double*** laplacian_center, double**** la
 	nnz = 0;
 	for (int el = 0; el < N_el; ++el)
 		for (int ij = 0; ij < Ksq; ++ij) {
-			int sps_index = el * Ksq + ij;
+			const int sps_index = el * Ksq + ij;
 			columns[sps_index].clear();
 			values[sps_index].clear();
 			for (int rs = 0; rs < Ksq; ++rs)
@@ -2713,9 +2843,9 @@ void HO_2D::Poisson_solver_AMGCL_setup(double*** laplacian_center, double**** la
 	for (int el = 0; el < N_el; ++el)
 		for (int elem_side = south; elem_side <= west; elem_side++)
 			if (!(mesh.elem_neighbor[el].is_on_boundary[elem_side])) {
-				int eln = mesh.elem_neighbor[el].neighbor[elem_side]; //element number of the neighbor
+				const int eln = mesh.elem_neighbor[el].neighbor[elem_side]; //element number of the neighbor
 				for (int ij = 0; ij < Ksq; ++ij) {
-					int sps_index = el * Ksq + ij;
+					const int sps_index = el * Ksq + ij;
 					for (int rs = 0; rs < Ksq; ++rs)
 						if (std::fabs(laplacian_neighbor[el][elem_side][ij][rs]) > 1.e-14) {
 							nnz++;
@@ -2758,7 +2888,7 @@ void HO_2D::Poisson_solver_AMGCL_setup(double*** laplacian_center, double**** la
 	double error;
 	std::vector<double> AMGCL_sol(N_el * Ksq, 0.);
 	std::tie(iters, error) = (*AMGCL_solver)(RHS_AMGCL, AMGCL_sol);
-	printf("#Iters=%d Error=%lf\n", iters, error);
+	printf("  iters=%d error=%g\n", iters, error);
 */
 }
 
@@ -2788,7 +2918,7 @@ void HO_2D::save_output(int n) {
 				for (int ny = 0; ny < mesh.Lnod; ++ny)
 					for (int nx = 0; nx < mesh.Lnod; ++nx) {
 						int node_index = mesh.elements[el].nodes[mesh.tensor2FEM(nx, ny)];
-						coor.plus(gps_sps_basis[ny][j] * gps_sps_basis[nx][i], mesh.nodes[node_index].coor);
+						coor.multadd(gps_sps_basis[ny][j] * gps_sps_basis[nx][i], mesh.nodes[node_index].coor);
 					}
 
 				if (problem_type == 3)
@@ -2859,48 +2989,29 @@ void HO_2D::calc_velocity_vector_from_streamfunction() {
 	out: velocity_cart[el][j][i].x,.y
 	*/
 
-		// ****************** definition, memory allocation and initialization ****************
+	// ****************** definition, memory allocation and initialization ****************
 	double u_dpsi_dx = 0., u_dpsi_dy = 1., v_dpsi_dx = -1., v_dpsi_dy = 0.; //coeffients to calculate u, v velocity components multiplying d(psi)/dx and d(psi)/dy (by default for vortical velocity)
 	if (!get_curl) {u_dpsi_dy = v_dpsi_dx = 0.;  u_dpsi_dx = v_dpsi_dy = 1.; } //for potential velocity
-	double du_dxsi, du_deta;
-	int eln;
+	//double du_dxsi, du_deta;
 	unsigned char ijp, ijpm; //left boundary(xsi): ijp=0, right_boundary (xsi): ijp=1; south boundary (eta): ijp=2; north boundary (eta): ijp = 3
-	double** local_psi = new double* [Knod]; //local array to hold the vorticity along a row of csi [0], and row of eta [1] direction
-	for (int i = 0; i < Knod; ++i) local_psi[i] = new double[2];
+	//local array to hold the vorticity along a row of csi [0], and row of eta [1] direction
+	double** local_psi = allocate_array<double>(Knod, 2);
 
-	double*** bndr_psi, *** bndr_grad_psi; //streamfunction and grad of streamfunction at sps of the L/R (0:1) and S/N (2:3) boundaries of all elements
-	double*** comm_psi, *** comm_grad_psi; //common streamfunction and common grad streamfunction per element, per face (west, east, south, north) at flux points
-	bndr_psi = new double** [mesh.N_el];
-	bndr_grad_psi = new double** [mesh.N_el];
-	comm_psi = new double** [mesh.N_el];
-	comm_grad_psi = new double** [mesh.N_el];
+	//streamfunction and grad of streamfunction at sps of the L/R (0:1) and S/N (2:3) boundaries of all elements
+	double*** bndr_psi = allocate_array<double>(mesh.N_el, 4, Knod);
+	double*** bndr_grad_psi = allocate_array<double>(mesh.N_el, 4, Knod);
+	//common streamfunction and common grad streamfunction per element, per face (west, east, south, north) at flux points
+	double*** comm_psi = allocate_array<double>(mesh.N_el, 4, Knod);
+	double*** comm_grad_psi = allocate_array<double>(mesh.N_el, 4, Knod);
 
-	for (int i = 0; i < mesh.N_el; ++i) {
-		bndr_psi[i] = new double* [4]; //in ijp index
-		bndr_grad_psi[i] = new double* [4];
-		comm_psi[i] = new double* [4];
-		comm_grad_psi[i] = new double* [4];
-		for (int j = 0; j < 4; ++j) {
-			bndr_psi[i][j] = new double[Knod];
-			bndr_grad_psi[i][j] = new double[Knod];
-			comm_psi[i][j] = new double[Knod];
-			comm_grad_psi[i][j] = new double[Knod];
-		}
-	}
+	//f_tilda is the derivative of the continuous streamfunction at all sps, i.e. d/dxsi(psi^C)
+	double** f_tilda = allocate_array<double>(Knod, Knod);
+	//g_tilda is the derivative of the continuous streamfunction at all sps, i.e. d/deta(psi^C)
+	double** g_tilda = allocate_array<double>(Knod, Knod);
 
-	double** f_tilda, ** g_tilda;
-	f_tilda = new double* [Knod]; //f_tilda is the derivative of the continuous streamfunction at all sps, i.e. d/dxsi(psi^C)
-	g_tilda = new double* [Knod];  //g_tilda is the derivative of the continuous streamfunction at all sps, i.e. d/deta(psi^C)
-	for (int i = 0; i < Knod; ++i) {
-		f_tilda[i] = new double[Knod];
-		g_tilda[i] = new double[Knod];
-	}
-
-	double** f_tilda_B = new double* [2], ** g_tilda_B = new double* [2]; // f_tilda_B is defined on W, E side, g_tilda_B is defined on S, N side
-	for (int i = 0; i < 2; ++i) {
-		f_tilda_B[i] = new double[Knod];
-		g_tilda_B[i] = new double[Knod];
-	}
+	// // f_tilda_B is defined on W, E side, g_tilda_B is defined on S, N side
+	double** f_tilda_B = allocate_array<double>(2, Knod);
+	double** g_tilda_B = allocate_array<double>(2, Knod);
 
 	//**********************************************************************
 
@@ -2930,31 +3041,52 @@ void HO_2D::calc_velocity_vector_from_streamfunction() {
 			ijp = 0;
 			for (int idir = 0; idir < 2; ++idir) { //idir=0 (xsi); idir=1: eta direction
 				for (int ibnd = 0; ibnd < 2; ++ibnd) { //ibnd=0: left/south); ibnd=1: right/north
-					cell_sides elem_side = i2f[ijp]; //the side of current element corresponding to combination of ibnd and idir, gives the SENW side
-					if (mesh.elem_neighbor[el].is_on_boundary[elem_side]) {
-						int el_B = mesh.elem_neighbor[el].boundary_index[elem_side];
 
-						if (BC_switch_Poisson[el_B] == DirichletBC) { //comGradPsi(1:Knod, ijP, el) / Face_Norm(1:Knod, ijP, el)
-                            calc_boundary_comm_vals_meth2(el, el_B, ijp, ibnd, bndr_psi[el][ijp], bndr_grad_psi[el][ijp], comm_psi[el][ijp], comm_grad_psi[el][ijp], BC_switch_Poisson[el_B], BC_Poisson[el_B]);
-							for (int k = 0; k < Knod; ++k) velocity_jump[el_B][(elem_side / 2) * (Knod - 2 * k - 1) + k] = comm_grad_psi[el][ijp][k] / face_Anorm[el][ijp][k];// partial(psi)/partial h
-                        }
-						else if (BC_switch_Poisson[el_B] == NeumannBC) {
-                            double sign = 2.*(ijp%2)-1.;
-                            for (int k=0; k<Knod; ++k) tmp_psi_deriv[k] = sign * BC_Poisson[el_B][k];
-                            calc_boundary_comm_vals_meth2(el, el_B, ijp, ibnd, bndr_psi[el][ijp], bndr_grad_psi[el][ijp], comm_psi[el][ijp], comm_grad_psi[el][ijp], BC_switch_Poisson[el_B], tmp_psi_deriv);
+					//the side of current element corresponding to combination of ibnd and idir, gives the SENW side
+					const cell_sides elem_side = i2f[ijp];
+					if (mesh.elem_neighbor[el].is_on_boundary[elem_side]) {
+						const int el_b = mesh.elem_neighbor[el].boundary_index[elem_side];
+
+						if (BC_switch_Poisson[el_b] == DirichletBC) { //comGradPsi(1:Knod, ijP, el) / Face_Norm(1:Knod, ijP, el)
+							calc_boundary_comm_vals_meth2(el, el_b, ijp, ibnd, bndr_psi[el][ijp],
+														bndr_grad_psi[el][ijp], comm_psi[el][ijp],
+														comm_grad_psi[el][ijp], BC_switch_Poisson[el_b],
+														BC_Poisson[el_b]);
+							// find partial(psi)/partial h
 							for (int k = 0; k < Knod; ++k) {
-								int boundary_flux_point_index = (elem_side / 2) * (Knod - 2 * k - 1) + k;
-								BC_normal_vel[el_B][boundary_flux_point_index] = 0.;
-								double sign = 1. - 2. * (ijp / 2);// gives +1 for west and east faces, -1 for south and north faces
-								for (int dummy = 0; dummy < Knod; ++dummy)
-									BC_normal_vel[el_B][boundary_flux_point_index] += sign*comm_psi[el][ijp][dummy] * sps_sps_grad_basis[dummy][k]; //the normal component of velocity. The normal is in the local h direction (g1, g2) of element
-                                BC_normal_vel[el_B][boundary_flux_point_index] /= face_Anorm[el][ijp][k]; //added on 14 May, to fix the bug
+								// boundary_flux_point_index
+								const int bfpi = (elem_side / 2) * (Knod - 2 * k - 1) + k;
+								velocity_jump[el_b][bfpi] = comm_grad_psi[el][ijp][k] / face_Anorm[el][ijp][k];
 							}
-                        }
+						}
+						else if (BC_switch_Poisson[el_b] == NeumannBC) {
+							const double psign = 2.*(ijp%2)-1.;
+							for (int k=0; k<Knod; ++k) {
+								tmp_psi_deriv[k] = psign * BC_Poisson[el_b][k];
+							}
+							calc_boundary_comm_vals_meth2(el, el_b, ijp, ibnd, bndr_psi[el][ijp],
+														bndr_grad_psi[el][ijp], comm_psi[el][ijp],
+														comm_grad_psi[el][ijp], BC_switch_Poisson[el_b],
+														tmp_psi_deriv);
+
+							// vsign is +1 for west and east faces, -1 for south and north faces
+							const double vsign = 1. - 2. * (ijp / 2);
+							for (int k = 0; k < Knod; ++k) {
+								// boundary_flux_point_index
+								const int bfpi = (elem_side / 2) * (Knod - 2 * k - 1) + k;
+								BC_normal_vel[el_b][bfpi] = 0.;
+								//The normal comp of vel is in the local h direction (g1, g2) of element
+								for (int dummy = 0; dummy < Knod; ++dummy) {
+									BC_normal_vel[el_b][bfpi] += vsign*comm_psi[el][ijp][dummy] * sps_sps_grad_basis[dummy][k];
+								}
+								BC_normal_vel[el_b][bfpi] /= face_Anorm[el][ijp][k]; //added on 14 May, to fix the bug
+								//if (k==1) std::cout << "  reset BC_normal_vel on " << el_b << " to " << BC_normal_vel[el_b][bfpi] << std::endl;
+							}
+						}
 					}
 
 					else { //if the element boundary ijp is internal
-						eln = mesh.elem_neighbor[el].neighbor[elem_side]; //element number of the neighbor
+						const int eln = mesh.elem_neighbor[el].neighbor[elem_side]; //element number of the neighbor
 						ijpm = f2i[mesh.elem_neighbor[el].neighbor_common_side[elem_side]];
 
 						calc_internal_comm_vals_meth2(el, ijp, ijpm, ibnd, bndr_psi[el][ijp], bndr_psi[eln][ijpm], bndr_grad_psi[el][ijp], comm_psi[el][ijp]);
@@ -2968,13 +3100,12 @@ void HO_2D::calc_velocity_vector_from_streamfunction() {
 			for (ijp = 0; ijp < 4; ++ijp) {
 				cell_sides elem_side = i2f[ijp]; //the side of current element corresponding to ijp
 				if (!(mesh.elem_neighbor[el].is_on_boundary[elem_side])) { //if it is internal local boundary
-					eln = mesh.elem_neighbor[el].neighbor[elem_side]; //element number of the neighbor
+					const int eln = mesh.elem_neighbor[el].neighbor[elem_side]; //element number of the neighbor
 					ijpm = f2i[mesh.elem_neighbor[el].neighbor_common_side[elem_side]];
 					//comm_grad_psi[el][ijp][Knod] is Average of bndr_grad_psi[el][ijp][Knod] + [eln][ijpm][Knod]; same works for Left, South, and North
 					double sign = 2. * ((ijp + ijpm) % 2) - 1.;  //to see if the normal fluxes are in different orientations
 					int revert_coeff = (ijp + ijpm - ijp / 2 - ijpm / 2 + 1) % 2; //equal to (d+t+dn+tn+1)%2 = (ijp-d+ijpm-dn+1)%2
 					for (int k = 0; k < Knod; ++k) comm_grad_psi[el][ijp][k] = 0.5 * (bndr_grad_psi[el][ijp][k] + sign * bndr_grad_psi[eln][ijpm][revert_coeff * (Knod - 2 * k - 1) + k]);
-
 				}
 			}
 		}
@@ -3004,7 +3135,7 @@ void HO_2D::calc_velocity_vector_from_streamfunction() {
 					- dpsi_dxsi * (vol_Dx_Dxsi[el][ky][kx].x * vol_Dx_Dxsi[el][ky][kx].y + vol_Dy_Dxsi[el][ky][kx].x * vol_Dy_Dxsi[el][ky][kx].y)) / vol_jac[el][ky][kx];
 			}
 		}
-		// calculate tailda values at the mesh boundaries
+		// calculate tilda values at the mesh boundaries
 		for (int ibnd = 0; ibnd < 2; ++ibnd) {
 			for (int k = 0; k < Knod; k++) {
 				f_tilda_B[ibnd][k] = comm_grad_psi[el][ibnd][k];
@@ -3027,256 +3158,44 @@ void HO_2D::calc_velocity_vector_from_streamfunction() {
 	}
 
 	// ******************* free memory on heap ***************
-	for (int i = 0; i < Knod; ++i)
-		delete[] local_psi[i];
-	delete[] local_psi;
+	free_array<double>(local_psi);
 
-	for (int j = 0; j < mesh.N_el; ++j) {
-		for (int i = 0; i < 4; ++i) {
-			delete[] bndr_psi[j][i];
-			delete[] bndr_grad_psi[j][i];
-			delete[] comm_psi[j][i];
-			delete[] comm_grad_psi[j][i];
-		}
-		delete[] bndr_psi[j];
-		delete[] bndr_grad_psi[j];
-		delete[] comm_psi[j];
-		delete[] comm_grad_psi[j];
-	}
-	delete[] bndr_psi;
-	delete[] bndr_grad_psi;
-	delete[] comm_psi;
-	delete[] comm_grad_psi;
+	free_array<double>(bndr_psi);
+	free_array<double>(bndr_grad_psi);
+	free_array<double>(comm_psi);
+	free_array<double>(comm_grad_psi);
 
-	for (int i = 0; i < Knod; ++i) {
-		delete[] f_tilda[i];
-		delete[] g_tilda[i];
-	}
-	delete[] f_tilda;
-	delete[] g_tilda;
-
-	for (int i = 0; i < 2; ++i) {
-		delete[] f_tilda_B[i];
-		delete[] g_tilda_B[i];
-	}
-	delete[] f_tilda_B;
-	delete[] g_tilda_B;
-
+	free_array<double>(f_tilda);
+	free_array<double>(g_tilda);
+	free_array<double>(f_tilda_B);
+	free_array<double>(g_tilda_B);
 }
 
-void HO_2D::save_output_vtk() {
-// The older version of save data to file which uses the boundary values
-/*
-	//writes the data in VTK format for vorticity and velocity
-	Solution points sps (Gauss Legendre) projected onto ParaView nodes(gps), and extrapolated to bounday, edges and corners
-	//
 
-	int Lnod = mesh.Lnod;
-	int N_el = mesh.N_el;
-	int L2 = Lnod * Lnod; //number of geometric nodes per element
-	double** om = new double* [N_el], **uv = new double* [N_el], ** vv = new double* [N_el]; //the vorticity and u, v velocity components
-	std::vector<std::vector<bool>> used_edge( N_el, std::vector<bool>(4, false)); //2D vector to keep track of the values found on the edges of internal cells (to make sure they ra ecalculated once)
-	std::vector<double> nodes_vorticity(mesh.N_nodes); // to save the vorticity field for each node (save data from elements to nodes), so that we dont have to write the data for all nodes for all elements
-	std::vector<Cmpnts2> nodes_velocity(mesh.N_nodes); // to save the velocity vector for each node (save data from elements to nodes), so that we dont have to write the data for all nodes for all elements
-	for (int i = 0; i < N_el; ++i) {
-		om[i] = new double[L2];
-		uv[i] = new double[L2];
-		vv[i] = new double[L2];
-	}
+void HO_2D::save_smooth_vtk(int indx, int subidx) {
 
-	std::vector<int> loc_ID, loc_ID_inv; //sweeping the cell indices row by row in the eta direction
-	if (Lnod == 4) {
-		loc_ID = {0, 4, 5, 1, 11, 12, 13, 6, 10, 15, 14, 7, 3, 9, 8, 2};
-		//su2pv_ID = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
-		loc_ID_inv = {0, 3, 15, 12, 1, 2, 7, 11, 14, 13, 8, 4, 5, 6, 10, 9};
-	}
-	else if  (Lnod == 3) {
-		loc_ID = {0, 4, 1, 7, 8, 5, 3, 6, 2};
-		//su2pv_ID = {0, 1, 2, 3, 4, 5, 6, 7, 8};
-		loc_ID_inv = {0, 2, 8, 6, 1, 5, 7, 3, 4};
-	}
-	else if (Lnod == 2) {
-		loc_ID = {0, 1, 3, 2};
-		//su2pv_ID = {0, 1, 2, 3};
-		loc_ID_inv = {0, 1, 3, 2};
-	}
-
-	// ************ get the u,v field corresponding to vorticity at current time step *************
-	double current_time = (ti + 1) * dt;
-	update_BCs(current_time);
-	solve_Poisson(vorticity); //calculate the streamfunction corresponding to the vort_in, i.e. Laplacian(psi)=-vort_in. solves for stream_function. vorticity is at ti+1 time step
-	calc_velocity_vector_from_streamfunction(); //calculate the Cartesian velocity field velocity_cart from psi corresponding to ti+1 time step
-	// *********************************************************************************************
-	for (int el = 0; el < N_el; ++el) {
-		for (int Ly = 0; Ly < Lnod; ++Ly)  //gps in the eta direction
-			for (int Lx = 0; Lx < Lnod; ++Lx) {  //gps in the xsi direction
-				int gps_index = loc_ID[Ly * Lnod + Lx];
-				om[el][gps_index] = uv[el][gps_index] = vv[el][gps_index] = 0.;
-				for (int ky = 0; ky < Knod; ++ky)
-					for (int kx = 0; kx < Knod; ++kx) {
-						double coeff = sps_gps_basis[ky][Ly] * sps_gps_basis[kx][Lx];
-						om[el][gps_index] += coeff * vorticity[el][ky][kx];
-						uv[el][gps_index] += coeff * velocity_cart[el][ky][kx].x;
-						vv[el][gps_index] += coeff * velocity_cart[el][ky][kx].y;
-					}
-			}
-	}
-
-	calc_RHS_diffusion(vorticity);  //to get the updated values for BC_vorticity from the vorticity[el][j][i] field (corresponding to ti+1 time step)
-	// ************** Now for the element faces: 1) the inter-mesh values, take the average of values on the left and right (average the contribution from both elements), 2) the boundary edges, just consider the BC values ***************
-
-	for (int el = 0; el < N_el; ++el) {
-		for (int elem_side = 0; elem_side < 4; elem_side++) {  //loop over the SENW sides of every element
-			cell_sides ijp = f2i[elem_side]; //convert SENW to ijp index
-			int d = ijp / 2;
-			int t = ijp % 2;
-            if (!(used_edge[el][elem_side]) && mesh.elem_neighbor[el].is_on_boundary[elem_side]==false){  //if elem_side is inter-mesh face and has not been computed before
-				int eln = mesh.elem_neighbor[el].neighbor[elem_side];
-				int elem_siden = mesh.elem_neighbor[el].neighbor_common_side[elem_side];
-				int ijpm = f2i[elem_siden]; // the ijp of the neighbor element
-				int dn = ijpm / 2;
-				int tn = ijpm % 2;
-				used_edge[eln][elem_siden] = true;
-				for (int L = 0; L < Lnod; ++L) { //the loop on gps of element face (in the direction of element numering)
-					int su2pv = L * ((1 - d) * Lnod + d) + t * (Lnod - 1) * (d * (Lnod - 1) + 1);
-					int su2pvn = (((t+tn+d+dn+1)%2)*(Lnod-2*L-1)+L) * ((1 - dn) * Lnod + dn) + tn * (Lnod - 1) * (dn * (Lnod - 1) + 1);
-					int gps_index = loc_ID[su2pv];
-					int gps_indexn = loc_ID[su2pvn]; //the gps index for the neigbor element eln
-					om[el][gps_index] = om[eln][gps_indexn] = 0.5 * (om[el][gps_index] + om[eln][gps_indexn]);
-					uv[el][gps_index] = uv[eln][gps_indexn] = 0.5 * (uv[el][gps_index] + uv[eln][gps_indexn]);
-					vv[el][gps_index] = vv[eln][gps_indexn] = 0.5 * (vv[el][gps_index] + vv[eln][gps_indexn]);
-				}
-			}
-		}
-	}
-
-	// ************* Now assign boundary conditions; First initialize the BC values because it was written over above, then fill in with BC values *************
-
-	for (int el_B = 0; el_B < mesh.N_edges_boundary; ++el_B) {
-		int el = mesh.boundary_elem_ID[el_B].element_index;  // index of the element whose face is on the global boundary
-		cell_sides elem_side = mesh.boundary_elem_ID[el_B].side; //SENW index of the element face that is located on the global boundary
-		cell_sides ijp = f2i[elem_side];
-		int d = ijp / 2;
-		int t = ijp % 2;
-		for (int L = 0; L < Lnod; ++L) { //the loop on each boundary edge (in the direction of element numering, NOT local boundary edge numbering)
-			int su2pv = L * ((1 - d) * Lnod + d) + t * (Lnod - 1) * (d * (Lnod - 1) + 1);
-			int gps_index = loc_ID[su2pv];
-			om[el][gps_index] = 0.;
-			uv[el][gps_index] = 0.;
-			vv[el][gps_index] = 0.;
-			for (int m = 0; m < Knod; ++m) {
-				double coeff = sps_gps_basis[m][L];
-				om[el][gps_index] += coeff * BC_vorticity[el_B][(elem_side / 2) * (Knod - 2 * m - 1) + m];
-				uv[el][gps_index] += coeff * BC_cart_vel[el_B][(elem_side / 2) * (Knod - 2 * m - 1) + m].x;
-				vv[el][gps_index] += coeff * BC_cart_vel[el_B][(elem_side / 2) * (Knod - 2 * m - 1) + m].y;
-			}
-		}
-	}
-
-	// *********************************************************************************************************************************************************
-
-	// ********************************************************************************************************************************************************************************************
-	// ***************************** write omega, and velocity components into a file ****************************
-	std::string file_name = "problem";
-	file_name.append(std::to_string(problem_type));
-	file_name.append("_K");
-	file_name.append(std::to_string(Knod));
-	file_name.append("_timestep");
-	file_name.append(std::to_string(ti+1));
-	file_name.append(".vtk");
-
-	std::cout << "     Writing the results after " << ti+1 << "  timesteps into the file:  " << file_name << std::endl;
-
-	double time = (ti+1) * dt;
-	std::ofstream file_handle(file_name);
-
-	file_handle << "# vtk DataFile Version 3.0" << std::endl;
-	file_handle << "2D Unstructured Grid of Quads" << std::endl;
-	file_handle << "ASCII" << std::endl << std::endl;
-	file_handle << "DATASET UNSTRUCTURED_GRID" << std::endl;
-	file_handle << "POINTS " << N_el * L2 << " double" << std::endl;
-
-	//for (int node_index = 0; node_index < mesh.N_nodes; node_index++)
-	//	file_handle << mesh.nodes[].coor.x << " " << mesh.nodes[node_index].coor.y << " 0.0" << std::endl;
-
-	for (int el = 0; el < N_el; el++)
-		for (int node_index = 0; node_index < L2; node_index++) {
-			int index = mesh.elements[el].nodes[node_index];
-			file_handle << mesh.nodes[index].coor.x << " " << mesh.nodes[index].coor.y<< " 0.0" << std::endl;
-		}
-
-	file_handle << "CELLS " << N_el << " " << N_el * (L2 + 1) << std::endl;
-
-	//for (int el = 0; el < N_el; ++el) {
-	//	file_handle << L2;
-	//	for (int node_index = 0; node_index < Lnod; node_index++)
-	//		file_handle << " " << mesh.elements[el].nodes[node_index];
-	//	file_handle << std::endl;
-	//}
-
-	for (int el = 0; el < N_el; ++el) {
-		file_handle << L2;
-		for (int node_index = 0; node_index < L2; node_index++)
-			file_handle << " " << el * L2 + node_index;
-		file_handle << std::endl;
-	}
-
-	file_handle << "CELL_TYPES " << N_el << std::endl;
-	for (int el = 0; el < N_el; el++) file_handle << 70 << std::endl;
-
-	file_handle << "POINT_DATA " << N_el*L2 << std::endl;
-	file_handle << "SCALARS vorticity double 1 " << std::endl;
-	file_handle << "LOOKUP_TABLE default " << std::endl;
-
-	for (int el = 0; el < N_el; ++el) {
-		for (int gps_index = 0; gps_index < L2; gps_index++)
-			file_handle << " " << om[el][gps_index];
-		file_handle << std::endl;
-	}
-
-	file_handle << "VECTORS velocity double " << std::endl;
-
-	for (int el = 0; el < N_el; ++el) {
-		for (int gps_index = 0; gps_index < L2; gps_index++)
-			file_handle << " " << uv[el][gps_index] << " " << vv[el][gps_index] << " 0.0";
-		file_handle << std::endl;
-	}
-
-	std::cout << "Done writing to file" << std::endl;
-	file_handle.close();
-
-
-	for (int i = 0; i < N_el; ++i) {
-		delete[] om[i];
-		delete[] uv[i];
-		delete[] vv[i];
-	}
-	delete[] om;
-	delete[] uv;
-	delete[] vv;
-*/
-}
-
-void HO_2D::save_smooth_vtk() {
 	/*
-	writes the data in VTK format for vorticity and velocity with properly averaging the values from all coincident elements
-	Solution points sps (Gauss Legendre) projected onto ParaView nodes(gps), and extrapolated to bounday, edges and corners
+	writes the data in VTK format for vorticity and velocity with properly averaging the values from
+	all coincident elements. Solution points sps (Gauss Legendre) projected onto ParaView nodes(gps),
+	and extrapolated to bounday, edges and corners.
 	*/
 
-	int Lnod = mesh.Lnod;
-	int N_el = mesh.N_el;
-	int L2 = Lnod * Lnod; //number of geometric nodes per element
-	double** om = new double* [N_el]; //the vorticity for elements in Gmsh numbering
-	Cmpnts2** vel = new Cmpnts2* [N_el]; //the velocity vector for elements in Gmsh numbering
-	for (int i = 0; i < N_el; ++i) {
-		om[i] = new double[L2];
-		vel[i] = new Cmpnts2[L2];
-	}
+	const int Lnod = mesh.Lnod;
+	const int N_el = mesh.N_el;
+	const int L2 = Lnod * Lnod; //number of geometric nodes per element
 
-	int gps_index; // the local index of a node based on Gmsh numbering
-	int node_index; //the global node index
+	double** om = allocate_array<double>(N_el, L2);	//the vorticity for elements in Gmsh numbering
+	double** psi = allocate_array<double>(N_el, L2);	//the streamfunction for elements in Gmsh numbering
+	Cmpnts2** vel = allocate_array<Cmpnts2>(N_el, L2);//the velocity vector for elements in Gmsh numbering
+
+	// something like this or memset would have been nice. Alas.
+	//std::fill_n(std::cbegin(&om[0][0]), N_el*L2, 0.);
+
+	//int gps_index; // the local index of a node based on Gmsh numbering
+	//int node_index; //the global node index
 
 	std::vector<double> nodes_vorticity(mesh.N_nodes, 0.); // to save the vorticity field for each node (save data from elements to nodes), so that we dont have to write the data for all nodes for all elements
+	std::vector<double> nodes_psi(mesh.N_nodes, 0.); // to save the streamfunction field for each node (save data from elements to nodes), so that we dont have to write the data for all nodes for all elements
 	std::vector<Cmpnts2> nodes_velocity(mesh.N_nodes); // to save the velocity vector for each node (save data from elements to nodes), so that we dont have to write the data for all nodes for all elements
 	std::vector<int> nodes_repetition(mesh.N_nodes, 0.); //keeps the number of contributions added on the nodes_vorticity and nodes_velocity
 
@@ -3284,103 +3203,127 @@ void HO_2D::save_smooth_vtk() {
 	std::vector<int> loc_ID, /*su2pv_ID,*/ loc_ID_inv; //sweeping the cell indices row by row in the eta direction
 	if (Lnod == 4) {
 		loc_ID = { 0, 4, 5, 1, 11, 12, 13, 6, 10, 15, 14, 7, 3, 9, 8, 2 };
-
 	}
 	else if (Lnod == 3) {
 		loc_ID = { 0, 4, 1, 7, 8, 5, 3, 6, 2 };
-
 	}
 	else if (Lnod == 2) {
 		loc_ID = { 0, 1, 3, 2 };
 	}
 
 	// ************ get the u,v field corresponding to vorticity at current time step *************
-	double current_time = (ti + 1) * dt;
-	//update_BCs(current_time);
+	//update_BCs(current_time + dt);
 	//solve_Poisson(vorticity); //calculate the streamfunction corresponding to the vort_in, i.e. Laplacian(psi)=-vort_in. solves for stream_function. vorticity is at ti+1 time step
 	//calc_velocity_vector_from_streamfunction(); //calculate the Cartesian velocity field velocity_cart from psi corresponding to ti+1 time step
+
 	// *********************************************************************************************
 	for (int el = 0; el < N_el; ++el) {
-		for (int Ly = 0; Ly < Lnod; ++Ly)  //gps in the eta direction
+		for (int Ly = 0; Ly < Lnod; ++Ly) { //gps in the eta direction
 			for (int Lx = 0; Lx < Lnod; ++Lx) {  //gps in the xsi direction
-				gps_index = loc_ID[Ly * Lnod + Lx];
+				const int gps_index = loc_ID[Ly * Lnod + Lx];
 				om[el][gps_index] = 0.; //the vel array is by default initiated to zero in the cmpnts2 constructor, so no need to do it here
-				for (int ky = 0; ky < Knod; ++ky)
+				psi[el][gps_index] = 0.;
+				for (int ky = 0; ky < Knod; ++ky) {
 					for (int kx = 0; kx < Knod; ++kx) {
-						double coeff = sps_gps_basis[ky][Ly] * sps_gps_basis[kx][Lx];
+						const double coeff = sps_gps_basis[ky][Ly] * sps_gps_basis[kx][Lx];
 						om[el][gps_index] += coeff * vorticity[el][ky][kx];
-						vel[el][gps_index].plus(coeff, velocity_cart[el][ky][kx]);
+						psi[el][gps_index] += coeff * stream_function[el][ky][kx];
+						vel[el][gps_index].multadd(coeff, velocity_cart[el][ky][kx]);
 					}
-			}
-	}
-
-    // ************* calculate the velocity vector on the global boundary based on normal and tangential components ************
-    //Cmpnts2** BC_cart_vel = new Cmpnts2* [mesh.N_edges_boundary];
-    //for (int i=0; i<mesh.N_edges_boundary; ++i) BC_cart_vel[i] = new Cmpnts2 [Knod];
-
-    for (int el_b=0; el_b<mesh.N_edges_boundary; ++el_b) { //the normal vel is in the local g direction but parl vel is CCW.
-        int elem_index = mesh.boundary_elem_ID[el_b].element_index;
-        cell_sides SENW_side = mesh.boundary_elem_ID[el_b].side;
-        int ijp = f2i[SENW_side];
-        int dir = ijp/2;
-        int bnd = ijp%2;
-        double parl_vel_sign = 1. - 2. * (SENW_side/2); //the sign of tangent velocity, if it is opposite to g direction
-        for (int k=0; k<Knod; ++k) {
-            double dx_dxsi = face_Dx_Dxsi[elem_index][ijp][k].x;
-            double dx_deta = face_Dx_Dxsi[elem_index][ijp][k].y;
-            double dy_dxsi = face_Dy_Dxsi[elem_index][ijp][k].x;
-            double dy_deta = face_Dy_Dxsi[elem_index][ijp][k].y;
-
-            double g_1_norm = std::sqrt(dx_dxsi*dx_dxsi + dy_dxsi*dy_dxsi);
-            double g_2_norm = std::sqrt(dx_deta*dx_deta + dy_deta*dy_deta);
-
-            if (dir==0) {
-                double u_g1 = BC_normal_vel[el_b][(SENW_side / 2) * (Knod - 2 * k - 1) + k];// the normal velocity
-                double u_g_2 = parl_vel_sign * BC_parl_vel[el_b][(SENW_side / 2) * (Knod - 2 * k - 1) + k];// the tangential in the local g direction
-                BC_cart_vel[el_b][(SENW_side / 2) * (Knod - 2 * k - 1) + k].x = (1./g_2_norm) * (u_g1*dy_deta + u_g_2*dx_deta);
-                BC_cart_vel[el_b][(SENW_side / 2) * (Knod - 2 * k - 1) + k].y = (1./g_2_norm) * (-u_g1*dx_deta + u_g_2*dy_deta);
-            }
-
-            else {
-                double u_g2 = BC_normal_vel[el_b][(SENW_side / 2) * (Knod - 2 * k - 1) + k]; // the normal velocity
-                double u_g_1 = parl_vel_sign * BC_parl_vel[el_b][(SENW_side / 2) * (Knod - 2 * k - 1) + k]; // the tangential in the local g direction
-                BC_cart_vel[el_b][(SENW_side / 2) * (Knod - 2 * k - 1) + k].x = (1./g_1_norm) * (-u_g2*dy_dxsi + u_g_1*dx_dxsi);
-                BC_cart_vel[el_b][(SENW_side / 2) * (Knod - 2 * k - 1) + k].y = (1./g_1_norm) * (u_g2*dx_dxsi + u_g_1*dy_dxsi);
-            }
-        }
-    }
-
-
-
-	//calc_RHS_diffusion(vorticity);  //to get the updated values for BC_vorticity from the vorticity[el][j][i] field (corresponding to ti+1 time step)
-	// ************** Now  update the elements adjacent to the global boundary ***************
-	for (int el_B = 0; el_B < mesh.N_edges_boundary; ++el_B) {
-		int el = mesh.boundary_elem_ID[el_B].element_index;  // index of the element whose face is on the global boundary
-		cell_sides elem_side = mesh.boundary_elem_ID[el_B].side; //SENW index of the element face that is located on the global boundary
-		cell_sides ijp = f2i[elem_side];
-		int d = ijp / 2;
-		int t = ijp % 2;
-		for (int L = 0; L < Lnod; ++L) { //the loop on each boundary edge (in the direction of element numering, NOT local boundary edge numbering)
-			int su2pv = L * ((1 - d) * Lnod + d) + t * (Lnod - 1) * (d * (Lnod - 1) + 1); //index in the row by row format (su2pv index)
-			gps_index = loc_ID[su2pv]; //Gmsh-style local index
-			om[el][gps_index] = 0.;
-			vel[el][gps_index].set_coor(0., 0.); //for now just use the extrapolation field from the u, v field in the element to calculate the velocity vector on the boundary.
-			for (int m = 0; m < Knod; ++m) {
-				double coeff = sps_gps_basis[m][L];
-				om[el][gps_index] += coeff * BC_vorticity[el_B][(elem_side / 2) * (Knod - 2 * m - 1) + m];
-				vel[el][gps_index].plus(coeff, BC_cart_vel[el_B][(elem_side / 2) * (Knod - 2 * m - 1) + m]);
+				}
 			}
 		}
 	}
+
+	// ************* calculate the velocity vector on the global boundary based on normal and tangential components ************
+	BC_cart_vel = allocate_array<Cmpnts2>(mesh.N_edges_boundary, Knod);
+
+	for (int el_b=0; el_b<mesh.N_edges_boundary; ++el_b) {
+		const int elem_index = mesh.boundary_edges[el_b].element_index;
+		const cell_sides SENW_side = mesh.boundary_edges[el_b].side;
+		const int ijp = f2i[SENW_side];
+		const int dir = ijp/2;
+		//int bnd = ijp%2;
+
+		//const double parl_vel_sign = 1. - 2. * (SENW_side/2); //the sign of tangent velocity, if it is opposite to g direction
+		// HACK - what if parl_vel_sign was backwards? It was!
+		const double parl_vel_sign = -1. + 2. * (SENW_side/2);
+
+		//if (el_b == 299) std::cout << "elem 299 has " << elem_index << " " << SENW_side << " " << parl_vel_sign << " " << ijp << " " << dir << std::endl;
+		//if (el_b == 299) std::cout << "  is type " << mesh.boundary_edges[el_b].bc_type << " with parlvel " << mesh.boundary_edges[el_b].parlvel[1] << std::endl;
+		//if (el_b == 299) std::cout << "  is type " << mesh.boundary_edges[el_b].bc_type << std::endl;
+
+		for (int k=0; k<Knod; ++k) {
+			const double dx_dxsi = face_Dx_Dxsi[elem_index][ijp][k].x;
+			const double dx_deta = face_Dx_Dxsi[elem_index][ijp][k].y;
+			const double dy_dxsi = face_Dy_Dxsi[elem_index][ijp][k].x;
+			const double dy_deta = face_Dy_Dxsi[elem_index][ijp][k].y;
+			//if (el_b == 299 and k==1) std::cout << "  dxdxi " << dx_dxsi << " " << dx_deta << " " << dy_dxsi << " " << dy_deta << std::endl;
+
+			const double g_1_norm = std::sqrt(dx_dxsi*dx_dxsi + dy_dxsi*dy_dxsi);
+			const double g_2_norm = std::sqrt(dx_deta*dx_deta + dy_deta*dy_deta);
+
+			const int idx = (SENW_side / 2) * (Knod - 2 * k - 1) + k;
+
+			//the normal vel is in the local g direction but parl vel is CCW.
+			if (dir==0) {
+				const double u_g1 = BC_normal_vel[el_b][idx];// the normal velocity
+				const double u_g_2 = parl_vel_sign * BC_parl_vel[el_b][idx];// the tangential in the local g direction
+				BC_cart_vel[el_b][idx].x = (1./g_2_norm) * (u_g1*dy_deta + u_g_2*dx_deta);
+				BC_cart_vel[el_b][idx].y = (1./g_2_norm) * (-u_g1*dx_deta + u_g_2*dy_deta);
+			}
+
+			else {
+				const double u_g2 = BC_normal_vel[el_b][idx]; // the normal velocity
+				const double u_g_1 = parl_vel_sign * BC_parl_vel[el_b][idx]; // the tangential in the local g direction
+				BC_cart_vel[el_b][idx].x = (1./g_1_norm) * (-u_g2*dy_dxsi + u_g_1*dx_dxsi);
+				BC_cart_vel[el_b][idx].y = (1./g_1_norm) * (u_g2*dx_dxsi + u_g_1*dy_dxsi);
+			}
+			//if (el_b == 299) std::cout << "  and BC_cart_vel " << BC_cart_vel[el_b][idx].x << " " << BC_cart_vel[el_b][idx].y << std::endl;
+		}
+	}
+
+
+	//to get the updated values for BC_vorticity from the vorticity[el][j][i] field
+	//  (corresponding to ti+1 time step)
+	//calc_RHS_diffusion(vorticity);
+
+	// ************** Now  update the elements adjacent to the global boundary ***************
+	for (int el_b=0; el_b<mesh.N_edges_boundary; ++el_b) {
+		const int el = mesh.boundary_edges[el_b].element_index;  // index of the element whose face is on the global boundary
+		const cell_sides elem_side = mesh.boundary_edges[el_b].side; //SENW index of the element face that is located on the global boundary
+		const cell_sides ijp = f2i[elem_side];
+		const int d = ijp / 2;
+		const int t = ijp % 2;
+
+		for (int L = 0; L < Lnod; ++L) { //the loop on each boundary edge (in the direction of element numering, NOT local boundary edge numbering)
+			const int su2pv = L * ((1 - d) * Lnod + d) + t * (Lnod - 1) * (d * (Lnod - 1) + 1); //index in the row by row format (su2pv index)
+			const int gps_index = loc_ID[su2pv]; //Gmsh-style local index
+			om[el][gps_index] = 0.;
+			//psi[el][gps_index] = 0.;
+			vel[el][gps_index].set_coor(0., 0.); //for now just use the extrapolation field from the u, v field in the element to calculate the velocity vector on the boundary.
+
+			for (int m = 0; m < Knod; ++m) {
+				const double coeff = sps_gps_basis[m][L];
+				const int nidx = (elem_side / 2) * (Knod - 2 * m - 1) + m;
+				om[el][gps_index] += coeff * BC_vorticity[el_b][nidx];
+				//psi[el][gps_index] += coeff * BC_Poisson[el_b][nidx];
+				vel[el][gps_index].multadd(coeff, BC_cart_vel[el_b][nidx]);
+			}
+		}
+	}
+
+	free_array<Cmpnts2>(BC_cart_vel);
 
 
 	// *****************************************************************************************
 	// ******** Now accumulate the contributions from all the elements ********
 	for (int el = 0; el < N_el; ++el) {
 		for (int L = 0; L < L2; ++L) {
-			node_index = mesh.elements[el].nodes[L];
-			nodes_velocity[node_index].plus(1., vel[el][L]);
+			const int node_index = mesh.elements[el].nodes[L];
+			nodes_velocity[node_index].multadd(1., vel[el][L]);
 			nodes_vorticity[node_index] += om[el][L];
+			nodes_psi[node_index] += psi[el][L];
 			nodes_repetition[node_index]++;
 		}
 	}
@@ -3388,110 +3331,108 @@ void HO_2D::save_smooth_vtk() {
 	// ****** Now calculate the average values *******
 	for (int node_id = 0; node_id < mesh.N_nodes; node_id++) {
 		nodes_vorticity[node_id]  /= nodes_repetition[node_id];
+		nodes_psi[node_id]  /= nodes_repetition[node_id];
 		nodes_velocity[node_id].scale(1. / nodes_repetition[node_id]);
 	}
+
 	// ***********************************************
-	// ***************************** write omega, and velocity components into a file ****************************
-	std::string file_name = "problem";
-	file_name.append(std::to_string(problem_type));
-	file_name.append("_K");
-	file_name.append(std::to_string(Knod));
-	file_name.append("_timestep");
-	file_name.append(std::to_string(ti + 1));
-	file_name.append(".vtk");
+	// ******************* write omega, and velocity components into a file ************************
+	{
+		std::stringstream file_name;
+		file_name << "problem" << std::to_string(problem_type) << "_K" << std::to_string(Knod);
+		file_name << "_" << std::setw(5) << std::setfill('0') << indx;
+		if (subidx > -1) file_name << "_" << std::setw(3) << std::setfill('0') << subidx;
+		file_name << ".vtk";
 
-	std::cout << "     Writing the results after " << ti + 1 << "  timesteps into the file:  " << file_name << std::endl;
+		std::cout << "     Writing the results after " << indx << "  timesteps into the file:  " << file_name.str() << std::endl;
 
-	double time = (ti + 1) * dt;
-	std::ofstream file_handle(file_name);
+		//double time = (indx) * dt;
+		std::ofstream file_handle(file_name.str());
 
-	file_handle << "# vtk DataFile Version 3.0" << std::endl;
-	file_handle << "2D Unstructured Grid of Quads" << std::endl;
-	file_handle << "ASCII" << std::endl << std::endl;
-	file_handle << "DATASET UNSTRUCTURED_GRID" << std::endl;
-	file_handle << "POINTS " << mesh.N_nodes << " double" << std::endl;
+		file_handle << "# vtk DataFile Version 3.0" << std::endl;
+		file_handle << "2D Unstructured Grid of Quads" << std::endl;
+		file_handle << "ASCII" << std::endl << std::endl;
+		file_handle << "DATASET UNSTRUCTURED_GRID" << std::endl;
+		file_handle << "POINTS " << mesh.N_nodes << " double" << std::endl;
 
-	for (int node_id = 0; node_id < mesh.N_nodes; node_id++)
-		file_handle << mesh.nodes[node_id].coor.x << " " << mesh.nodes[node_id].coor.y << " 0.0" << std::endl; //0.0 is the z component
+		for (int node_id = 0; node_id < mesh.N_nodes; node_id++)
+			file_handle << mesh.nodes[node_id].coor.x << " " << mesh.nodes[node_id].coor.y << " 0.0" << std::endl; //0.0 is the z component
 
-	file_handle << "CELLS " << N_el << " " << N_el * (L2 + 1) << std::endl;
+		file_handle << "CELLS " << N_el << " " << N_el * (L2 + 1) << std::endl;
 
-	for (int el = 0; el < N_el; ++el) {
-		file_handle << L2;
-		for (int L = 0; L < L2; L++)
-			file_handle << " " << mesh.elements[el].nodes[L];
-		file_handle << std::endl;
+		for (int el = 0; el < N_el; ++el) {
+			file_handle << L2;
+			for (int L = 0; L < L2; L++) file_handle << " " << mesh.elements[el].nodes[L];
+			file_handle << std::endl;
+		}
+
+		file_handle << "CELL_TYPES " << N_el << std::endl;
+		for (int el = 0; el < N_el; el++) file_handle << 70 << std::endl;
+
+		file_handle << "POINT_DATA " << mesh.N_nodes << std::endl;
+
+		file_handle << "SCALARS vorticity double 1 " << std::endl;
+		file_handle << "LOOKUP_TABLE default " << std::endl;
+		for (int node_id=0; node_id<mesh.N_nodes; node_id++) {
+			file_handle << nodes_vorticity[node_id] << std::endl;
+		}
+
+		file_handle << "SCALARS psi double 1 " << std::endl;
+		file_handle << "LOOKUP_TABLE default " << std::endl;
+		for (int node_id=0; node_id<mesh.N_nodes; node_id++) {
+			file_handle << nodes_psi[node_id] << std::endl;
+		}
+
+		file_handle << "VECTORS velocity double " << std::endl;
+		for (int node_id = 0; node_id < mesh.N_nodes; node_id++)
+			file_handle << nodes_velocity[node_id].x << " " << nodes_velocity[node_id].y << " 0.0" << std::endl;
+
+		std::cout << "Done writing to file" << std::endl;
+		file_handle.close();
+
+		free_array<double>(om);
+		free_array<double>(psi);
+		free_array<Cmpnts2>(vel);
 	}
-
-	file_handle << "CELL_TYPES " << N_el << std::endl;
-	for (int el = 0; el < N_el; el++) file_handle << 70 << std::endl;
-
-	file_handle << "POINT_DATA " << mesh.N_nodes << std::endl;
-	file_handle << "SCALARS vorticity double 1 " << std::endl;
-	file_handle << "LOOKUP_TABLE default " << std::endl;
-
-	for (int node_id=0; node_id<mesh.N_nodes; node_id++)
-		file_handle << nodes_vorticity[node_id] <<std::endl;
-
-	file_handle << "VECTORS velocity double " << std::endl;
-
-	for (int node_id = 0; node_id < mesh.N_nodes; node_id++)
-		file_handle << nodes_velocity[node_id].x << " " << nodes_velocity[node_id].y << " 0.0" << std::endl;
-
-	std::cout << "Done writing to file" << std::endl;
-	file_handle.close();
-
-
-	for (int i = 0; i < N_el; ++i) {
-		delete[] om[i];
-		delete[] vel[i];
-	}
-	delete[] om;
-	delete[] vel;
 
 	//***********************************************************************
 	//******** Now write the values for the sample points **********
-	if (!N_sample_points) return;
-	file_name = "sampling_points";
-	file_name.append("_timestep");
-	file_name.append(std::to_string(ti + 1));
-	file_name.append("_L");
-	file_name.append(std::to_string(Lnod));
-	file_name.append("_K");
-	file_name.append(std::to_string(Knod));
-	file_name.append(".dat");
+	if (N_sample_points > 0) {
 
-	file_handle.open(file_name);
-	for (int sp = 0; sp < N_sample_points; ++sp) {
-		double vort = 0.;
-		Cmpnts2 vel;
-		int el = sample_points_containing_elements[sp];
-		for (int L = 0; L < L2; ++L) {
-			node_index = mesh.elements[el].nodes[L];
-			vort += gps_shapefunc_on_sample_points[L][sp] * nodes_vorticity[node_index];
-			vel.plus(gps_shapefunc_on_sample_points[L][sp],	nodes_velocity[node_index]);
+		std::stringstream file_name;
+		file_name << "sampling_points" << std::to_string(problem_type) << "_K" << std::to_string(Knod);
+		file_name << "_L" << std::to_string(Lnod);
+		file_name << "_" << std::setw(5) << std::setfill('0') << indx << ".dat";
+
+		std::ofstream file_handle(file_name.str());
+
+		for (int sp = 0; sp < N_sample_points; ++sp) {
+			double vort = 0.;
+			Cmpnts2 vel;
+			const int el = sample_points_containing_elements[sp];
+			for (int L = 0; L < L2; ++L) {
+				const int node_index = mesh.elements[el].nodes[L];
+				vort += gps_shapefunc_on_sample_points[L][sp] * nodes_vorticity[node_index];
+				vel.multadd(gps_shapefunc_on_sample_points[L][sp],	nodes_velocity[node_index]);
+			}
+			file_handle << sample_points_coor[sp].x << " " << sample_points_coor[sp].y << " " << vort << " " << vel.x << " " << vel.y << std::endl;
 		}
-		file_handle << sample_points_coor[sp].x << " " << sample_points_coor[sp].y << " " << vort << " " << vel.x << " " << vel.y << std::endl;
 	}
-
-	//for (int i=0; i<mesh.N_edges_boundary; ++i) delete[] BC_cart_vel[i];
-    //delete[] BC_cart_vel;
 }
 
-void HO_2D::save_vorticity_vtk() {
-	int N_el = mesh.N_el;
-	std::string file_name = "vorticity";
-	file_name.append(std::to_string(problem_type));
-	file_name.append("_K");
-	file_name.append(std::to_string(Knod));
-	file_name.append("_timestep");
-	file_name.append(std::to_string(ti + 1));
-	file_name.append(".vtk");
+void HO_2D::save_vorticity_vtk(int indx) {
+	const int N_el = mesh.N_el;
 
-	std::cout << "     Writing the results after " << ti + 1 << "  timesteps into the file:  " << file_name << std::endl;
+	std::stringstream file_name;
+	file_name << "vorticity" << std::to_string(problem_type) << "_K" << std::to_string(Knod);
+	file_name << "_" << std::setw(5) << std::setfill('0') << indx << ".vtk";
+	// if C++ wasn't stupid, we could easily use sprintf
+	//sprintf(file_name, "vorticity%d_K%d_%05d.vtk", problem_type, Knod, indx);
 
-	double time = (ti + 1) * dt;
-	std::ofstream file_handle(file_name);
+	std::cout << "     Writing the results after " << indx << "  timesteps into the file:  " << file_name.str() << std::endl;
+
+	//double time = indx * dt;
+	std::ofstream file_handle(file_name.str());
 
 	file_handle << "# vtk DataFile Version 3.0" << std::endl;
 	file_handle << "2D Unstructured Grid of Quads" << std::endl;
@@ -3505,8 +3446,8 @@ void HO_2D::save_vorticity_vtk() {
 				Cmpnts2 coor(0., 0.); //coordinate of sps[j][i]
 				for (int ny = 0; ny < mesh.Lnod; ++ny)
 					for (int nx = 0; nx < mesh.Lnod; ++nx) {
-						int node_index = mesh.elements[el].nodes[mesh.tensor2FEM(nx, ny)];
-						coor.plus(gps_sps_basis[ny][j] * gps_sps_basis[nx][i], mesh.nodes[node_index].coor);
+						const int node_index = mesh.elements[el].nodes[mesh.tensor2FEM(nx, ny)];
+						coor.multadd(gps_sps_basis[ny][j] * gps_sps_basis[nx][i], mesh.nodes[node_index].coor);
 					}
 				file_handle << coor.x << " " << coor.y << " " << " 0." << std::endl;
 			}
@@ -3539,6 +3480,18 @@ void HO_2D::save_vorticity_vtk() {
 void HO_2D::set_defaults() {
 	Knod = 3;
 	using_hybrid = false;
+	Reyn_inv = 1.0;
+	HuynhSolver_type = 2;
+	time_integration_type = 2;
+	advection_type = 2;
+	problem_type = 11;
+	num_time_steps = 0;
+	dt = 1.0;
+	ti = 0;
+	time_end = 0.0;
+	dump_frequency = 100;
+	fast = 0;
+	LHS_type = 3;	// 1=Eigen, 3=amgcl
 }
 
 void HO_2D::enable_hybrid() {
@@ -3549,64 +3502,582 @@ void HO_2D::set_elemorder(const int32_t _eorder) {
 	Knod = (unsigned int)_eorder;
 }
 
-void load_mesh_arrays_d(const int32_t _iorder,
-                        const int32_t _nnodes, const double* _xynodes,
-                        const int32_t _nelems, const int32_t* _idxelems,
-                        const int32_t _nwall,  const int32_t* _idxwall,
-                        const int32_t _nopen,  const int32_t* _idxopen) {
+void HO_2D::allocate_hybrid_arrays(const size_t _nel, const size_t _neb, const size_t _knod) {
+
+	// first, deallocate if these point to anything
+	clean_up();
+
+	// allocate anew
+	BC_VelNorm_start = allocate_array<double>(_neb, _knod);
+	BC_VelNorm_end   = allocate_array<double>(_neb, _knod);
+	BC_VelParl_start = allocate_array<double>(_neb, _knod);
+	BC_VelParl_end   = allocate_array<double>(_neb, _knod);
+	BC_Vort_start    = allocate_array<double>(_neb, _knod);
+	BC_Vort_end      = allocate_array<double>(_neb, _knod);
+
+	Vort_start = allocate_array<double>(_nel, _knod, _knod);
+	Vort_end   = allocate_array<double>(_nel, _knod, _knod);
+	Vort_wgt   = allocate_array<double>(_nel, _knod, _knod);
+}
+
+// method to accept indices and values and return a boundary
+boundary HO_2D::arrays_to_boundary(
+		const std::string _name,
+		const int32_t _n, const int32_t* _idx,
+		const int32_t _nval, const double* _bc) {
+
+	boundary thisbdry = boundary();
+
+	thisbdry.name = _name;
+	if (_name == "wall") thisbdry.bc_type = wall;
+	else if (_name == "inlet") thisbdry.bc_type = inlet;
+	else if (_name == "outlet") thisbdry.bc_type = outlet;
+	else if (_name == "open") thisbdry.bc_type = open;
+	else assert("HO_2D::arrays_to_boundary boundary type in gmsh file is not wall, inlet, outlet, or open.");
+
+	thisbdry.N_edges = (unsigned int)_n / mesh.Lnod;
+	const unsigned int dtype = mesh.edge_type_node_number_inv.at(mesh.Lnod);
+	thisbdry.edges.resize(thisbdry.N_edges);
+
+	// check for passed-in BCs
+	size_t nvalper = 0;
+	if (_nval > 0) {
+		std::cout << "  boundary " << _name << " has BC values" << std::endl;
+		// this could be tangential (slip wall) or normal (inlet/outlet/bleed surface)
+		std::cout << "    " << _nval << " values over " << thisbdry.N_edges << " elements" << std::endl;
+
+		// how many vels per element?
+		nvalper = _nval / thisbdry.N_edges;
+		assert(_nval % thisbdry.N_edges == 0 && "Value array is not an even multiple of element count");
+		// if 2, then tangential is first, then normal
+
+		if (nvalper < 1 or nvalper > 2) {
+			assert(false && "Unexpected number of BCs per element in HO_2D::arrays_to_boundary");
+		}
+	}
+
+	// add each edge to the edges and boundary_edges lists
+	for (size_t i=0; i<thisbdry.N_edges; ++i) {
+		// make a new edge
+		mesh.edges.emplace_back(edge());
+		edge& thisedge = mesh.edges.back();
+
+		// now fill in the information
+		thisedge.edge_type = dtype;	// this causes a compiler warning?
+		thisedge.N_nodes = mesh.Lnod;
+		thisedge.nodes.resize(mesh.Lnod);
+		for (size_t j=0; j<thisedge.N_nodes; ++j) {
+			thisedge.nodes[j] = (unsigned int)_idx[mesh.Lnod*i+j];
+			//std::cout << _name << " bdry edge " << i << " node " << j << " is " << thisedge.nodes[j] << std::endl;
+		}
+		thisedge.bdry_index = -1;
+
+		// add the index to the boundary
+		thisbdry.edges[i] = (unsigned int)mesh.edges.size() - 1;
+		//std::cout << "  and is index " << thisbdry.edges[i] << std::endl;
+
+		// add the optional boundary information to the edge
+		mesh.boundary_edges.emplace_back(boundary_edge());
+		boundary_edge& thisbdryedge = mesh.boundary_edges.back();
+		thisbdryedge.bc_type = thisbdry.bc_type;
+
+		// the edge needs to know the index to the boundary edge
+		thisedge.bdry_index = (unsigned int)mesh.boundary_edges.size() - 1;
+
+		// search for the owning element
+		for (int el=0; el<mesh.N_elements; ++el) {
+			// check each side of the element
+			for (int s = south; s <= west; s++) {
+				// match first and second node idx
+				const unsigned int n0 = mesh.elements[el].nodes[s];
+				const unsigned int n1 = mesh.elements[el].nodes[(s + 1) % 4];
+				if (n0 == thisedge.nodes[0] && n1 == thisedge.nodes[1]) {
+					mesh.elements[el].edges[s] = thisbdry.edges[i];
+					//std::cout << _name << " edge " << thisbdry.edges[i] << " matches element " << el << std::endl;
+					// TODO: can we set thisbdryedge.element_index here?
+				}
+			}
+		}
+
+		// deal with the BCs now
+
+		// HOW DO WE ACCOUNT FOR HIGHER-ORDER GEOM ELEMS? HOW MANY VALS PER ELEM?
+		// note that BC_parl_vel, BC_normal_vel are not yet allocated!
+		// save one or two numbers in these - we will adjust other BCs in setup_IC_BC_SRC
+
+		if (nvalper == 1) {
+			thisbdryedge.normvel.resize(1);
+			thisbdryedge.normvel[0] = _bc[i];
+		} else if (nvalper == 2) {
+			thisbdryedge.parlvel.resize(1);
+			thisbdryedge.parlvel[0] = _bc[i*2];
+			thisbdryedge.normvel.resize(1);
+			thisbdryedge.normvel[0] = _bc[i*2+1];
+		}
+	}
+
+	return thisbdry;
+}
+
+// load in all the nodes, elements, wall, and open BCs
+void HO_2D::load_mesh_arrays_d(const int32_t _iorder,
+		const int32_t _nnodes, const double* _xynodes,
+		const int32_t _nelems, const int32_t* _idxelems,
+		const int32_t _nwall,  const int32_t* _idxwall,
+		const int32_t _nopen,  const int32_t* _idxopen) {
+
+	// set some defaults
+	mesh.OCC_format = 0;
+	mesh.dx_ratio = 1.0;
+	mesh.fac = 0.0;
 
 	// Lnod is in Mesh
-	//Lnod = (unsigned int)_iorder + 1;
+	mesh.Lnod_in = (unsigned int)_iorder;
+	mesh.Lnod = mesh.Lnod_in + 1;
+
+	//std::cout << "in HO_2D::load_mesh_arrays_d with " << _iorder << " " << _nnodes << " " << _nelems << " " << _nwall << " " << _nopen << std::endl;
+
+	// load in the nodes
+	mesh.N_nodes = _nnodes/2;
+	mesh.nodes.resize(mesh.N_nodes);
+	for (int i=0; i<mesh.N_nodes; ++i) {
+		mesh.nodes[i].coor.x = _xynodes[2*i];
+		mesh.nodes[i].coor.y = _xynodes[2*i+1];
+		mesh.nodes[i].node_type = 9;	// do we care?
+	}
+
+	// load in the elements - all should be the same type
+	const unsigned int nnodeper = mesh.Lnod*mesh.Lnod;
+	mesh.N_elements = _nelems / nnodeper;
+	const unsigned int etype = mesh.face_type_node_number_inv.at(nnodeper);
+	mesh.elements.resize(mesh.N_elements);
+	for (int i=0; i<mesh.N_elements; ++i) {
+		mesh.elements[i].element_type = etype;
+		mesh.elements[i].N_nodes = nnodeper;
+		mesh.elements[i].nodes.resize(nnodeper);
+		for (size_t j=0; j<nnodeper; ++j) {
+			mesh.elements[i].nodes[j] = (unsigned int)_idxelems[nnodeper*i+j];
+		}
+		for (size_t j=0; j<4; ++j) {
+			mesh.elements[i].edges[j] = 0;	// these must be assigned here!!!
+		}
+	}
+
+	// load in the boundaries
+	mesh.edges.clear();
+	mesh.boundaries.clear();
+
+	// first, the wall boundary
+	if (_nwall > 0) {
+		mesh.boundaries.emplace_back(arrays_to_boundary("wall",_nwall,_idxwall,0,nullptr));
+	}
+
+	// then the open boundary
+	if (_nopen > 0) {
+		mesh.boundaries.emplace_back(arrays_to_boundary("open",_nopen,_idxopen,0,nullptr));
+	}
+
+	// read in optional inlets and outlets after this but before processing mesh
 }
+
+// load in any normal vels and indices for inlets and outlets
+void HO_2D::load_inout_arrays_d(
+		const int32_t _ninval, const double* _velin,
+		const int32_t _nin, const int32_t* _idxin,
+		const int32_t _noutval, const double* _velout,
+		const int32_t _nout, const int32_t* _idxout) {
+
+	std::cout << "  in HO_2D::load_inout_arrays_d with " << _ninval << " " << _nin << " " << _noutval << " " << _nout << std::endl;
+
+	if (_nin > 0) {
+		mesh.boundaries.emplace_back(arrays_to_boundary("inlet",_nin,_idxin,_ninval,_velin));
+	}
+	if (_nout > 0) {
+		mesh.boundaries.emplace_back(arrays_to_boundary("outlet",_nout,_idxout,_noutval,_velout));
+	}
+}
+
+// all input is done, process the mesh and boundaries
+void HO_2D::process_mesh_input() {
+
+	mesh.N_edges_boundary = mesh.edges.size();
+	mesh.N_Gboundary = mesh.boundaries.size();
+
+	// complete processing of the mesh
+	mesh.process_mesh();
+
+	// allocate the proper space for the calculation
+	allocate_arrays();
+	allocate_hybrid_arrays(mesh.N_el, mesh.N_edges_boundary, Knod);
+
+	// now that the mesh is loaded, prepare everything else
+	setup_sps_gps();
+	//read_process_sample_points();
+	form_bases();
+	form_metrics();
+	setup_IC_BC_SRC();
+	form_Laplace_operator_matrix();
+
+	// dump some debug info
+	if (false) for (int i=0; i<mesh.N_el; i+=2000) {
+		std::cout << "Elem " << i << " has vol_jac" << std::endl;
+		for (int j=0; j<Knod; ++j) {
+			for (int k=0; k<Knod; ++k) {
+				std::cout << " " << vol_jac[i][j][k];
+			}
+			std::cout << std::endl;
+		}
+		std::cout << "  and face_jac" << std::endl;
+		for (int j=0; j<4; ++j) {
+			for (int k=0; k<Knod; ++k) {
+				std::cout << " " << face_jac[i][j][k];
+			}
+			std::cout << std::endl;
+		}
+	}
+}
+
 
 // get data from this Eulerian solver
 
 int32_t HO_2D::getsolnptlen() {
+	return 2 * mesh.N_el * Knod * Knod;
+}
+
+void HO_2D::getsolnpts_d(const int32_t _ptlen, double* _xypts) {
+
+	double** xloc = allocate_array<double>(mesh.Lnod,mesh.Lnod);
+	double** yloc = allocate_array<double>(mesh.Lnod,mesh.Lnod);
+
+	// first get the mesh nodes
+	for (int i=0; i<mesh.N_el; ++i) {
+		for (int j=0; j<mesh.Lnod; ++j) for (int k=0; k<mesh.Lnod; ++k) {
+			// xloc(jx,jy) = xcoord(nodeID(t2f(jx,jy),i))
+			const size_t nid = mesh.elements[i].nodes[mesh.tensor2FEM(k,j)];
+			xloc[j][k] = mesh.nodes[nid].coor.x;
+			yloc[j][k] = mesh.nodes[nid].coor.y;
+		}
+
+		// then convert these into the solution nodes
+		size_t idx = 2*i*Knod*Knod;
+		for (int j=0; j<Knod; ++j) for (int k=0; k<Knod; ++k) {
+			double x = 0.0;
+			double y = 0.0;
+
+			for (int l=0; l<mesh.Lnod; ++l) for (int m=0; m<mesh.Lnod; ++m) {
+				// x = x + GeomNodesLgrangeBasis(jx,kx) * GeomNodesLgrangeBasis(jy,ky) * xloc(jx,jy)
+				x += gps_sps_basis[l][j] * gps_sps_basis[m][k] * xloc[l][m];
+				y += gps_sps_basis[l][j] * gps_sps_basis[m][k] * yloc[l][m];
+			}
+
+			_xypts[idx+0] = x;
+			_xypts[idx+1] = y;
+			idx += 2;
+		}
+	}
+
+	free_array<double>(xloc);
+	free_array<double>(yloc);
+}
+
+void HO_2D::getsolnareas_d(const int32_t _veclen, double* _areas) {
+	for (int i=0; i<mesh.N_el; ++i) {
+		size_t idx = i*Knod*Knod;
+		for (int j=0; j<Knod; ++j) for (int k=0; k<Knod; ++k) {
+			// areas(ptnum) = wgt(i) * wgt(j) * Vol_Jac(i,j,el)
+			//_areas[idx] = vol_jac[i][j][k];	// wrong?
+			_areas[idx] = sps_weight[j] * sps_weight[k] * vol_jac[i][j][k];
+			idx++;
+		}
+	}
+}
+
+int32_t HO_2D::getopenptlen() {
+	// loop over boundary and look for "open"
+	for (auto &bdry : mesh.boundaries) {
+		if (bdry.name == "open") {
+			return 2 * bdry.N_edges * Knod;
+		}
+	}
 	return 0;
 }
 
-void getsolnpts_d(const int32_t _ptlen, double* _xypts) {
-}
+void HO_2D::getopenpts_d(const int32_t _nopen, double* _xyopen) {
 
-void getsolnareas_d(const int32_t _veclen, double* _areas) {
-}
-int32_t getopenptlen() {
-	return 0;
-}
-void getopenpts_d(const int32_t _nopen, double* _xyopen) {
+	for (auto &bdry : mesh.boundaries) if (bdry.name == "open") {
+		double* xloc = new double [mesh.Lnod];
+		double* yloc = new double [mesh.Lnod];
+
+		// now get the solution points on this boundary
+		for (unsigned int i=0; i<bdry.N_edges; ++i) {
+
+			for (int j=0; j<mesh.Lnod; ++j) {
+				// xloc1D(jx) = xcoord(boundarynodeID(t2f(jx),i))
+				const size_t nid = mesh.edges[bdry.edges[i]].nodes[mesh.tensor2FEM(j)];
+				//if (i<1000) std::cout << "open pt " << i << " " << j << " nodes " << bdry.edges[i] << " " << nid << std::endl;
+				xloc[j] = mesh.nodes[nid].coor.x;
+				yloc[j] = mesh.nodes[nid].coor.y;
+			}
+
+			size_t idx = 2*i*Knod;
+			for (int j=0; j<Knod; ++j) {
+				double x = 0.0;
+				double y = 0.0;
+
+				for (int l=0; l<mesh.Lnod; ++l) {
+					// x = x + GeomNodesLgrangeBasis(jx,kx) * xloc1D(jx)
+					x += gps_sps_basis[l][j] * xloc[l];
+					y += gps_sps_basis[l][j] * yloc[l];
+				}
+				//if (i<1000) std::cout << "open pt " << i << " " << j << " is " << x << " " << y << std::endl;
+
+				_xyopen[idx+0] = x;
+				_xyopen[idx+1] = y;
+				idx += 2;
+			}
+		}
+		delete[] xloc;
+		delete[] yloc;
+	}
+	return;
 }
 
 // send vels and vorts to this solver
 
-void setopenvels_d(const int32_t _veclen, double* _xyvel) {
+// update the x,y velocity at the open boundary solution nodes
+void HO_2D::setopenvels_d(const int32_t _veclen, double* _xyvel) {
+	std::cout << "  In setopenvels_d, incoming size is " << _veclen << std::endl;
+
+	// move data from end to start
+	//BC_VelNorm_start = BC_VelNorm_end
+	//BC_VelParl_start = BC_VelParl_end
+	for (int i=0; i<mesh.N_edges_boundary; ++i) for (int j=0; j<Knod; ++j) {
+		BC_VelNorm_start[i][j] = BC_VelNorm_end[i][j];
+	}
+	for (int i=0; i<mesh.N_edges_boundary; ++i) for (int j=0; j<Knod; ++j) {
+		BC_VelParl_start[i][j] = BC_VelParl_end[i][j];
+	}
+
+	// read new BC vels into "end"
+	unsigned int eoffset = 0;
+	for (auto &bdry : mesh.boundaries) {
+	if (bdry.name == "open") {
+		assert(2*(int)bdry.N_edges*Knod == _veclen && "setopenvels input vector mismatch");
+
+		for (unsigned int i=0; i<bdry.N_edges; ++i) {
+
+			// see line 1948 for code like this
+			// find the enclosing element
+			const int edge_index = eoffset + i;	// edge index in the master list
+			const int el = mesh.boundary_edges[edge_index].element_index;
+			// and the side of that element
+			const int elem_side = mesh.boundary_edges[edge_index].side;
+			// and others
+			const int ijp = f2i[elem_side];
+			const int t = ijp%2;  //Left/right (South/north face of element)
+			const int d = ijp/2; //the direction of the face (0: xsi side, 1: eta side)
+			const double coeff = 2. * t -1.; //convert the local h direction to outward normal direction
+
+			// loop over Knod compute nodes along this edge
+			for (int j=0; j<Knod; ++j) {
+
+				// pull x and y vels into temps
+				const double xvel = _xyvel[2*(i*Knod+j)+0];
+				const double yvel = _xyvel[2*(i*Knod+j)+1];
+
+				// find unit normal vector here
+				double nx = 0, ny = 0;
+				if (d == 1) {
+					nx = -face_Dy_Dxsi[el][ijp][j].x;
+					ny = face_Dx_Dxsi[el][ijp][j].x;
+				} else {
+					nx = face_Dy_Dxsi[el][ijp][j].y;
+					ny = -face_Dx_Dxsi[el][ijp][j].y;
+				}
+
+				nx *= coeff/face_Anorm[el][ijp][j];
+				ny *= coeff/face_Anorm[el][ijp][j];
+
+				// convert into Norm and Parl components
+				// edge_flux_point_index
+				//const int efpi = (elem_side / 2) * (Knod - 2 * j - 1) + j;
+				//if (i==0) std::cout << "open pt " << i << " " << j << " in elem " << el << " side " << elem_side << std::endl;
+
+				// BC_VelNorm_end(l,bel) = (Srf_Dx_iDxsi_j(l,2,2,bel) * xvel(l) - Srf_Dx_iDxsi_j(l,1,2,bel) * yvel(l))
+				//BC_VelNorm_end[i][j] = face_Dx_Dxsi[el][ijp][efpi].y * xvel - face_Dx_Dxsi[el][ijp][efpi].x * yvel;
+				BC_VelNorm_end[i][j] = +(nx*xvel + ny*yvel);
+
+				// BC_VelParl_end(l,bel) = -(Srf_Dx_iDxsi_j(l,1,2,bel) * xvel(l) + Srf_Dx_iDxsi_j(l,2,2,bel) * yvel(l)) / Face_Norm(l,k,j)
+				//BC_VelParl_end[i][j] = -(face_Dx_Dxsi[el][ijp][efpi].x * xvel + face_Dx_Dxsi[el][ijp][efpi].y * yvel) / face_Anorm[el][ijp][j];
+				BC_VelParl_end[i][j] = +(nx*yvel - ny*xvel);
+				//if (i%1 == 0) std::cout << "new edge vel bc at " << i << " " << j << " is " << BC_VelNorm_end[i][j] << " " << BC_VelParl_end[i][j]<< std::endl;
+			}
+		}
+	}
+	// keep track of where in the full list of boundary edges this boundary's edges begin
+	eoffset += bdry.N_edges;
+	}
+
+	// now we have "start" and "end" values for the upcoming time step
+	return;
 }
-void setopenvort_d(const int32_t _veclen, double* _invort) {
+
+// update the vorticity at the open boundary solution nodes
+void HO_2D::setopenvort_d(const int32_t _veclen, double* _invort) {
+	std::cout << "  In setopenvort_d, incoming size is " << _veclen << std::endl;
+
+	for (auto &bdry : mesh.boundaries) if (bdry.name == "open") {
+		assert((int)bdry.N_edges*Knod == _veclen && "setopenvort input vector mismatch");
+
+		for (unsigned int i=0; i<bdry.N_edges; ++i) {
+			for (int j=0; j<Knod; ++j) {
+				// first - move what's in "end" to "start"
+				BC_Vort_start[i][j] = BC_Vort_end[i][j];
+				// then - read the new BC vorts into "end"
+				BC_Vort_end[i][j] = _invort[Knod*i+j];
+				//if (i%1 == 0) std::cout << "edge vort bc old and new at " << i << " " << j << " are " << BC_Vort_start[i][j] << " " << BC_Vort_end[i][j] << std::endl;
+			}
+		}
+	}
+
+	// we're going to need this somewhere, using vorticity[el][eta][xi]
+
+	return;
 }
-void setsolnvort_d(const int32_t _veclen, double* _invort) {
+
+// set/update the vorticity at all solution nodes (useful for initialization)
+void HO_2D::setsolnvort_d(const int32_t _veclen, double* _invort) {
+	assert(mesh.N_el*Knod*Knod == _veclen && "setsolnvort input vector mismatch");
+
+	// first - move what's in "end" to "start"
+	for (int i=0; i<mesh.N_el; ++i) {
+		for (int j=0; j<Knod; ++j) for (int k=0; k<Knod; ++k) {
+			Vort_start[i][j][k] = Vort_end[i][j][k];
+		}
+	}
+
+	// then - read the new vorts into "end"
+	for (int i=0; i<mesh.N_el; ++i) {
+		size_t idx = i*Knod*Knod;
+		for (int j=0; j<Knod; ++j) for (int k=0; k<Knod; ++k) {
+			Vort_end[i][j][k] = _invort[idx+j*Knod+k];
+		}
+		//if (i%100 == 0) std::cout << "new vort bc at " << i << " is " << Vort_end[i][0][0] << std::endl;
+	}
+
+	// this will eventually affect vorticity[el][eta][xi]
+
+	return;
 }
-void setptogweights_d(const int32_t _veclen, double* _inwgt) {
+
+// set the particle-to-grid weights for all solution nodes
+//   (should be 0.0 most places, 1.0 at the open boundary, falling off quickly)
+void HO_2D::setptogweights_d(const int32_t _veclen, double* _inwgt) {
+	assert(mesh.N_el*Knod*Knod == _veclen && "setsolnvort input vector mismatch");
+
+	// replace the weight with the incoming weight
+	for (int i=0; i<mesh.N_el; ++i) {
+		size_t idx = i*Knod*Knod;
+		for (int j=0; j<Knod; ++j) for (int k=0; k<Knod; ++k) {
+			Vort_wgt[i][j][k] = _inwgt[idx+j*Knod+k];
+		}
+		//if (i%100 == 0) std::cout << "vwght at " << i << " is " << Vort_wgt[i][0][0] << std::endl;
+	}
+
+	return;
 }
 
 // march forward
 
-void solveto_d(const double _outerdt, const int32_t _numstep,
+void HO_2D::solveto_d(const double _outerdt, const int32_t _numstep,
 		const int32_t _integtype, const double _reyn) {
+
+	// dt is a global (class) variable
+	dt = _outerdt / (double)_numstep;
+	std::cout << "In solveto_d, marching forward " << _outerdt << " in " << _numstep << " steps" << std::endl;
+
+	// set other class variables
+	time_integration_type = (int)_integtype;
+	Reyn_inv = 1.0 / _reyn;
+
+	// need times for start and end of outer time step
+	// copy from old end
+	time_start = time_end;
+	current_time = time_start;
+	time_end += _outerdt;
+
+	const bool save_all_substeps = false;
+
+	// optionally save substeps
+	if (save_all_substeps) save_smooth_vtk((int)(ti/_numstep), 0);
+
+	// perform time integration, note ti is global step count
+	for (int32_t iter = 0; iter < _numstep; ++iter) {
+
+		// refer to the global time step count
+		std::cout << "step " << ti << " at time " << current_time << std::endl;
+
+		// take a time step
+		solve_advection_diffusion();
+
+		// optionally save substeps
+		if (save_all_substeps) save_smooth_vtk((int)(ti/_numstep), (int)iter+1);
+
+		// increment global STEP counter ti, and current time
+		++ti;
+		current_time += dt;
+	}
 }
 
 // retrieve results
 
-void getallvorts_d(const int32_t _veclen, double* _outvort) {
+// caller asks for vorticity on all solution nodes
+void HO_2D::getallvorts_d(const int32_t _veclen, double* _outvort) {
+	assert(mesh.N_el*Knod*Knod == _veclen && "getallvorts vector length mismatch");
+
+	// copy from master vorticity
+	for (int i=0; i<mesh.N_el; ++i) {
+		size_t idx = i*Knod*Knod;
+		for (int j=0; j<Knod; ++j) for (int k=0; k<Knod; ++k) {
+			_outvort[idx+j*Knod+k] = vorticity[i][j][k];
+		}
+		//if (i%100 == 0) std::cout << "vort at " << i << " is " << vorticity[i][0][0] << std::endl;
+	}
 }
-void get_hoquad_weights_d(const int32_t _veclen, double* _outvec) {
+
+// caller needs array of weights for a solution element
+void HO_2D::get_hoquad_weights_d(const int32_t _veclen, double* _outvec) {
+	assert(Knod*Knod == _veclen && "get_hoquad_weights vector length mismatch");
+
+	// fraction of the element's area taken up by this solution node's domain
+	for (int j=0; j<Knod; ++j) for (int k=0; k<Knod; ++k) {
+		_outvec[j*Knod+k] = 0.25 * sps_weight[j] * sps_weight[k];
+	}
 }
-void trigger_write(const int32_t _indx) {
+
+// 
+void HO_2D::trigger_write(const int32_t _indx) {
+	save_vorticity_vtk((int)_indx);
+	save_smooth_vtk((int)_indx);
 }
 
 // close, finish
 
 void HO_2D::clean_up() {
-	deallocate_3d_array_d(Vort_start, mesh.N_el, Knod);
-	deallocate_3d_array_d(Vort_end, mesh.N_el, Knod);
-	deallocate_3d_array_d(Vort_wgt, mesh.N_el, Knod);
+
+	// call the existing memory cleanup routine
+	//release_memory();
+
+	// and then clean up hybrid arrays
+	free_array<double>(BC_VelNorm_start);
+	free_array<double>(BC_VelNorm_end);
+	free_array<double>(BC_VelParl_start);
+	free_array<double>(BC_VelParl_end);
+	free_array<double>(BC_Vort_start);
+	free_array<double>(BC_Vort_end);
+
+	free_array<double>(Vort_start);
+	free_array<double>(Vort_end);
+	free_array<double>(Vort_wgt);
 }
 
