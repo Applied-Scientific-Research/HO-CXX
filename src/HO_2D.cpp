@@ -12,16 +12,120 @@
 
 #include <cmath>
 
-void HO_2D::release_memory() { //release the memory as destructor
+
+
+//allocate the memory for the arrays and resize them.
+char HO_2D::allocate_arrays() {
+	std::cout << "  in HO_2D::allocate_arrays " << (arrays_allocated ? "true" : "false") << std::endl;
+
+    if (arrays_allocated) return 1;
+
+	const size_t N_el = mesh.N_el;
+	const size_t N_eb = mesh.N_edges_boundary;
+	const size_t Lnod = mesh.Lnod;
+	std::cout << "    sizes " << N_el << " " << N_eb << " " << Lnod << " " << Knod << std::endl;
+
+	initial_vorticity = allocate_array<double>(N_el, Knod, Knod);
+	vorticity = allocate_array<double>(N_el, Knod, Knod);
+	stream_function = allocate_array<double>(N_el, Knod, Knod);
+
+	velocity_cart = allocate_array<Cmpnts2>(N_el, Knod, Knod);
+
+	sps_local_coor = allocate_array<double>((size_t)Knod);
+	sps_weight = allocate_array<double>((size_t)Knod);
+	gps_local_coor = allocate_array<double>((size_t)Lnod);
+
+	sps_boundary_basis = allocate_array<double>(Knod, 2);
+	sps_boundary_grad_basis = allocate_array<double>(Knod, 2);
+	sps_sps_grad_basis = allocate_array<double>(Knod, Knod);
+
+	gps_boundary_basis = allocate_array<double>(Lnod, 2);
+	gps_boundary_grad_basis = allocate_array<double>(Lnod, 2);
+	gps_sps_basis = allocate_array<double>(Lnod, Knod);
+	sps_gps_basis = allocate_array<double>(Knod, Lnod);
+	gps_sps_grad_basis = allocate_array<double>(Lnod, Knod);
+
+	sps_radau = allocate_array<double>(Knod, 2);
+	sps_grad_radau = allocate_array<double>(Knod, 2);
+
+	vol_Dx_Dxsi = allocate_array<Cmpnts2>(N_el, Knod, Knod);
+	vol_Dy_Dxsi = allocate_array<Cmpnts2>(N_el, Knod, Knod);
+	vol_jac = allocate_array<double>(N_el, Knod, Knod);
+
+	G = allocate_array<double>(N_el, Knod, Knod, 2, 2);
+	GB = allocate_array<double>(N_el, 2, 2, Knod, 2);
+
+	face_Acoef = allocate_array<double>(N_el, 4, Knod);
+	face_Bcoef = allocate_array<double>(N_el, 4, Knod);
+	face_jac   = allocate_array<double>(N_el, 4, Knod);
+	face_Anorm = allocate_array<double>(N_el, 4, Knod);
+	face_Dx_Dxsi = allocate_array<Cmpnts2>(N_el, 4, Knod);
+	face_Dy_Dxsi = allocate_array<Cmpnts2>(N_el, 4, Knod);
+
+	RHS_advective = allocate_array<double>(N_el, Knod, Knod);
+	RHS_diffusive = allocate_array<double>(N_el, Knod, Knod);
+
+	//BC_no_slip = new bool[mesh.N_Gboundary]; //Set NoSlip to all walls (as default)
+	BC_no_slip = allocate_array<bool>(mesh.N_Gboundary);
+	//BC_switch_Poisson = new unsigned char[N_eb];
+	BC_switch_Poisson = allocate_array<unsigned char>(N_eb);
+	//BC_switch_psi = new unsigned char[N_eb];
+	//BC_switch_advection = new unsigned char[N_eb];
+	//BC_switch_diffusion = new unsigned char[N_eb];
+	BC_switch_diffusion = allocate_array<unsigned char>(N_eb);
+
+	boundary_source = allocate_array<double>(N_eb, Knod*Knod, Knod);
+
+	BC_Poisson = allocate_array<double>(N_eb, Knod);
+	//BC_psi = allocate_array<double>(N_eb, Knod);
+	BC_advection = allocate_array<double>(N_eb, Knod);
+	BC_diffusion = allocate_array<double>(N_eb, Knod);
+
+	BC_vorticity = allocate_array<double>(N_eb, Knod);
+	velocity_jump = allocate_array<double>(N_eb, Knod);
+	BC_parl_vel = allocate_array<double>(N_eb, Knod);
+	BC_normal_vel = allocate_array<double>(N_eb, Knod);
+
+	k1 = allocate_array<double>(N_el, Knod, Knod); //these are used in the RK time integration
+	k2 = allocate_array<double>(N_el, Knod, Knod);
+	k3 = allocate_array<double>(N_el, Knod, Knod);
+	k4 = allocate_array<double>(N_el, Knod, Knod);
+	vort = allocate_array<double>(N_el, Knod, Knod);
+
+	arrays_allocated = true;
+
+	if (using_hybrid and not hybrid_arrays_allocated) {
+		BC_VelNorm_start = allocate_array<double>(N_eb, Knod);
+		BC_VelNorm_end   = allocate_array<double>(N_eb, Knod);
+		BC_VelParl_start = allocate_array<double>(N_eb, Knod);
+		BC_VelParl_end   = allocate_array<double>(N_eb, Knod);
+		BC_Vort_start    = allocate_array<double>(N_eb, Knod);
+		BC_Vort_end      = allocate_array<double>(N_eb, Knod);
+
+		Vort_start = allocate_array<double>(N_el, Knod, Knod);
+		Vort_end   = allocate_array<double>(N_el, Knod, Knod);
+		Vort_wgt   = allocate_array<double>(N_el, Knod, Knod);
+
+		hybrid_arrays_allocated = true;
+	}
+
+	// like main, 0 means success
+	return 0;
+}
+
+char HO_2D::release_memory() { //release the memory as destructor
+	std::cout << "  in HO_2D::release_memory" << std::endl;
+
+    if (not arrays_allocated) return 1;
 
 	free_array<double>(vorticity);
 	free_array<double>(stream_function);
 	free_array<double>(initial_vorticity);
 	free_array<Cmpnts2>(velocity_cart);
 
-	delete[] sps_local_coor;
-	delete[] sps_weight;
-	delete[] gps_local_coor;
+	free_array<double>(sps_local_coor);
+	free_array<double>(sps_weight);
+	free_array<double>(gps_local_coor);
 
 	free_array<double>(sps_boundary_basis);
 	free_array<double>(sps_boundary_grad_basis);
@@ -73,6 +177,27 @@ void HO_2D::release_memory() { //release the memory as destructor
 	free_array<double>(k3);
 	free_array<double>(k4);
 	free_array<double>(vort);
+
+	if (hybrid_arrays_allocated) {
+		// and then clean up hybrid arrays
+		free_array<double>(BC_VelNorm_start);
+		free_array<double>(BC_VelNorm_end);
+		free_array<double>(BC_VelParl_start);
+		free_array<double>(BC_VelParl_end);
+		free_array<double>(BC_Vort_start);
+		free_array<double>(BC_Vort_end);
+
+		free_array<double>(Vort_start);
+		free_array<double>(Vort_end);
+		free_array<double>(Vort_wgt);
+
+		hybrid_arrays_allocated = false;
+	}
+
+	arrays_allocated = false;
+
+	// like main, 0 means success
+	return 0;
 }
 
 int HO_2D::read_input_file(const std::string filename) {
@@ -410,80 +535,6 @@ void HO_2D::setup_sps_gps() {
 		g_prime[1] = 0.5 * Knod * (Knod+1.); //0.5 * minus_one_to_power(Knod) * Knod;
 	}
 
-}
-
-char HO_2D::allocate_arrays() {
-	//allocate the memory for the arrays and resize them.
-	int N_el = mesh.N_el;
-	int Lnod = mesh.Lnod;
-
-	initial_vorticity = allocate_array<double>(N_el, Knod, Knod);
-	vorticity = allocate_array<double>(N_el, Knod, Knod);
-	stream_function = allocate_array<double>(N_el, Knod, Knod);
-
-	velocity_cart = allocate_array<Cmpnts2>(N_el, Knod, Knod);
-
-	sps_local_coor = new double[Knod];
-	sps_weight = new double[Knod];
-	gps_local_coor = new double[Lnod];
-
-	sps_boundary_basis = allocate_array<double>(Knod, 2);
-	sps_boundary_grad_basis = allocate_array<double>(Knod, 2);
-	sps_sps_grad_basis = allocate_array<double>(Knod, Knod);
-
-	gps_boundary_basis = allocate_array<double>(Lnod, 2);
-	gps_boundary_grad_basis = allocate_array<double>(Lnod, 2);
-	gps_sps_basis = allocate_array<double>(Lnod, Knod);
-	sps_gps_basis = allocate_array<double>(Knod, Lnod);
-	gps_sps_grad_basis = allocate_array<double>(Lnod, Knod);
-
-	sps_radau = allocate_array<double>(Knod, 2);
-	sps_grad_radau = allocate_array<double>(Knod, 2);
-
-	vol_Dx_Dxsi = allocate_array<Cmpnts2>(N_el, Knod, Knod);
-	vol_Dy_Dxsi = allocate_array<Cmpnts2>(N_el, Knod, Knod);
-	vol_jac = allocate_array<double>(N_el, Knod, Knod);
-
-	G = allocate_array<double>(N_el, Knod, Knod, 2, 2);
-	GB = allocate_array<double>(N_el, 2, 2, Knod, 2);
-
-	face_Acoef = allocate_array<double>(N_el, 4, Knod);
-	face_Bcoef = allocate_array<double>(N_el, 4, Knod);
-	face_jac   = allocate_array<double>(N_el, 4, Knod);
-	face_Anorm = allocate_array<double>(N_el, 4, Knod);
-	face_Dx_Dxsi = allocate_array<Cmpnts2>(N_el, 4, Knod);
-	face_Dy_Dxsi = allocate_array<Cmpnts2>(N_el, 4, Knod);
-
-	RHS_advective = allocate_array<double>(N_el, Knod, Knod);
-	RHS_diffusive = allocate_array<double>(N_el, Knod, Knod);
-
-	BC_no_slip = new bool[mesh.N_Gboundary]; //Set NoSlip to all walls (as default)
-
-	BC_switch_Poisson = new unsigned char[mesh.N_edges_boundary];
-	//BC_switch_psi = new unsigned char[mesh.N_edges_boundary];
-	//BC_switch_advection = new unsigned char[mesh.N_edges_boundary];
-	BC_switch_diffusion = new unsigned char[mesh.N_edges_boundary];
-
-	boundary_source = allocate_array<double>(mesh.N_edges_boundary, Knod*Knod, Knod);
-
-	BC_Poisson = allocate_array<double>(mesh.N_edges_boundary, Knod);
-	//BC_psi = allocate_array<double>(mesh.N_edges_boundary, Knod);
-	BC_advection = allocate_array<double>(mesh.N_edges_boundary, Knod);
-	BC_diffusion = allocate_array<double>(mesh.N_edges_boundary, Knod);
-
-	BC_vorticity = allocate_array<double>(mesh.N_edges_boundary, Knod);
-	velocity_jump = allocate_array<double>(mesh.N_edges_boundary, Knod);
-	BC_parl_vel = allocate_array<double>(mesh.N_edges_boundary, Knod);
-	BC_normal_vel = allocate_array<double>(mesh.N_edges_boundary, Knod);
-
-	k1 = allocate_array<double>(N_el, Knod, Knod); //these are used in the RK time integration
-	k2 = allocate_array<double>(N_el, Knod, Knod);
-	k3 = allocate_array<double>(N_el, Knod, Knod);
-	k4 = allocate_array<double>(N_el, Knod, Knod);
-	vort = allocate_array<double>(N_el, Knod, Knod);
-
-	// like main, 0 means success
-	return 0;
 }
 
 void HO_2D::form_bases() {
@@ -3502,24 +3553,6 @@ void HO_2D::set_elemorder(const int32_t _eorder) {
 	Knod = (unsigned int)_eorder;
 }
 
-void HO_2D::allocate_hybrid_arrays(const size_t _nel, const size_t _neb, const size_t _knod) {
-
-	// first, deallocate if these point to anything
-	clean_up();
-
-	// allocate anew
-	BC_VelNorm_start = allocate_array<double>(_neb, _knod);
-	BC_VelNorm_end   = allocate_array<double>(_neb, _knod);
-	BC_VelParl_start = allocate_array<double>(_neb, _knod);
-	BC_VelParl_end   = allocate_array<double>(_neb, _knod);
-	BC_Vort_start    = allocate_array<double>(_neb, _knod);
-	BC_Vort_end      = allocate_array<double>(_neb, _knod);
-
-	Vort_start = allocate_array<double>(_nel, _knod, _knod);
-	Vort_end   = allocate_array<double>(_nel, _knod, _knod);
-	Vort_wgt   = allocate_array<double>(_nel, _knod, _knod);
-}
-
 // method to accept indices and values and return a boundary
 boundary HO_2D::arrays_to_boundary(
 		const std::string _name,
@@ -3708,7 +3741,6 @@ void HO_2D::process_mesh_input() {
 
 	// allocate the proper space for the calculation
 	allocate_arrays();
-	allocate_hybrid_arrays(mesh.N_el, mesh.N_edges_boundary, Knod);
 
 	// now that the mesh is loaded, prepare everything else
 	setup_sps_gps();
@@ -4064,20 +4096,7 @@ void HO_2D::trigger_write(const int32_t _indx) {
 // close, finish
 
 void HO_2D::clean_up() {
-
 	// call the existing memory cleanup routine
-	//release_memory();
-
-	// and then clean up hybrid arrays
-	free_array<double>(BC_VelNorm_start);
-	free_array<double>(BC_VelNorm_end);
-	free_array<double>(BC_VelParl_start);
-	free_array<double>(BC_VelParl_end);
-	free_array<double>(BC_Vort_start);
-	free_array<double>(BC_Vort_end);
-
-	free_array<double>(Vort_start);
-	free_array<double>(Vort_end);
-	free_array<double>(Vort_wgt);
+	release_memory();
 }
 

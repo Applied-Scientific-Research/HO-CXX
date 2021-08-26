@@ -113,7 +113,8 @@ private:
 	double*** boundary_source; //Poisson Solver's RHS term to be dotted by BC_Values of the edge that belongs to the element (which has this edge on the global boundary); size is [N_edges_boundary][Knod*Knod][Knod]
 	int LHS_type; //1 is eigen, 2 is hypre
 	int nnz; //number of non-zeros in the LHS matrix of poisson equation
-    // https://eigen.tuxfamily.org/dox/TopicMultiThreading.html says BiCGSTAB is multithreaded using RowMajor, it isn't
+
+	// https://eigen.tuxfamily.org/dox/TopicMultiThreading.html says BiCGSTAB is multithreaded using RowMajor, it isn't
 	//Eigen::SparseMatrix<double,Eigen::RowMajor> LHS_Eigen; //to store the poisson LHS in Eigen format
 	Eigen::SparseMatrix<double> LHS_Eigen; //to store the poisson LHS in Eigen format
 	Eigen::VectorXd RHS_Eigen; //the right hand side in the poisson equation discretization
@@ -125,12 +126,14 @@ private:
 	//Eigen::BiCGSTAB<Eigen::SparseMatrix<double,Eigen::RowMajor>, Eigen::IncompleteLUT<double>> bicg_Eigen;  //BICGSTAB with ILU preconditioner
 	Eigen::BiCGSTAB<Eigen::SparseMatrix<double>, Eigen::IncompleteLUT<double>> bicg_Eigen;  //BICGSTAB with ILU preconditioner
 	//Eigen::SparseLU<Eigen::SparseMatrix<double>, Eigen::COLAMDOrdering<int>> LU_Eigen;  //sparseLU method
+
 	//amgcl::make_solver<amgcl::amg<amgcl::backend::eigen<double>, amgcl::coarsening::smoothed_aggregation, amgcl::relaxation::spai0>, amgcl::solver::bicgstab<amgcl::backend::eigen<double>>>* AMGCL_solver;
 	//typedef amgcl::make_solver<amgcl::amg<Backend, amgcl::coarsening::smoothed_aggregation, amgcl::relaxation::spai0>, amgcl::solver::bicgstab<Backend>> AMGCL_Solver;
 	AMGCL_Solver* AMGCL_solver;
 	//amgcl::backend::crs<double> A_amgcl; // the left hand side matrix
 	std::vector<double> RHS_AMGCL;
 	std::tuple<int, std::vector<int>, std::vector<int>, std::vector<double>> A_AMGCL;
+
 	bool get_curl = true; //getCurl is either 0 (for potential velocity) or 1 (for vortical velocity)
 	std::string sample_points_file; //name of the file to read the smaple points x, y coordinates
 	std::vector<Cmpnts2> sample_points_coor; //coordinate of the points that vorticityand velocity vector needs to be calculated for
@@ -138,9 +141,12 @@ private:
 	std::vector<int> sample_points_containing_elements; // The index of the elements that contain each sample point
 	double** gps_shapefunc_on_sample_points; //The shape function of Lnod*Lnod gps onthe sample point in an element. size is [L*L][N_sp]
 
+	bool arrays_allocated = false;
+
 	// data to support hybrid solvers
 
 	bool using_hybrid;
+	bool hybrid_arrays_allocated = false;
 	double time_start, time_end, current_time;
 	// we need these to map between a boundary edge in the edges list and that same edge in the boundary's edge list!
 	std::vector<unsigned int> orderededges;
@@ -161,21 +167,23 @@ private:
 	double*** Vort_wgt = nullptr;
 
 public:
-	HO_2D() //default constructor
-	{
-		dump_frequency = 1000;
-		dt = 0.001;
-		num_time_steps = 10000;
-		problem_type = 1;
-		time_integration_type = 4;
-		HuynhSolver_type = 2;
-		Reyn_inv = 0.001;
-		Knod = 2;
-		using_hybrid = false;
-		time_start = 0.0;
-		time_end = time_start;
-		current_time = time_start;
-	};
+	HO_2D() : //default constructor
+		Knod(2),
+		Reyn_inv(0.001),
+		HuynhSolver_type(2),
+		time_integration_type(4),
+		problem_type(1),
+		num_time_steps(10000),
+		dt(0.001),
+		ti(0),
+		dump_frequency(1000),
+		using_hybrid(false),
+		time_start(0.0),
+		time_end(time_start),
+		current_time(time_start)
+	{ };
+
+	// copy constructor
 	HO_2D(const HO_2D& HO) :
 		vorticity(HO.vorticity), stream_function(HO.stream_function) {}
 
@@ -189,14 +197,15 @@ public:
 		return *this;
 	}
 
+	// destructor
 	~HO_2D()
 	{
 		release_memory();
-	}; // destructor
+	};
 
-	void release_memory();
-	int read_input_file(const std::string filename);
 	char allocate_arrays();
+	char release_memory();
+	int read_input_file(const std::string filename);
 	char setup_mesh(); //based on the problem_type reads/creates the mesh
 	void setup_sps_gps(); //setup the sps and their weights, gps
 	void form_bases(); //form the sps lagrangian shepe function (&derivatives), gps shape functions (&derivatives), form Radau bases
@@ -264,6 +273,6 @@ public:
 	void getallvorts_d(const int32_t, double*);
 	void get_hoquad_weights_d(const int32_t, double*);
 	void trigger_write(const int32_t);
-	// close, finish
+	// deallocate, called from hybrid driver
 	void clean_up();
 };

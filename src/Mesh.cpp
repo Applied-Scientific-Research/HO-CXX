@@ -330,7 +330,7 @@ void Mesh::process_mesh() {
 		N_edges_boundary += boundaries[i].N_edges; //total number of edges on global boundaries
 	}
 	N_el = elements.size();  //total number of elements (2d faces)
-	elem_neighbor = new element_neighbor[N_el];
+	elem_neighbor.resize(N_el);
 	boundary_edges.resize(N_edges_boundary);
 	std::cout << "  edges vector begins with " << edges.size() << " elements" << std::endl;
 
@@ -498,7 +498,8 @@ char Mesh::setup_mesh_problem(unsigned int prob_type) {
 	nodes.resize(N_nodes);
 	N_edges_boundary = (periodic || grid_type == 3) ? 2*N_el_i : 2 * (N_el_i + N_el_j);  //number of edges on the boundary
 	N_el = N_el_i * N_el_j; //total number of elements
-	elem_neighbor = new element_neighbor [N_el]; //resize the elem_neighbors arrays
+	//resize the elem_neighbors arrays
+	elem_neighbor.resize(N_el);
 	boundary_edges.resize(N_edges_boundary);
 	edges.resize(N_edges_boundary);
 	//boundary_node_ID = new unsigned int* [N_edges_boundary];

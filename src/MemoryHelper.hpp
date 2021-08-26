@@ -5,6 +5,23 @@
  *         Mark J Stock <markjstock@gmail.com>
  */
 
+// generalized alloc/dealloc for 1D arrays in contiguous memory
+
+template <class T>
+T* allocate_array(const size_t nx) {
+
+    T* array = new T [nx];
+
+	return array;
+}
+
+template <class T>
+void free_array(T* array) {
+	if (array == nullptr) return;
+	delete[] array;
+	return;
+}
+
 // generalized alloc/dealloc for 2D arrays in contiguous memory
 
 template <class T>
