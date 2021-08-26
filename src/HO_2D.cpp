@@ -80,7 +80,7 @@ int HO_2D::read_input_file(const std::string filename) {
 	int retval=0;
 	std::string temp_string;
 	char temp_char;
-	std::cout << "     Reading problem/solver settings file   ***** " << filename << " *****   opened for reading ..." << std::endl << std::endl;
+	std::cout << "  Problem/solver settings file   ***** " << filename << " *****   opened for reading ..." << std::endl;
 
 	std::ifstream file_handle(filename);
 	if (file_handle.fail()) {
@@ -340,9 +340,8 @@ void HO_2D::read_process_sample_points() {
 
 char HO_2D::setup_mesh() {
 	//based on the problem type (problem_type variable) creates the proper mesh. if problem_type is 10 then read from msh file
-	char success;
-	success = mesh.read_msh_file();
-	return success;
+	auto errorcode = mesh.read_msh_file();
+	return errorcode;
 }
 
 void HO_2D::setup_sps_gps() {
@@ -483,6 +482,7 @@ char HO_2D::allocate_arrays() {
 	k4 = allocate_array<double>(N_el, Knod, Knod);
 	vort = allocate_array<double>(N_el, Knod, Knod);
 
+	// like main, 0 means success
 	return 0;
 }
 

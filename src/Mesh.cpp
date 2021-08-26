@@ -79,8 +79,10 @@ int Mesh::tensor2FEM(int i, int j) {
 char Mesh::read_msh_file() {
 	// reads a msh file output from the Gmsh software. The msh file is in ASCII 4.1 version of the Gmsh output
 	std::string filename = input_msh_file;
-	std::cout << "     Gmsh file   ***** " << filename << " *****   opened for reading ..." << std::endl << std::endl;
-	int retval = 1;
+	std::cout << "  Gmsh file   ***** " << filename << " *****   opened for reading ..." << std::endl << std::endl;
+
+	// like main, 0 is success, anything else is an error code
+	char retval = 0;
 	int index;
 	int nodes_min_index, nodes_max_index, raw_N_nodes, tag_N_nodes, nodes_total_entities, group_tag, entity_dim, unorganized_node_index = 0;
 	int elements_min_index, elements_max_index, tag_N_elements, elements_total_entities, element_type;

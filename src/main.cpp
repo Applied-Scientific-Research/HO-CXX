@@ -33,15 +33,15 @@ int main(int argc, char const *argv[])
     //true means gmsh file made with opencascade kernel, zero means the built-in format of GMSH
     ho_2d.read_input_file(input_file_name);
 
-    auto success_mesh = ho_2d.setup_mesh();
-	if (success_mesh != 1) {
+    auto error_mesh = ho_2d.setup_mesh();
+	if (error_mesh) {
 		std::cout << std::endl << "Mesh file (" << input_file_name << ") not processed correctly!" << std::endl;
-        return success_mesh;
+        return error_mesh;
     }
-    auto success_allocate = ho_2d.allocate_arrays();
-	if (success_allocate != 1) {
+    auto error_allocate = ho_2d.allocate_arrays();
+	if (error_allocate) {
 		std::cout << std::endl << "Arrays not allocated correctly!" << std::endl;
-        return success_allocate;
+        return error_allocate;
     }
 
     //set the local coordinates of the solution points, geometry points
