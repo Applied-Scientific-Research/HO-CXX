@@ -2907,7 +2907,7 @@ void HO_2D::Poisson_solver_AMGCL_setup(double*** laplacian_center, double**** la
 */
 }
 
-void HO_2D::save_output(int n) {
+void HO_2D::save_output(const int n) {
 	/*  commented for now, no need for it. It was used to test the code for the diffusion or the Poisson equation separetl.
 	std::string file_name = "problem";
 	file_name.append(std::to_string(problem_type));
@@ -3187,7 +3187,7 @@ void HO_2D::calc_velocity_vector_from_streamfunction() {
 }
 
 
-void HO_2D::save_smooth_vtk(int indx, int subidx) {
+void HO_2D::save_smooth_vtk(const int indx, const int subidx) {
 
 	/*
 	writes the data in VTK format for vorticity and velocity with properly averaging the values from
@@ -3355,8 +3355,8 @@ void HO_2D::save_smooth_vtk(int indx, int subidx) {
 	{
 		std::stringstream file_name;
 		file_name << "problem" << std::to_string(problem_type) << "_K" << std::to_string(Knod);
+		if (subidx > -1) file_name << "_" << std::setw(2) << std::setfill('0') << subidx;
 		file_name << "_" << std::setw(5) << std::setfill('0') << indx;
-		if (subidx > -1) file_name << "_" << std::setw(3) << std::setfill('0') << subidx;
 		file_name << ".vtk";
 
 		std::cout << "     Writing the results after " << indx << "  timesteps into the file:  " << file_name.str() << std::endl;
@@ -3435,12 +3435,14 @@ void HO_2D::save_smooth_vtk(int indx, int subidx) {
 	}
 }
 
-void HO_2D::save_vorticity_vtk(int indx) {
+void HO_2D::save_vorticity_vtk(const int indx, const int subidx) {
 	const int N_el = mesh.N_el;
 
 	std::stringstream file_name;
 	file_name << "vorticity" << std::to_string(problem_type) << "_K" << std::to_string(Knod);
-	file_name << "_" << std::setw(5) << std::setfill('0') << indx << ".vtk";
+	if (subidx > -1) file_name << "_" << std::setw(2) << std::setfill('0') << subidx;
+	file_name << "_" << std::setw(5) << std::setfill('0') << indx;
+	file_name << ".vtk";
 	// if C++ wasn't stupid, we could easily use sprintf
 	//sprintf(file_name, "vorticity%d_K%d_%05d.vtk", problem_type, Knod, indx);
 
@@ -4056,9 +4058,15 @@ void HO_2D::get_hoquad_weights_d(const int32_t _veclen, double* _outvec) {
 }
 
 // 
-void HO_2D::trigger_write(const int32_t _indx) {
-	save_vorticity_vtk((int)_indx);
-	save_smooth_vtk((int)_indx);
+void HO_2D::trigger_write(const int32_t _indx, const int32_t _subidx) {
+	if (_subidx > -1) {
+		// this might happen when there are multiple independent Eulerian volumes
+		save_vorticity_vtk((int)_indx, (int)_subidx);
+		save_smooth_vtk((int)_indx, (int)_subidx);
+	} else {
+		save_vorticity_vtk((int)_indx);
+		save_smooth_vtk((int)_indx);
+	}
 }
 
 // close, finish

@@ -227,10 +227,10 @@ public:
 	void Poisson_solver_AMGCL_setup(double*** laplacian_center, double**** laplacian_neighbor);  //setup and fill the LHS and RHS for Poisson solver via the AMGCL
 	void calc_velocity_vector_from_streamfunction(); //calculate u and v from the streamfunction field
 	void update_BCs(double time); //updates the Cartesian velocity BC(BC_u_vel, BC_v_vel), BC_diffusion. Usually BCs are fixed in time, this is just for cases where the BCs changes in time. time is the current time
-	void save_output(int time);	// debug writing only
-	void save_output_vtk(int indx); //writes the data in VTK format
-	void save_smooth_vtk(int indx, int subidx = -1); //writes the data in VTK format with averaging of 4 nodes from internal nodes (smoother than save_output_vtk)
-	void save_vorticity_vtk(int indx); //writes the data in VTK format for the vorticity
+	void save_output(const int time);	// debug writing only
+	void save_output_vtk(const int indx); //writes the data in VTK format
+	void save_smooth_vtk(const int indx, const int subidx = -1); //writes the data in VTK format with averaging of 4 nodes from internal nodes (smoother than save_output_vtk)
+	void save_vorticity_vtk(const int indx, const int subidx = -1); //writes the data in VTK format for the vorticity
 	void read_process_sample_points();
 	void update_advection_BC(); //calculate/update the BC for the advective term
 	void update_diffusion_BC(); //calculate/update the BC for the diffusion term
@@ -272,7 +272,7 @@ public:
 	// retrieve results
 	void getallvorts_d(const int32_t, double*);
 	void get_hoquad_weights_d(const int32_t, double*);
-	void trigger_write(const int32_t);
+	void trigger_write(const int32_t, const int32_t subidx = -1);
 	// deallocate, called from hybrid driver
 	void clean_up();
 };
