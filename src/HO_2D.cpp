@@ -65,19 +65,14 @@ char HO_2D::allocate_arrays() {
 	RHS_advective = allocate_array<double>(N_el, Knod, Knod);
 	RHS_diffusive = allocate_array<double>(N_el, Knod, Knod);
 
-	//BC_no_slip = new bool[mesh.N_Gboundary]; //Set NoSlip to all walls (as default)
 	BC_no_slip = allocate_array<bool>(mesh.N_Gboundary);
-	//BC_switch_Poisson = new unsigned char[N_eb];
 	BC_switch_Poisson = allocate_array<unsigned char>(N_eb);
-	//BC_switch_psi = new unsigned char[N_eb];
-	//BC_switch_advection = new unsigned char[N_eb];
-	//BC_switch_diffusion = new unsigned char[N_eb];
+	//BC_switch_advection = allocate_array<unsigned char>(N_eb);
 	BC_switch_diffusion = allocate_array<unsigned char>(N_eb);
 
 	boundary_source = allocate_array<double>(N_eb, Knod*Knod, Knod);
 
 	BC_Poisson = allocate_array<double>(N_eb, Knod);
-	//BC_psi = allocate_array<double>(N_eb, Knod);
 	BC_advection = allocate_array<double>(N_eb, Knod);
 	BC_diffusion = allocate_array<double>(N_eb, Knod);
 
@@ -167,10 +162,10 @@ char HO_2D::release_memory() { //release the memory as destructor
 
 	free_array<double>(boundary_source);
 
-	delete[] BC_no_slip;
-	delete[] BC_switch_Poisson;
-	//delete[] BC_switch_advection;
-	delete[] BC_switch_diffusion;
+	free_array<bool>(BC_no_slip);
+	free_array<unsigned char>(BC_switch_Poisson);
+	//free_array<unsigned char>(BC_switch_advection);
+	free_array<unsigned char>(BC_switch_diffusion);
 
 	free_array<double>(k1); //these are used in the RK time integration
 	free_array<double>(k2);
@@ -1349,35 +1344,6 @@ char HO_2D::solve_advection_diffusion() {
 
 	const int N_el = mesh.N_el; 
 
-	//static bool are_allocated = false;
-	//static int orig_nel = N_el, orig_knod = Knod;
-	//static double*** k1, ***k2, ***k3, ***k4, ***vort;
-
-/*
-	if (not are_allocated) {
-		// if anything changed since last allocation, free first
-		if (N_el != orig_nel or Knod != orig_knod) {
-			free_array(k1);
-			free_array(k2);
-			free_array(k3);
-			free_array(k4);
-			free_array(vort);
-		}
-
-		// allocate here
-		k1 = allocate_array<double>(N_el, Knod, Knod);
-		k2 = allocate_array<double>(N_el, Knod, Knod);
-		k3 = allocate_array<double>(N_el, Knod, Knod);
-		k4 = allocate_array<double>(N_el, Knod, Knod);
-		vort = allocate_array<double>(N_el, Knod, Knod);
-
-		// and remember what we did here
-		orig_nel = N_el;
-		orig_knod = Knod;
-		are_allocated = true;
-	}
-*/
-
 	// first order Euler time integration method
 	if (time_integration_type == 1) {
 
@@ -1438,20 +1404,13 @@ char HO_2D::solve_advection_diffusion() {
 		}
 	}
 
-    // do not delete memory, but if we wanted to, we would do this
-    //free_array<double>(k1);
-    //free_array<double>(k2);
-    //free_array<double>(k3);
-    //free_array<double>(k4);
-    //free_array<double>(vort);
-
 	return 0;
 }
 
 void HO_2D:: form_Laplace_operator_matrix() {
 	// This subroutine forms the left hand side matrix derived form the Laplace discretization. The matrix is sparse and in Eigen format
-	// The type of BC for the psi are defined in BC_switch_psi which is specified in setup_IC_BC_SRC
-	int N_el = mesh.N_el;
+	// The type of BC for the psi are defined in BC_switch_Poisson which is specified in setup_IC_BC_SRC
+	const int N_el = mesh.N_el;
 	int eln, ijpm; //neighbor element; element side, neighbor element side
 	int dn, tn; // the direction and boundary side of the neighboring element eln, adjacent to d direction and t side of the element el
 	double coeff, tmp2, tmp3;
@@ -1762,9 +1721,9 @@ char HO_2D::solve_Poisson(double const* const* const* vort_in) {
 	// out: It solves for the streamfunction and writes the result into the stream_function array
 	// The boundary condition for psi is BC_Poisson which is set in update_BCs(time)
 
-	int Ksq = Knod * Knod;
+	const int Ksq = Knod * Knod;
 
-	int N_el = mesh.N_el;
+	const int N_el = mesh.N_el;
 	double* RHS = new double[N_el * Ksq];
 
 	/* these lines were written to just test the poisson solver
@@ -1799,7 +1758,7 @@ char HO_2D::solve_Poisson(double const* const* const* vort_in) {
 	for (int el = 0; el < N_el; ++el) {
 		for (int j = 0; j < Knod; ++j) {
 			for (int i = 0; i < Knod; ++i) {
-				int ij = j * Knod + i;
+				const int ij = j * Knod + i;
 				RHS[el * Ksq + ij] = -vort_in[el][j][i] * vol_jac[el][j][i];
 				//RHS[el * Ksq + ij] = 0.; //temporary to just test the code for poisson solver performance
 			}
@@ -1809,8 +1768,8 @@ char HO_2D::solve_Poisson(double const* const* const* vort_in) {
 	for (int el_b = 0; el_b < mesh.N_edges_boundary; ++el_b) {
 		for (int j = 0; j < Knod; ++j) {
 			for (int i = 0; i < Knod; ++i) {
-				int ij = j * Knod + i;
-				int el = mesh.boundary_edges[el_b].element_index;
+				const int ij = j * Knod + i;
+				const int el = mesh.boundary_edges[el_b].element_index;
 				for (int alpha = 0; alpha < Knod; ++alpha)
 					RHS[el * Ksq + ij] -= boundary_source[el_b][ij][alpha] * BC_Poisson[el_b][alpha];
 			}
@@ -1835,7 +1794,7 @@ char HO_2D::solve_Poisson(double const* const* const* vort_in) {
 		Eigen::VectorXd poisson_sol = bicg_Eigen.solve(RHS_Eigen);  //biCGstab method
 		//std::cout << "  iterations:     " << bicg_Eigen.iterations() << std::endl;
 		//std::cout << "  estimated error: " << bicg_Eigen.error() << std::endl;
-		std::cout << "  iters:  " << bicg_Eigen.iterations() << "  and error:  " << bicg_Eigen.error() << std::endl;
+		std::cout << "  eigen iters " << bicg_Eigen.iterations() << "  and error " << bicg_Eigen.error() << std::endl;
 
 
 		/*
@@ -1853,25 +1812,31 @@ char HO_2D::solve_Poisson(double const* const* const* vort_in) {
 
 	}  //if LHS_type==1 (Eigen)
 
+
 	else if (LHS_type == 2) { //Hypre
 		// die - there is no Hypre
 		assert("Hypre solver is unsupported in HO-CXX, quitting.");
 
 	}  //if LHS_type==2 (Hypre)
 
+
 	else if (LHS_type == 3) { //AMGCL
 		std::vector<double> AMGCL_sol(N_el * Ksq);
+
+		//initial guess is the solution from previous time step
 		for (int el = 0; el < N_el; ++el)
 			for (int j = 0; j < Knod; ++j)
 				for (int i = 0; i < Knod; ++i)
-					AMGCL_sol[el * Ksq + j * Knod + i] = stream_function[el][j][i];  //initial guess is the solution from previous time step
+					AMGCL_sol[el * Ksq + j * Knod + i] = stream_function[el][j][i];
 
 		//std::fill(RHS_AMGCL.begin(), RHS_AMGCL.end(), 1.);
 		std::copy(&RHS[0], &RHS[N_el * Ksq], RHS_AMGCL.begin());
+
 		int iters;
 		double error;
 		std::tie(iters, error) = (*AMGCL_solver)(RHS_AMGCL, AMGCL_sol);
-		printf("  iters=%d error=%g\n", iters, error);
+		//printf("  amgcl iters %d  error %g\n", iters, error);
+		std::cout << "  amgcl iters " << iters << "  and error " << error << std::endl;
 
 		for (int el = 0; el < N_el; ++el) {
 			for (int j = 0; j < Knod; ++j) {
@@ -2866,10 +2831,9 @@ void HO_2D::Poisson_solver_Eigen_setup(double*** laplacian_center, double**** la
 }
 
 void HO_2D::Poisson_solver_AMGCL_setup(double*** laplacian_center, double**** laplacian_neighbor) {
-	// sets up the LHS of the Poisson equation via the Eigen library
+	// sets up the LHS of the Poisson equation for the AMGCL library
 	const int N_el = mesh.N_el;
 	const int Ksq = Knod * Knod;
-	//const int K4 = Ksq * Ksq;
 
 	std::vector<int>    ptr, col; //col_start = ptr[row]; col_end = ptr[row + 1], col has all the column indices
 	std::vector<double> val; //val has all the matrix coeffients
@@ -4019,10 +3983,14 @@ void HO_2D::setptogweights_d(const int32_t _veclen, double* _inwgt) {
 	return;
 }
 
+//
 // march forward
-
+//
+// _region is an optional int, defaults to 0
+//
 void HO_2D::solveto_d(const double _outerdt, const int32_t _numstep,
-		const int32_t _integtype, const double _reyn) {
+		const int32_t _integtype, const double _reyn,
+		const int32_t _region) {
 
 	// dt is a global (class) variable
 	dt = _outerdt / (double)_numstep;
@@ -4041,7 +4009,7 @@ void HO_2D::solveto_d(const double _outerdt, const int32_t _numstep,
 	const bool save_all_substeps = false;
 
 	// optionally save substeps
-	if (save_all_substeps) save_smooth_vtk((int)(ti/_numstep), 0);
+	if (save_all_substeps) save_smooth_vtk((int)(ti/_numstep), _region*10+0);
 
 	// perform time integration, note ti is global step count
 	for (int32_t iter = 0; iter < _numstep; ++iter) {
@@ -4053,7 +4021,7 @@ void HO_2D::solveto_d(const double _outerdt, const int32_t _numstep,
 		solve_advection_diffusion();
 
 		// optionally save substeps
-		if (save_all_substeps) save_smooth_vtk((int)(ti/_numstep), (int)iter+1);
+		if (save_all_substeps) save_smooth_vtk((int)(ti/_numstep), (int)(_region*10+iter+1));
 
 		// increment global STEP counter ti, and current time
 		++ti;

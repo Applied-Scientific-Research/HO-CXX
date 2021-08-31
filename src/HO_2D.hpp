@@ -268,7 +268,7 @@ public:
 	void setsolnvort_d(const int32_t, double*);
 	void setptogweights_d(const int32_t, double*);
 	// march forward
-	void solveto_d(const double, const int32_t, const int32_t, const double);
+	void solveto_d(const double, const int32_t, const int32_t, const double, const int32_t _region = 0);
 	// retrieve results
 	void getallvorts_d(const int32_t, double*);
 	void get_hoquad_weights_d(const int32_t, double*);
