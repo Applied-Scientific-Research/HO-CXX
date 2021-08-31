@@ -10,7 +10,9 @@
 template <class T>
 T* allocate_array(const size_t nx) {
 
-    T* array = new T [nx];
+	T* array = new T [nx];
+
+	for (size_t i=0; i<nx; ++i) array[i] = T(0.0);
 
 	return array;
 }
@@ -27,12 +29,14 @@ void free_array(T* array) {
 template <class T>
 T** allocate_array(const size_t nx, const size_t ny) {
 
-    T** array = new T* [nx];
+	T** array = new T* [nx];
 	array[0] = new T [nx*ny];
 
 	for (size_t i=1; i<nx; ++i) {
 		array[i] = array[0] + i * ny;
 	}
+
+	for (size_t i=0; i<nx*ny; ++i) array[0][i] = T(0.0);
 
 	return array;
 }
@@ -50,7 +54,7 @@ void free_array(T** array) {
 template <class T>
 T*** allocate_array(const size_t nx, const size_t ny, const size_t nz) {
 
-    T*** array = new T** [nx];
+	T*** array = new T** [nx];
 	array[0] = new T* [nx*ny];
 	array[0][0] = new T [nx*ny*nz];
 
@@ -64,6 +68,8 @@ T*** allocate_array(const size_t nx, const size_t ny, const size_t nz) {
 			array[i][j] = array[i][0] + j * nz;
 		}
 	}
+
+	for (size_t i=0; i<nx*ny*nz; ++i) array[0][0][i] = T(0.0);
 
 	return array;
 }
@@ -82,7 +88,7 @@ void free_array(T*** array) {
 template <class T>
 T**** allocate_array(const size_t nx, const size_t ny, const size_t nz, const size_t nq) {
 
-    T**** array = new T*** [nx];
+	T**** array = new T*** [nx];
 	array[0] = new T** [nx*ny];
 	array[0][0] = new T* [nx*ny*nz];
 	array[0][0][0] = new T [nx*ny*nz*nq];
@@ -108,6 +114,8 @@ T**** allocate_array(const size_t nx, const size_t ny, const size_t nz, const si
 		}
 	}
 
+	for (size_t i=0; i<nx*ny*nz*nq; ++i) array[0][0][0][i] = T(0.0);
+
 	return array;
 }
 
@@ -127,7 +135,7 @@ template <class T>
 T***** allocate_array(const size_t nx, const size_t ny, const size_t nz,
 						const size_t nq, const size_t nr) {
 
-    T***** array = new T**** [nx];
+	T***** array = new T**** [nx];
 	array[0] = new T*** [nx*ny];
 	array[0][0] = new T** [nx*ny*nz];
 	array[0][0][0] = new T* [nx*ny*nz*nq];
@@ -166,6 +174,8 @@ T***** allocate_array(const size_t nx, const size_t ny, const size_t nz,
 			}
 		}
 	}
+
+	for (size_t i=0; i<nx*ny*nz*nq*nr; ++i) array[0][0][0][0][i] = T(0.0);
 
 	return array;
 }
