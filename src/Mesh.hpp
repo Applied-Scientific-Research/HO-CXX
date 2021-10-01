@@ -25,7 +25,7 @@
 struct Cmpnts2 {
 	double x, y; //the components for 2D coordinate system
 
-	Cmpnts2(double _x) : x(_x), y(0.0) {};
+	Cmpnts2(double _val) : x(_val), y(_val) {};
 	Cmpnts2(double _x, double _y) : x(_x), y(_y) {};
 	Cmpnts2(const Cmpnts2& cmp) : x(cmp.x), y(cmp.y) {}
 	Cmpnts2() {
@@ -200,6 +200,5 @@ public:
 	int tensor2FEM(int i, int j); // converts the tensor index to the FEM node ordering for 2D case
 
 	friend class HO_2D;
-
 };
 
