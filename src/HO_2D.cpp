@@ -12,16 +12,115 @@
 
 #include <cmath>
 
-void HO_2D::release_memory() { //release the memory as destructor
+
+
+//allocate the memory for the arrays and resize them.
+char HO_2D::allocate_arrays() {
+	std::cout << "  in HO_2D::allocate_arrays " << (arrays_allocated ? "true" : "false") << std::endl;
+
+    if (arrays_allocated) return 1;
+
+	const size_t N_el = mesh.N_el;
+	const size_t N_eb = mesh.N_edges_boundary;
+	const size_t Lnod = mesh.Lnod;
+	std::cout << "    sizes " << N_el << " " << N_eb << " " << Lnod << " " << Knod << std::endl;
+
+	initial_vorticity = allocate_array<double>(N_el, Knod, Knod);
+	vorticity = allocate_array<double>(N_el, Knod, Knod);
+	stream_function = allocate_array<double>(N_el, Knod, Knod);
+
+	velocity_cart = allocate_array<Cmpnts2>(N_el, Knod, Knod);
+
+	sps_local_coor = allocate_array<double>((size_t)Knod);
+	sps_weight = allocate_array<double>((size_t)Knod);
+	gps_local_coor = allocate_array<double>((size_t)Lnod);
+
+	sps_boundary_basis = allocate_array<double>(Knod, 2);
+	sps_boundary_grad_basis = allocate_array<double>(Knod, 2);
+	sps_sps_grad_basis = allocate_array<double>(Knod, Knod);
+
+	gps_boundary_basis = allocate_array<double>(Lnod, 2);
+	gps_boundary_grad_basis = allocate_array<double>(Lnod, 2);
+	gps_sps_basis = allocate_array<double>(Lnod, Knod);
+	sps_gps_basis = allocate_array<double>(Knod, Lnod);
+	gps_sps_grad_basis = allocate_array<double>(Lnod, Knod);
+
+	sps_radau = allocate_array<double>(Knod, 2);
+	sps_grad_radau = allocate_array<double>(Knod, 2);
+
+	vol_Dx_Dxsi = allocate_array<Cmpnts2>(N_el, Knod, Knod);
+	vol_Dy_Dxsi = allocate_array<Cmpnts2>(N_el, Knod, Knod);
+	vol_jac = allocate_array<double>(N_el, Knod, Knod);
+
+	G = allocate_array<double>(N_el, Knod, Knod, 2, 2);
+	GB = allocate_array<double>(N_el, 2, 2, Knod, 2);
+
+	face_Acoef = allocate_array<double>(N_el, 4, Knod);
+	face_Bcoef = allocate_array<double>(N_el, 4, Knod);
+	face_jac   = allocate_array<double>(N_el, 4, Knod);
+	face_Anorm = allocate_array<double>(N_el, 4, Knod);
+	face_Dx_Dxsi = allocate_array<Cmpnts2>(N_el, 4, Knod);
+	face_Dy_Dxsi = allocate_array<Cmpnts2>(N_el, 4, Knod);
+
+	RHS_advective = allocate_array<double>(N_el, Knod, Knod);
+	RHS_diffusive = allocate_array<double>(N_el, Knod, Knod);
+
+	BC_no_slip = allocate_array<bool>(mesh.N_Gboundary);
+	BC_switch_Poisson = allocate_array<unsigned char>(N_eb);
+	//BC_switch_advection = allocate_array<unsigned char>(N_eb);
+	BC_switch_diffusion = allocate_array<unsigned char>(N_eb);
+
+	boundary_source = allocate_array<double>(N_eb, Knod*Knod, Knod);
+
+	BC_Poisson = allocate_array<double>(N_eb, Knod);
+	BC_advection = allocate_array<double>(N_eb, Knod);
+	BC_diffusion = allocate_array<double>(N_eb, Knod);
+
+	BC_vorticity = allocate_array<double>(N_eb, Knod);
+	velocity_jump = allocate_array<double>(N_eb, Knod);
+	BC_parl_vel = allocate_array<double>(N_eb, Knod);
+	BC_normal_vel = allocate_array<double>(N_eb, Knod);
+
+	k1 = allocate_array<double>(N_el, Knod, Knod); //these are used in the RK time integration
+	k2 = allocate_array<double>(N_el, Knod, Knod);
+	k3 = allocate_array<double>(N_el, Knod, Knod);
+	k4 = allocate_array<double>(N_el, Knod, Knod);
+	vort = allocate_array<double>(N_el, Knod, Knod);
+
+	arrays_allocated = true;
+
+	if (using_hybrid and not hybrid_arrays_allocated) {
+		BC_VelNorm_start = allocate_array<double>(N_eb, Knod);
+		BC_VelNorm_end   = allocate_array<double>(N_eb, Knod);
+		BC_VelParl_start = allocate_array<double>(N_eb, Knod);
+		BC_VelParl_end   = allocate_array<double>(N_eb, Knod);
+		BC_Vort_start    = allocate_array<double>(N_eb, Knod);
+		BC_Vort_end      = allocate_array<double>(N_eb, Knod);
+
+		Vort_start = allocate_array<double>(N_el, Knod, Knod);
+		Vort_end   = allocate_array<double>(N_el, Knod, Knod);
+		Vort_wgt   = allocate_array<double>(N_el, Knod, Knod);
+
+		hybrid_arrays_allocated = true;
+	}
+
+	// like main, 0 means success
+	return 0;
+}
+
+char HO_2D::release_memory() { //release the memory as destructor
+	std::cout << "  in HO_2D::release_memory" << std::endl;
+
+    if (not arrays_allocated) return 1;
 
 	free_array<double>(vorticity);
 	free_array<double>(stream_function);
 	free_array<double>(initial_vorticity);
 	free_array<Cmpnts2>(velocity_cart);
 
-	delete[] sps_local_coor;
-	delete[] sps_weight;
-	delete[] gps_local_coor;
+	free_array<double>(sps_local_coor);
+	free_array<double>(sps_weight);
+	free_array<double>(gps_local_coor);
 
 	free_array<double>(sps_boundary_basis);
 	free_array<double>(sps_boundary_grad_basis);
@@ -63,16 +162,37 @@ void HO_2D::release_memory() { //release the memory as destructor
 
 	free_array<double>(boundary_source);
 
-	delete[] BC_no_slip;
-	delete[] BC_switch_Poisson;
-	//delete[] BC_switch_advection;
-	delete[] BC_switch_diffusion;
+	free_array<bool>(BC_no_slip);
+	free_array<unsigned char>(BC_switch_Poisson);
+	//free_array<unsigned char>(BC_switch_advection);
+	free_array<unsigned char>(BC_switch_diffusion);
 
 	free_array<double>(k1); //these are used in the RK time integration
 	free_array<double>(k2);
 	free_array<double>(k3);
 	free_array<double>(k4);
 	free_array<double>(vort);
+
+	if (hybrid_arrays_allocated) {
+		// and then clean up hybrid arrays
+		free_array<double>(BC_VelNorm_start);
+		free_array<double>(BC_VelNorm_end);
+		free_array<double>(BC_VelParl_start);
+		free_array<double>(BC_VelParl_end);
+		free_array<double>(BC_Vort_start);
+		free_array<double>(BC_Vort_end);
+
+		free_array<double>(Vort_start);
+		free_array<double>(Vort_end);
+		free_array<double>(Vort_wgt);
+
+		hybrid_arrays_allocated = false;
+	}
+
+	arrays_allocated = false;
+
+	// like main, 0 means success
+	return 0;
 }
 
 int HO_2D::read_input_file(const std::string filename) {
@@ -410,80 +530,6 @@ void HO_2D::setup_sps_gps() {
 		g_prime[1] = 0.5 * Knod * (Knod+1.); //0.5 * minus_one_to_power(Knod) * Knod;
 	}
 
-}
-
-char HO_2D::allocate_arrays() {
-	//allocate the memory for the arrays and resize them.
-	int N_el = mesh.N_el;
-	int Lnod = mesh.Lnod;
-
-	initial_vorticity = allocate_array<double>(N_el, Knod, Knod);
-	vorticity = allocate_array<double>(N_el, Knod, Knod);
-	stream_function = allocate_array<double>(N_el, Knod, Knod);
-
-	velocity_cart = allocate_array<Cmpnts2>(N_el, Knod, Knod);
-
-	sps_local_coor = new double[Knod];
-	sps_weight = new double[Knod];
-	gps_local_coor = new double[Lnod];
-
-	sps_boundary_basis = allocate_array<double>(Knod, 2);
-	sps_boundary_grad_basis = allocate_array<double>(Knod, 2);
-	sps_sps_grad_basis = allocate_array<double>(Knod, Knod);
-
-	gps_boundary_basis = allocate_array<double>(Lnod, 2);
-	gps_boundary_grad_basis = allocate_array<double>(Lnod, 2);
-	gps_sps_basis = allocate_array<double>(Lnod, Knod);
-	sps_gps_basis = allocate_array<double>(Knod, Lnod);
-	gps_sps_grad_basis = allocate_array<double>(Lnod, Knod);
-
-	sps_radau = allocate_array<double>(Knod, 2);
-	sps_grad_radau = allocate_array<double>(Knod, 2);
-
-	vol_Dx_Dxsi = allocate_array<Cmpnts2>(N_el, Knod, Knod);
-	vol_Dy_Dxsi = allocate_array<Cmpnts2>(N_el, Knod, Knod);
-	vol_jac = allocate_array<double>(N_el, Knod, Knod);
-
-	G = allocate_array<double>(N_el, Knod, Knod, 2, 2);
-	GB = allocate_array<double>(N_el, 2, 2, Knod, 2);
-
-	face_Acoef = allocate_array<double>(N_el, 4, Knod);
-	face_Bcoef = allocate_array<double>(N_el, 4, Knod);
-	face_jac   = allocate_array<double>(N_el, 4, Knod);
-	face_Anorm = allocate_array<double>(N_el, 4, Knod);
-	face_Dx_Dxsi = allocate_array<Cmpnts2>(N_el, 4, Knod);
-	face_Dy_Dxsi = allocate_array<Cmpnts2>(N_el, 4, Knod);
-
-	RHS_advective = allocate_array<double>(N_el, Knod, Knod);
-	RHS_diffusive = allocate_array<double>(N_el, Knod, Knod);
-
-	BC_no_slip = new bool[mesh.N_Gboundary]; //Set NoSlip to all walls (as default)
-
-	BC_switch_Poisson = new unsigned char[mesh.N_edges_boundary];
-	//BC_switch_psi = new unsigned char[mesh.N_edges_boundary];
-	//BC_switch_advection = new unsigned char[mesh.N_edges_boundary];
-	BC_switch_diffusion = new unsigned char[mesh.N_edges_boundary];
-
-	boundary_source = allocate_array<double>(mesh.N_edges_boundary, Knod*Knod, Knod);
-
-	BC_Poisson = allocate_array<double>(mesh.N_edges_boundary, Knod);
-	//BC_psi = allocate_array<double>(mesh.N_edges_boundary, Knod);
-	BC_advection = allocate_array<double>(mesh.N_edges_boundary, Knod);
-	BC_diffusion = allocate_array<double>(mesh.N_edges_boundary, Knod);
-
-	BC_vorticity = allocate_array<double>(mesh.N_edges_boundary, Knod);
-	velocity_jump = allocate_array<double>(mesh.N_edges_boundary, Knod);
-	BC_parl_vel = allocate_array<double>(mesh.N_edges_boundary, Knod);
-	BC_normal_vel = allocate_array<double>(mesh.N_edges_boundary, Knod);
-
-	k1 = allocate_array<double>(N_el, Knod, Knod); //these are used in the RK time integration
-	k2 = allocate_array<double>(N_el, Knod, Knod);
-	k3 = allocate_array<double>(N_el, Knod, Knod);
-	k4 = allocate_array<double>(N_el, Knod, Knod);
-	vort = allocate_array<double>(N_el, Knod, Knod);
-
-	// like main, 0 means success
-	return 0;
 }
 
 void HO_2D::form_bases() {
@@ -1298,35 +1344,6 @@ char HO_2D::solve_advection_diffusion() {
 
 	const int N_el = mesh.N_el; 
 
-	//static bool are_allocated = false;
-	//static int orig_nel = N_el, orig_knod = Knod;
-	//static double*** k1, ***k2, ***k3, ***k4, ***vort;
-
-/*
-	if (not are_allocated) {
-		// if anything changed since last allocation, free first
-		if (N_el != orig_nel or Knod != orig_knod) {
-			free_array(k1);
-			free_array(k2);
-			free_array(k3);
-			free_array(k4);
-			free_array(vort);
-		}
-
-		// allocate here
-		k1 = allocate_array<double>(N_el, Knod, Knod);
-		k2 = allocate_array<double>(N_el, Knod, Knod);
-		k3 = allocate_array<double>(N_el, Knod, Knod);
-		k4 = allocate_array<double>(N_el, Knod, Knod);
-		vort = allocate_array<double>(N_el, Knod, Knod);
-
-		// and remember what we did here
-		orig_nel = N_el;
-		orig_knod = Knod;
-		are_allocated = true;
-	}
-*/
-
 	// first order Euler time integration method
 	if (time_integration_type == 1) {
 
@@ -1387,20 +1404,13 @@ char HO_2D::solve_advection_diffusion() {
 		}
 	}
 
-    // do not delete memory, but if we wanted to, we would do this
-    //free_array<double>(k1);
-    //free_array<double>(k2);
-    //free_array<double>(k3);
-    //free_array<double>(k4);
-    //free_array<double>(vort);
-
 	return 0;
 }
 
 void HO_2D:: form_Laplace_operator_matrix() {
 	// This subroutine forms the left hand side matrix derived form the Laplace discretization. The matrix is sparse and in Eigen format
-	// The type of BC for the psi are defined in BC_switch_psi which is specified in setup_IC_BC_SRC
-	int N_el = mesh.N_el;
+	// The type of BC for the psi are defined in BC_switch_Poisson which is specified in setup_IC_BC_SRC
+	const int N_el = mesh.N_el;
 	int eln, ijpm; //neighbor element; element side, neighbor element side
 	int dn, tn; // the direction and boundary side of the neighboring element eln, adjacent to d direction and t side of the element el
 	double coeff, tmp2, tmp3;
@@ -1711,9 +1721,9 @@ char HO_2D::solve_Poisson(double const* const* const* vort_in) {
 	// out: It solves for the streamfunction and writes the result into the stream_function array
 	// The boundary condition for psi is BC_Poisson which is set in update_BCs(time)
 
-	int Ksq = Knod * Knod;
+	const int Ksq = Knod * Knod;
 
-	int N_el = mesh.N_el;
+	const int N_el = mesh.N_el;
 	double* RHS = new double[N_el * Ksq];
 
 	/* these lines were written to just test the poisson solver
@@ -1748,7 +1758,7 @@ char HO_2D::solve_Poisson(double const* const* const* vort_in) {
 	for (int el = 0; el < N_el; ++el) {
 		for (int j = 0; j < Knod; ++j) {
 			for (int i = 0; i < Knod; ++i) {
-				int ij = j * Knod + i;
+				const int ij = j * Knod + i;
 				RHS[el * Ksq + ij] = -vort_in[el][j][i] * vol_jac[el][j][i];
 				//RHS[el * Ksq + ij] = 0.; //temporary to just test the code for poisson solver performance
 			}
@@ -1758,8 +1768,8 @@ char HO_2D::solve_Poisson(double const* const* const* vort_in) {
 	for (int el_b = 0; el_b < mesh.N_edges_boundary; ++el_b) {
 		for (int j = 0; j < Knod; ++j) {
 			for (int i = 0; i < Knod; ++i) {
-				int ij = j * Knod + i;
-				int el = mesh.boundary_edges[el_b].element_index;
+				const int ij = j * Knod + i;
+				const int el = mesh.boundary_edges[el_b].element_index;
 				for (int alpha = 0; alpha < Knod; ++alpha)
 					RHS[el * Ksq + ij] -= boundary_source[el_b][ij][alpha] * BC_Poisson[el_b][alpha];
 			}
@@ -1784,7 +1794,7 @@ char HO_2D::solve_Poisson(double const* const* const* vort_in) {
 		Eigen::VectorXd poisson_sol = bicg_Eigen.solve(RHS_Eigen);  //biCGstab method
 		//std::cout << "  iterations:     " << bicg_Eigen.iterations() << std::endl;
 		//std::cout << "  estimated error: " << bicg_Eigen.error() << std::endl;
-		std::cout << "  iters:  " << bicg_Eigen.iterations() << "  and error:  " << bicg_Eigen.error() << std::endl;
+		std::cout << "  eigen iters " << bicg_Eigen.iterations() << "  and error " << bicg_Eigen.error() << std::endl;
 
 
 		/*
@@ -1802,25 +1812,31 @@ char HO_2D::solve_Poisson(double const* const* const* vort_in) {
 
 	}  //if LHS_type==1 (Eigen)
 
+
 	else if (LHS_type == 2) { //Hypre
 		// die - there is no Hypre
 		assert("Hypre solver is unsupported in HO-CXX, quitting.");
 
 	}  //if LHS_type==2 (Hypre)
 
+
 	else if (LHS_type == 3) { //AMGCL
 		std::vector<double> AMGCL_sol(N_el * Ksq);
+
+		//initial guess is the solution from previous time step
 		for (int el = 0; el < N_el; ++el)
 			for (int j = 0; j < Knod; ++j)
 				for (int i = 0; i < Knod; ++i)
-					AMGCL_sol[el * Ksq + j * Knod + i] = stream_function[el][j][i];  //initial guess is the solution from previous time step
+					AMGCL_sol[el * Ksq + j * Knod + i] = stream_function[el][j][i];
 
 		//std::fill(RHS_AMGCL.begin(), RHS_AMGCL.end(), 1.);
 		std::copy(&RHS[0], &RHS[N_el * Ksq], RHS_AMGCL.begin());
+
 		int iters;
 		double error;
 		std::tie(iters, error) = (*AMGCL_solver)(RHS_AMGCL, AMGCL_sol);
-		printf("  iters=%d error=%g\n", iters, error);
+		//printf("  amgcl iters %d  error %g\n", iters, error);
+		std::cout << "  amgcl iters " << iters << "  and error " << error << std::endl;
 
 		for (int el = 0; el < N_el; ++el) {
 			for (int j = 0; j < Knod; ++j) {
@@ -2815,10 +2831,9 @@ void HO_2D::Poisson_solver_Eigen_setup(double*** laplacian_center, double**** la
 }
 
 void HO_2D::Poisson_solver_AMGCL_setup(double*** laplacian_center, double**** laplacian_neighbor) {
-	// sets up the LHS of the Poisson equation via the Eigen library
+	// sets up the LHS of the Poisson equation for the AMGCL library
 	const int N_el = mesh.N_el;
 	const int Ksq = Knod * Knod;
-	//const int K4 = Ksq * Ksq;
 
 	std::vector<int>    ptr, col; //col_start = ptr[row]; col_end = ptr[row + 1], col has all the column indices
 	std::vector<double> val; //val has all the matrix coeffients
@@ -2892,7 +2907,7 @@ void HO_2D::Poisson_solver_AMGCL_setup(double*** laplacian_center, double**** la
 */
 }
 
-void HO_2D::save_output(int n) {
+void HO_2D::save_output(const int n) {
 	/*  commented for now, no need for it. It was used to test the code for the diffusion or the Poisson equation separetl.
 	std::string file_name = "problem";
 	file_name.append(std::to_string(problem_type));
@@ -3172,7 +3187,7 @@ void HO_2D::calc_velocity_vector_from_streamfunction() {
 }
 
 
-void HO_2D::save_smooth_vtk(int indx, int subidx) {
+void HO_2D::save_smooth_vtk(const int indx, const int subidx) {
 
 	/*
 	writes the data in VTK format for vorticity and velocity with properly averaging the values from
@@ -3340,8 +3355,8 @@ void HO_2D::save_smooth_vtk(int indx, int subidx) {
 	{
 		std::stringstream file_name;
 		file_name << "problem" << std::to_string(problem_type) << "_K" << std::to_string(Knod);
+		if (subidx > -1) file_name << "_" << std::setw(2) << std::setfill('0') << subidx;
 		file_name << "_" << std::setw(5) << std::setfill('0') << indx;
-		if (subidx > -1) file_name << "_" << std::setw(3) << std::setfill('0') << subidx;
 		file_name << ".vtk";
 
 		std::cout << "     Writing the results after " << indx << "  timesteps into the file:  " << file_name.str() << std::endl;
@@ -3420,12 +3435,14 @@ void HO_2D::save_smooth_vtk(int indx, int subidx) {
 	}
 }
 
-void HO_2D::save_vorticity_vtk(int indx) {
+void HO_2D::save_vorticity_vtk(const int indx, const int subidx) {
 	const int N_el = mesh.N_el;
 
 	std::stringstream file_name;
 	file_name << "vorticity" << std::to_string(problem_type) << "_K" << std::to_string(Knod);
-	file_name << "_" << std::setw(5) << std::setfill('0') << indx << ".vtk";
+	if (subidx > -1) file_name << "_" << std::setw(2) << std::setfill('0') << subidx;
+	file_name << "_" << std::setw(5) << std::setfill('0') << indx;
+	file_name << ".vtk";
 	// if C++ wasn't stupid, we could easily use sprintf
 	//sprintf(file_name, "vorticity%d_K%d_%05d.vtk", problem_type, Knod, indx);
 
@@ -3500,24 +3517,6 @@ void HO_2D::enable_hybrid() {
 
 void HO_2D::set_elemorder(const int32_t _eorder) {
 	Knod = (unsigned int)_eorder;
-}
-
-void HO_2D::allocate_hybrid_arrays(const size_t _nel, const size_t _neb, const size_t _knod) {
-
-	// first, deallocate if these point to anything
-	clean_up();
-
-	// allocate anew
-	BC_VelNorm_start = allocate_array<double>(_neb, _knod);
-	BC_VelNorm_end   = allocate_array<double>(_neb, _knod);
-	BC_VelParl_start = allocate_array<double>(_neb, _knod);
-	BC_VelParl_end   = allocate_array<double>(_neb, _knod);
-	BC_Vort_start    = allocate_array<double>(_neb, _knod);
-	BC_Vort_end      = allocate_array<double>(_neb, _knod);
-
-	Vort_start = allocate_array<double>(_nel, _knod, _knod);
-	Vort_end   = allocate_array<double>(_nel, _knod, _knod);
-	Vort_wgt   = allocate_array<double>(_nel, _knod, _knod);
 }
 
 // method to accept indices and values and return a boundary
@@ -3708,7 +3707,6 @@ void HO_2D::process_mesh_input() {
 
 	// allocate the proper space for the calculation
 	allocate_arrays();
-	allocate_hybrid_arrays(mesh.N_el, mesh.N_edges_boundary, Knod);
 
 	// now that the mesh is loaded, prepare everything else
 	setup_sps_gps();
@@ -3987,10 +3985,14 @@ void HO_2D::setptogweights_d(const int32_t _veclen, double* _inwgt) {
 	return;
 }
 
+//
 // march forward
-
+//
+// _region is an optional int, defaults to 0
+//
 void HO_2D::solveto_d(const double _outerdt, const int32_t _numstep,
-		const int32_t _integtype, const double _reyn) {
+		const int32_t _integtype, const double _reyn,
+		const int32_t _region) {
 
 	// dt is a global (class) variable
 	dt = _outerdt / (double)_numstep;
@@ -4009,7 +4011,7 @@ void HO_2D::solveto_d(const double _outerdt, const int32_t _numstep,
 	const bool save_all_substeps = false;
 
 	// optionally save substeps
-	if (save_all_substeps) save_smooth_vtk((int)(ti/_numstep), 0);
+	if (save_all_substeps) save_smooth_vtk((int)(ti/_numstep), _region*10+0);
 
 	// perform time integration, note ti is global step count
 	for (int32_t iter = 0; iter < _numstep; ++iter) {
@@ -4021,7 +4023,7 @@ void HO_2D::solveto_d(const double _outerdt, const int32_t _numstep,
 		solve_advection_diffusion();
 
 		// optionally save substeps
-		if (save_all_substeps) save_smooth_vtk((int)(ti/_numstep), (int)iter+1);
+		if (save_all_substeps) save_smooth_vtk((int)(ti/_numstep), (int)(_region*10+iter+1));
 
 		// increment global STEP counter ti, and current time
 		++ti;
@@ -4056,28 +4058,21 @@ void HO_2D::get_hoquad_weights_d(const int32_t _veclen, double* _outvec) {
 }
 
 // 
-void HO_2D::trigger_write(const int32_t _indx) {
-	save_vorticity_vtk((int)_indx);
-	save_smooth_vtk((int)_indx);
+void HO_2D::trigger_write(const int32_t _indx, const int32_t _subidx) {
+	if (_subidx > -1) {
+		// this might happen when there are multiple independent Eulerian volumes
+		save_vorticity_vtk((int)_indx, (int)_subidx);
+		save_smooth_vtk((int)_indx, (int)_subidx);
+	} else {
+		save_vorticity_vtk((int)_indx);
+		save_smooth_vtk((int)_indx);
+	}
 }
 
 // close, finish
 
 void HO_2D::clean_up() {
-
 	// call the existing memory cleanup routine
-	//release_memory();
-
-	// and then clean up hybrid arrays
-	free_array<double>(BC_VelNorm_start);
-	free_array<double>(BC_VelNorm_end);
-	free_array<double>(BC_VelParl_start);
-	free_array<double>(BC_VelParl_end);
-	free_array<double>(BC_Vort_start);
-	free_array<double>(BC_Vort_end);
-
-	free_array<double>(Vort_start);
-	free_array<double>(Vort_end);
-	free_array<double>(Vort_wgt);
+	release_memory();
 }
 

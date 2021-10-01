@@ -113,6 +113,7 @@ private:
 	double*** boundary_source; //Poisson Solver's RHS term to be dotted by BC_Values of the edge that belongs to the element (which has this edge on the global boundary); size is [N_edges_boundary][Knod*Knod][Knod]
 	int LHS_type; //1 is eigen, 2 is hypre
 	int nnz; //number of non-zeros in the LHS matrix of poisson equation
+
 	// https://eigen.tuxfamily.org/dox/TopicMultiThreading.html says BiCGSTAB is multithreaded using RowMajor, it isn't
 	//Eigen::SparseMatrix<double,Eigen::RowMajor> LHS_Eigen; //to store the poisson LHS in Eigen format
 	Eigen::SparseMatrix<double> LHS_Eigen; //to store the poisson LHS in Eigen format
@@ -125,12 +126,14 @@ private:
 	//Eigen::BiCGSTAB<Eigen::SparseMatrix<double,Eigen::RowMajor>, Eigen::IncompleteLUT<double>> bicg_Eigen;  //BICGSTAB with ILU preconditioner
 	Eigen::BiCGSTAB<Eigen::SparseMatrix<double>, Eigen::IncompleteLUT<double>> bicg_Eigen;  //BICGSTAB with ILU preconditioner
 	//Eigen::SparseLU<Eigen::SparseMatrix<double>, Eigen::COLAMDOrdering<int>> LU_Eigen;  //sparseLU method
+
 	//amgcl::make_solver<amgcl::amg<amgcl::backend::eigen<double>, amgcl::coarsening::smoothed_aggregation, amgcl::relaxation::spai0>, amgcl::solver::bicgstab<amgcl::backend::eigen<double>>>* AMGCL_solver;
 	//typedef amgcl::make_solver<amgcl::amg<Backend, amgcl::coarsening::smoothed_aggregation, amgcl::relaxation::spai0>, amgcl::solver::bicgstab<Backend>> AMGCL_Solver;
 	AMGCL_Solver* AMGCL_solver;
 	//amgcl::backend::crs<double> A_amgcl; // the left hand side matrix
 	std::vector<double> RHS_AMGCL;
 	std::tuple<int, std::vector<int>, std::vector<int>, std::vector<double>> A_AMGCL;
+
 	bool get_curl = true; //getCurl is either 0 (for potential velocity) or 1 (for vortical velocity)
 	std::string sample_points_file; //name of the file to read the smaple points x, y coordinates
 	std::vector<Cmpnts2> sample_points_coor; //coordinate of the points that vorticityand velocity vector needs to be calculated for
@@ -138,9 +141,12 @@ private:
 	std::vector<int> sample_points_containing_elements; // The index of the elements that contain each sample point
 	double** gps_shapefunc_on_sample_points; //The shape function of Lnod*Lnod gps onthe sample point in an element. size is [L*L][N_sp]
 
+	bool arrays_allocated = false;
+
 	// data to support hybrid solvers
 
 	bool using_hybrid;
+	bool hybrid_arrays_allocated = false;
 	double time_start, time_end, current_time;
 	// we need these to map between a boundary edge in the edges list and that same edge in the boundary's edge list!
 	std::vector<unsigned int> orderededges;
@@ -161,21 +167,23 @@ private:
 	double*** Vort_wgt = nullptr;
 
 public:
-	HO_2D() //default constructor
-	{
-		dump_frequency = 1000;
-		dt = 0.001;
-		num_time_steps = 10000;
-		problem_type = 1;
-		time_integration_type = 4;
-		HuynhSolver_type = 2;
-		Reyn_inv = 0.001;
-		Knod = 2;
-		using_hybrid = false;
-		time_start = 0.0;
-		time_end = time_start;
-		current_time = time_start;
-	};
+	HO_2D() : //default constructor
+		Knod(2),
+		Reyn_inv(0.001),
+		HuynhSolver_type(2),
+		time_integration_type(4),
+		problem_type(1),
+		num_time_steps(10000),
+		dt(0.001),
+		ti(0),
+		dump_frequency(1000),
+		using_hybrid(false),
+		time_start(0.0),
+		time_end(time_start),
+		current_time(time_start)
+	{ };
+
+	// copy constructor
 	HO_2D(const HO_2D& HO) :
 		vorticity(HO.vorticity), stream_function(HO.stream_function) {}
 
@@ -189,14 +197,15 @@ public:
 		return *this;
 	}
 
+	// destructor
 	~HO_2D()
 	{
 		release_memory();
-	}; // destructor
+	};
 
-	void release_memory();
-	int read_input_file(const std::string filename);
 	char allocate_arrays();
+	char release_memory();
+	int read_input_file(const std::string filename);
 	char setup_mesh(); //based on the problem_type reads/creates the mesh
 	void setup_sps_gps(); //setup the sps and their weights, gps
 	void form_bases(); //form the sps lagrangian shepe function (&derivatives), gps shape functions (&derivatives), form Radau bases
@@ -218,10 +227,10 @@ public:
 	void Poisson_solver_AMGCL_setup(double*** laplacian_center, double**** laplacian_neighbor);  //setup and fill the LHS and RHS for Poisson solver via the AMGCL
 	void calc_velocity_vector_from_streamfunction(); //calculate u and v from the streamfunction field
 	void update_BCs(double time); //updates the Cartesian velocity BC(BC_u_vel, BC_v_vel), BC_diffusion. Usually BCs are fixed in time, this is just for cases where the BCs changes in time. time is the current time
-	void save_output(int time);	// debug writing only
-	void save_output_vtk(int indx); //writes the data in VTK format
-	void save_smooth_vtk(int indx, int subidx = -1); //writes the data in VTK format with averaging of 4 nodes from internal nodes (smoother than save_output_vtk)
-	void save_vorticity_vtk(int indx); //writes the data in VTK format for the vorticity
+	void save_output(const int time);	// debug writing only
+	void save_output_vtk(const int indx); //writes the data in VTK format
+	void save_smooth_vtk(const int indx, const int subidx = -1); //writes the data in VTK format with averaging of 4 nodes from internal nodes (smoother than save_output_vtk)
+	void save_vorticity_vtk(const int indx, const int subidx = -1); //writes the data in VTK format for the vorticity
 	void read_process_sample_points();
 	void update_advection_BC(); //calculate/update the BC for the advective term
 	void update_diffusion_BC(); //calculate/update the BC for the diffusion term
@@ -259,11 +268,11 @@ public:
 	void setsolnvort_d(const int32_t, double*);
 	void setptogweights_d(const int32_t, double*);
 	// march forward
-	void solveto_d(const double, const int32_t, const int32_t, const double);
+	void solveto_d(const double, const int32_t, const int32_t, const double, const int32_t _region = 0);
 	// retrieve results
 	void getallvorts_d(const int32_t, double*);
 	void get_hoquad_weights_d(const int32_t, double*);
-	void trigger_write(const int32_t);
-	// close, finish
+	void trigger_write(const int32_t, const int32_t subidx = -1);
+	// deallocate, called from hybrid driver
 	void clean_up();
 };

@@ -161,7 +161,8 @@ private:
 	int N_el_i, N_el_j; //number of quad elements in i (csi direction), j (eta direction) if the mesh is structured quad only
 	int N_el;  //total number of quad elements
 	int Lnod_in; //geometry parametric order per elem (must generalize to include x, y dirs). Lnod_in is the degree of the polynomial made from the geometry nodes, so the number of nodes on the element geometry is one more than Lnod_in.e.g. 5 nodes on edge is Lnod_in = 4
-	element_neighbor* elem_neighbor; //index of the neighboring elements on the 4 sides and the boundary index (if located on the boundary). south neighbor is index0, east=1, north=2, west=3 (so CCW)
+	//index of the neighboring elements on the 4 sides and the boundary index (if located on the boundary). south neighbor is index0, east=1, north=2, west=3 (so CCW)
+	std::vector<struct element_neighbor> elem_neighbor;
 	//boundaryPointsElemID is a 1D array that keeps the indices of the elements that have an edge on the boundary. The location of the boundary is known by elemID(1:4,nc) when it stores negative values
 	//unsigned int** node_ID; //an array to hold the indices of the nodes of the elements, going from SW CCW, redundant as elements[] have the same info
 	//unsigned int** boundary_node_ID; //The nodes that form each boundary element. redundant, as edges[] and boundaries[] have the information
@@ -186,9 +187,7 @@ public:
 		N_Gboundary = 0;
 	}
 
-	~Mesh() {	//destructor
-		delete[] elem_neighbor;
-	}
+	~Mesh() {}	//destructor
 
 	char read_msh_file();
 	char setup_mesh_problem(unsigned int problem_type);
@@ -201,6 +200,5 @@ public:
 	int tensor2FEM(int i, int j); // converts the tensor index to the FEM node ordering for 2D case
 
 	friend class HO_2D;
-
 };
 
