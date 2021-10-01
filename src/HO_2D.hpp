@@ -113,7 +113,7 @@ private:
 	double*** boundary_source; //Poisson Solver's RHS term to be dotted by BC_Values of the edge that belongs to the element (which has this edge on the global boundary); size is [N_edges_boundary][Knod*Knod][Knod]
 	int LHS_type; //1 is eigen, 2 is hypre
 	int nnz; //number of non-zeros in the LHS matrix of poisson equation
-    // https://eigen.tuxfamily.org/dox/TopicMultiThreading.html says BiCGSTAB is multithreaded using RowMajor, it isn't
+	// https://eigen.tuxfamily.org/dox/TopicMultiThreading.html says BiCGSTAB is multithreaded using RowMajor, it isn't
 	//Eigen::SparseMatrix<double,Eigen::RowMajor> LHS_Eigen; //to store the poisson LHS in Eigen format
 	Eigen::SparseMatrix<double> LHS_Eigen; //to store the poisson LHS in Eigen format
 	Eigen::VectorXd RHS_Eigen; //the right hand side in the poisson equation discretization
