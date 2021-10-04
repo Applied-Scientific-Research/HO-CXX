@@ -3361,7 +3361,6 @@ void HO_2D::save_smooth_vtk(const int indx, const int subidx) {
 
 		std::cout << "     Writing the results after " << indx << "  timesteps into the file:  " << file_name.str() << std::endl;
 
-		//double time = (indx) * dt;
 		std::ofstream file_handle(file_name.str());
 
 		file_handle << "# vtk DataFile Version 3.0" << std::endl;
@@ -3448,7 +3447,6 @@ void HO_2D::save_vorticity_vtk(const int indx, const int subidx) {
 
 	std::cout << "     Writing the results after " << indx << "  timesteps into the file:  " << file_name.str() << std::endl;
 
-	//double time = indx * dt;
 	std::ofstream file_handle(file_name.str());
 
 	file_handle << "# vtk DataFile Version 3.0" << std::endl;
