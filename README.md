@@ -2,7 +2,7 @@
 Research version of C++ High-Order solver for vorticity transport in 2D on unstructured meshes
 
 ## Build and run
-Use the following commands to compile:
+You should have AMGCL (which needs boost-devel) or Eigen installed. Use the following commands to compile:
 
     mkdir build
     cd build
