@@ -41,6 +41,14 @@ void free_array(T* array) {
 	return;
 }
 
+template <class T>
+std::string to_string(const T* const array, const std::string msg, const size_t nx) {
+	std::string str = msg + " is";
+	for (size_t i=0; i<nx; ++i) str += " " + std::to_string(array[i]);
+	str += "\n";
+	return str;
+}
+
 // generalized alloc/dealloc for 2D arrays in contiguous memory
 
 template <class T>
@@ -64,6 +72,17 @@ void free_array(T** array) {
 	delete[] array[0];
 	delete[] array;
 	return;
+}
+
+template <class T>
+std::string to_string(const T* const * const array, const std::string msg, const size_t nx, const size_t ny) {
+	std::string str = msg + " is\n";
+	for (size_t i=nx; i>0; --i) {
+		str += "\t" + std::to_string(i-1) + "\t";
+		for (size_t j=0; j<ny; ++j) str += " " + std::to_string(array[i-1][j]);
+		str += "\n";
+	}
+	return str;
 }
 
 // generalized alloc/dealloc for 3D arrays in contiguous memory
@@ -98,6 +117,20 @@ void free_array(T*** array) {
 	delete[] array[0];
 	delete[] array;
 	return;
+}
+
+template <class T>
+std::string to_string(const T* const * const * const array, const std::string msg, const size_t nx, const size_t ny, const size_t nz) {
+	std::string str = msg + " is\n";
+	for (size_t i=nx; i>0; --i) {
+		str += std::to_string(i-1);
+		for (size_t j=ny; j>0; --j) {
+			str += "\t" + std::to_string(j-1) + "\t";
+			for (size_t k=0; k<nz; ++k) str += " " + std::to_string(array[i-1][j-1][k]);
+			str += "\n";
+		}
+	}
+	return str;
 }
 
 // generalized alloc/dealloc for 4D arrays in contiguous memory
