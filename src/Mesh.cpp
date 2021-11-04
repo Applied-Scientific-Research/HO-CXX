@@ -191,7 +191,13 @@ char Mesh::read_msh_file() {
 	mshfile >> elements_total_entities >> N_elements >> elements_min_index >> elements_max_index; //N_element= total number of nodes, edges and 2d elements, ignore the 0d elements
 	std::getline(mshfile, temp_string);
 
-	assert(elements_total_entities == entities_N_points + entities_N_curves + entities_N_faces);
+	//std::cout << "entities_N_points = " << entities_N_points << "\n";
+	//std::cout << "entities_N_curves = " << entities_N_curves << "\n";
+	//std::cout << "entities_N_faces = " << entities_N_faces << "\n";
+	//std::cout << "elements_total_entities = " << elements_total_entities << "\n";
+	//assert(elements_total_entities == entities_N_points + entities_N_curves + entities_N_faces);
+	// since we skip the 0-dim points anyways, why have this assert?!?
+
 	for (int element_entity = 0; element_entity < elements_total_entities; ++element_entity) {
 		mshfile >> entity_dim >> group_tag; ////entity_dim=0(0d), 1(1d) , 2(2d) features; group_tag: tag of entity
 		mshfile >> element_type >> tag_N_elements; //1,8,26,27,28: 2-node, 3-node, 4-node, 5-node and 6-node lines; 3,10,16,36,37: 4-node, 9-node, 8-node, 16-node, 25-node 2D elements
