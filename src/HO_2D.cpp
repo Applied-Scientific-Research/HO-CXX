@@ -2198,18 +2198,28 @@ char HO_2D::calc_RHS_advection(double*** vort_in) {
 	// zero working arrays
 	for (int i=0; i<mesh.N_el*2*Knod*Knod; ++i) disc_flx[0][0][0][i] = 0.0;
 
+	bool dump = false;
+
 	// ****************************************************************
 
 	//Extrapolate the unknown, Phi and the Flux to the mesh boundaries using Lagrange polynomials of order Knod - 1
 	for (int el = 0; el < mesh.N_el; el++) { //form flux (U^1w/U^2w on xsi/eta dirs, respectively) on the 4 boundaries (bndr_flx) and all interior sps of all elements (disc_flx)
+		dump = false;
+		//dump = (el == 43);
+		if (dump) std::cout << "\nFor element " << el << "\n";
+
 		for (int row_col = 0; row_col < Knod; ++row_col) {
 			for (int ijp = 0; ijp < 4; ++ijp) bndr_vort[el][ijp][row_col] = bndr_flx[el][ijp][row_col] = upwnd_flx[el][ijp][row_col] = 0.;
+			if (dump) std::cout << "velocity_cart[el][" << row_col << "] is\n";
+
 			for (int i = 0; i < Knod; i++) {
+				if (dump) std::cout << "\t" << i << "  " << velocity_cart[el][row_col][i].x << " " << velocity_cart[el][row_col][i].y << "\n";
 				local_vort[i][0] = vort_in[el][row_col][i];  // xsi direction
 				local_vort[i][1] = vort_in[el][i][row_col];  //eta direction
 				local_vel[i][0] =  velocity_cart[el][row_col][i].x * vol_Dy_Dxsi[el][row_col][i].y - velocity_cart[el][row_col][i].y * vol_Dx_Dxsi[el][row_col][i].y;  //U^1/J = volumetric flux  = contravariant xsi FLUX component along xsi direction, based on eq. 2.11 in fotis class notes
 				local_vel[i][1] = -velocity_cart[el][i][row_col].x * vol_Dy_Dxsi[el][i][row_col].x + velocity_cart[el][i][row_col].y * vol_Dx_Dxsi[el][i][row_col].x;  //U^2/J = volumetric flux = contravariant eta FLUX component along eta direction,
 			}
+			if (dump) std::cout << to_string(local_vel, "local_vel", Knod, 2);
 
 			int ijp = 0; //ijp=0 (ibnd=idir=0)
 			for (int idir = 0; idir < 2; ++idir) { //idir=0 (xsi); idir=1: eta direction
@@ -2241,17 +2251,26 @@ char HO_2D::calc_RHS_advection(double*** vort_in) {
 				}
 			}
 		}  //for row_col
+		if (dump) std::cout << to_string(disc_flx[el], "disc_flx", 2, Knod, Knod);
+		if (dump) std::cout << to_string(bndr_vort[el], "bndr_vort[el]", 4, Knod);
+		if (dump) std::cout << to_string(bndr_flx[el], "bndr_flx[el]", 4, Knod);
 	}
 
 	for (int el = 0; el < mesh.N_el; el++) {
+		dump = false;
+		//dump = (el == 43);
 		for (int ijp = 0; ijp < 4; ++ijp) {
 			const int elem_side = i2f[ijp]; //the side of current element corresponding to combination of ibnd and idir
+			if (dump) std::cout << "internal face is side " << ijp << " " << elem_side << " of elem " << el << "\n";
 			if (mesh.elem_neighbor[el].is_on_boundary[elem_side])
 				for (int j = 0; j < Knod; ++j)
 					upwnd_flx[el][ijp][j] = bndr_flx[el][ijp][j];
 			else {
 				const int eln = mesh.elem_neighbor[el].neighbor[elem_side]; //element number of the neighbor
 				const int ijpm = f2i[mesh.elem_neighbor[el].neighbor_common_side[elem_side]];
+
+				if (dump) std::cout << to_string(bndr_flx[el][ijp], "  this face bndr_flx", Knod);
+				if (dump) std::cout << to_string(bndr_flx[eln][ijpm], "  other face bndr_flx", Knod);
 
 				const double sign = 2. * ((ijp + ijpm) % 2) - 1.;  //to see if the normal fluxes are in different orientations
 				const int revert_coeff = (ijp + ijpm - ijp / 2 - ijpm / 2 + 1) % 2; //equal to (d+t+dn+tn+1)%2 = (ijp-d+ijpm-dn+1)%2
@@ -2269,10 +2288,13 @@ char HO_2D::calc_RHS_advection(double*** vort_in) {
 					}
 				}
 			}
+			if (dump) std::cout << to_string(upwnd_flx[el][ijp], "  this face upwnd_flx", Knod);
 		}
 	}
 
 	for (int el = 0; el < mesh.N_el; el++) {
+		dump = false;
+		//dump = (el == 43);
 		int ijp = 0;
 		for (int idir = 0; idir < 2; ++idir) { //idir=0 (xsi); idir=1: eta direction
 			for (int ibnd = 0; ibnd < 2; ++ibnd) { //ibnd=0: left/south); ibnd=1: right/north
@@ -2284,27 +2306,37 @@ char HO_2D::calc_RHS_advection(double*** vort_in) {
 				ijp++;
 			}
 		}
+		if (dump) std::cout << to_string(bndr_disc_flx, "bndr_disc_flx", 4, Knod);
 
 		//Now get the convection
 		for (int j = 0; j < Knod; ++j)
 		for (int i = 0; i < Knod; ++i) {
 			RHS_advective[el][j][i] = 0.;
+			if (dump) std::cout << "RHS_advective[el][" << j << "][" << i << "]\n";
 
 			//xsi direction: -d(U^1w)/dxsi at (j,i)
 			for (int dummy = 0; dummy < Knod; ++dummy) {
 				RHS_advective[el][j][i] -= disc_flx[el][0][j][dummy] * sps_sps_grad_basis[dummy][i];
 			}
+			if (dump) std::cout << "  after xsi " << RHS_advective[el][j][i] << "\n";
 
 			//eta direction: -d(U^2w)/deta at (j,i)
 			for (int dummy = 0; dummy < Knod; ++dummy) {
 				RHS_advective[el][j][i] -= disc_flx[el][1][i][dummy] * sps_sps_grad_basis[dummy][j];
 			}
+			if (dump) std::cout << "  after eta " << RHS_advective[el][j][i] << "\n";
 
 			// and applying the boundary fluxes
 			RHS_advective[el][j][i] -= bndr_disc_flx[0][j] * sps_grad_radau[i][0] + bndr_disc_flx[1][j] * sps_grad_radau[i][1];
+			if (dump) std::cout << "  after xsi bndr flx " << RHS_advective[el][j][i] << "\n";
+
 			RHS_advective[el][j][i] -= bndr_disc_flx[2][i] * sps_grad_radau[j][0] + bndr_disc_flx[3][i] * sps_grad_radau[j][1];
+			if (dump) std::cout << "  after eta bndr flx " << RHS_advective[el][j][i] << "\n";
+
 			RHS_advective[el][j][i] /= vol_jac[el][j][i]; //confirmed
+			if (dump) std::cout << "  after scaling " << RHS_advective[el][j][i] << "\n";
 		}
+		if (dump) std::cout << to_string(RHS_advective[el], "RHS_advective[el]", Knod, Knod);
 	}
 
 	// ********************** free memory on the heap*****************
@@ -3518,6 +3550,7 @@ void HO_2D::save_vorticity_vtk(const int indx, const int subidx) {
 	file_handle << "POINTS " << Knod * Knod * N_el << " double" << std::endl;
 
 	for (int el = 0; el < N_el; el++) {
+		if (el==43) std::cout << "SOLN NODES ON ELEMENT 43\n";
 		for (int j = 0; j < Knod; j++)
 		for (int i = 0; i < Knod; i++) {
 			Cmpnts2 coor(0., 0.); //coordinate of sps[j][i]
@@ -3527,6 +3560,7 @@ void HO_2D::save_vorticity_vtk(const int indx, const int subidx) {
 				coor.multadd(gps_sps_basis[ny][j] * gps_sps_basis[nx][i], mesh.nodes[node_index].coor);
 			}
 			file_handle << coor.x << " " << coor.y << " " << " 0." << std::endl;
+			if (el==43) std::cout << j << " " << i << " " << coor.x << " " << coor.y << "\n";
 		}
 	}
 
@@ -3543,7 +3577,7 @@ void HO_2D::save_vorticity_vtk(const int indx, const int subidx) {
 	}
 
 	// also dump the rhs?
-	if (false) {
+	if (true) {
 		file_handle << "SCALARS rhs_diffusive double 1 " << std::endl;
 		file_handle << "LOOKUP_TABLE default " << std::endl;
 		for (int el = 0; el < N_el; el++) {
