@@ -31,7 +31,7 @@
 char HO_2D::allocate_arrays() {
 	std::cout << "  in HO_2D::allocate_arrays " << (arrays_allocated ? "true" : "false") << std::endl;
 
-    if (arrays_allocated) return 1;
+	if (arrays_allocated) return 1;
 
 	const size_t N_el = mesh.N_el;
 	const size_t N_eb = mesh.N_edges_boundary;
@@ -63,6 +63,7 @@ char HO_2D::allocate_arrays() {
 
 	vol_Dx_Dxsi = allocate_array<Cmpnts2>(N_el, Knod, Knod);
 	vol_Dy_Dxsi = allocate_array<Cmpnts2>(N_el, Knod, Knod);
+	vol_Dxsi_Dx = allocate_array<double>(N_el, Knod, Knod, 2, 2);
 	vol_jac = allocate_array<double>(N_el, Knod, Knod);
 
 	G = allocate_array<double>(N_el, Knod, Knod, 2, 2);
@@ -124,80 +125,81 @@ char HO_2D::allocate_arrays() {
 char HO_2D::release_memory() { //release the memory as destructor
 	std::cout << "  in HO_2D::release_memory" << std::endl;
 
-    if (not arrays_allocated) return 1;
+	if (not arrays_allocated) return 1;
 
-	free_array<double>(vorticity);
-	free_array<double>(stream_function);
-	free_array<double>(initial_vorticity);
-	free_array<Cmpnts2>(velocity_cart);
+	free_array(vorticity);
+	free_array(stream_function);
+	free_array(initial_vorticity);
+	free_array(velocity_cart);
 
-	free_array<double>(sps_local_coor);
-	free_array<double>(sps_weight);
-	free_array<double>(gps_local_coor);
+	free_array(sps_local_coor);
+	free_array(sps_weight);
+	free_array(gps_local_coor);
 
-	free_array<double>(sps_boundary_basis);
-	free_array<double>(sps_boundary_grad_basis);
-	free_array<double>(sps_sps_grad_basis);
-	free_array<double>(sps_gps_basis);
-	free_array<double>(sps_radau);
-	free_array<double>(sps_grad_radau);
+	free_array(sps_boundary_basis);
+	free_array(sps_boundary_grad_basis);
+	free_array(sps_sps_grad_basis);
+	free_array(sps_gps_basis);
+	free_array(sps_radau);
+	free_array(sps_grad_radau);
 
-	free_array<double>(gps_boundary_basis);
-	free_array<double>(gps_boundary_grad_basis);
-	free_array<double>(gps_sps_basis);
-	free_array<double>(gps_sps_grad_basis);
+	free_array(gps_boundary_basis);
+	free_array(gps_boundary_grad_basis);
+	free_array(gps_sps_basis);
+	free_array(gps_sps_grad_basis);
 
-	free_array<Cmpnts2>(vol_Dx_Dxsi);
-	free_array<Cmpnts2>(vol_Dy_Dxsi);
-	free_array<double>(vol_jac);
+	free_array(vol_Dx_Dxsi);
+	free_array(vol_Dy_Dxsi);
+	free_array(vol_Dxsi_Dx);
+	free_array(vol_jac);
 
-	free_array<double>(G);
-	free_array<double>(GB);
+	free_array(G);
+	free_array(GB);
 
-	free_array<double>(face_Acoef);
-	free_array<double>(face_Bcoef);
-	free_array<double>(face_jac);
-	free_array<double>(face_Anorm);
+	free_array(face_Acoef);
+	free_array(face_Bcoef);
+	free_array(face_jac);
+	free_array(face_Anorm);
 
-	free_array<Cmpnts2>(face_Dx_Dxsi);
-	free_array<Cmpnts2>(face_Dy_Dxsi);
+	free_array(face_Dx_Dxsi);
+	free_array(face_Dy_Dxsi);
 
-	free_array<double>(RHS_advective);
-	free_array<double>(RHS_diffusive);
+	free_array(RHS_advective);
+	free_array(RHS_diffusive);
 
-	free_array<double>(BC_Poisson);
-	free_array<double>(BC_advection);
-	free_array<double>(BC_diffusion);
-	free_array<double>(BC_vorticity);
-	free_array<double>(BC_parl_vel);
-	free_array<double>(BC_normal_vel);
-	free_array<double>(velocity_jump);
+	free_array(BC_Poisson);
+	free_array(BC_advection);
+	free_array(BC_diffusion);
+	free_array(BC_vorticity);
+	free_array(BC_parl_vel);
+	free_array(BC_normal_vel);
+	free_array(velocity_jump);
 
-	free_array<double>(boundary_source);
+	free_array(boundary_source);
 
-	free_array<bool>(BC_no_slip);
-	free_array<unsigned char>(BC_switch_Poisson);
-	//free_array<unsigned char>(BC_switch_advection);
-	free_array<unsigned char>(BC_switch_diffusion);
+	free_array(BC_no_slip);
+	free_array(BC_switch_Poisson);
+	//free_array(BC_switch_advection);
+	free_array(BC_switch_diffusion);
 
-	free_array<double>(k1); //these are used in the RK time integration
-	free_array<double>(k2);
-	free_array<double>(k3);
-	free_array<double>(k4);
-	free_array<double>(vort);
+	free_array(k1); //these are used in the RK time integration
+	free_array(k2);
+	free_array(k3);
+	free_array(k4);
+	free_array(vort);
 
 	if (hybrid_arrays_allocated) {
 		// and then clean up hybrid arrays
-		free_array<double>(BC_VelNorm_start);
-		free_array<double>(BC_VelNorm_end);
-		free_array<double>(BC_VelParl_start);
-		free_array<double>(BC_VelParl_end);
-		free_array<double>(BC_Vort_start);
-		free_array<double>(BC_Vort_end);
+		free_array(BC_VelNorm_start);
+		free_array(BC_VelNorm_end);
+		free_array(BC_VelParl_start);
+		free_array(BC_VelParl_end);
+		free_array(BC_Vort_start);
+		free_array(BC_Vort_end);
 
-		free_array<double>(Vort_start);
-		free_array<double>(Vort_end);
-		free_array<double>(Vort_wgt);
+		free_array(Vort_start);
+		free_array(Vort_end);
+		free_array(Vort_wgt);
 
 		hybrid_arrays_allocated = false;
 	}
@@ -1199,6 +1201,7 @@ void HO_2D::form_metrics() {
 	/* forms
 	vol_Dx_Dxsi; //the derivative of x wrt to xsi_s(s is 0, 1 to make dx / dxsi, dx / deta) at the sps(jx, jy) in tensor form on element el.This forms Vol_Dx_iDxsi_j(el, jy, jx).x, .y
 	vol_Dy_Dxsi; //the derivative of y wrt to xsi_s(s is 0, 1 to make dy / dxsi, dy / deta) at the sps(jx, jy) in tensor form on element el.This forms Vol_Dy_iDxsi_j(el, jy, jx).x, .y
+	vol_Dxsi_Dx; //the derivative of xsi wrt x in tensor form on element and node el,j,i; dxsi/dx is 0,0, deta/dx is 1,2
 	vol_jac[el][jy][jx] : is the cross product of vectors g_1 = (dx / dcsi, dy / dcsi) x g_2 = (dx / deta, dy / deta) at the sps(jx, jy) of element el.g_1 and g_2 are based on Fotis notes(covariant bases).So, the cross product is G = det[dx / dcsi, dy / dxsi; dx / deta, dy / deta] = ratio of volume of original element / volume of transformed element(del_csi(2) * del_eta(2) = 4)
 		!Haji : Face_Jac(i(1:Knod), r(0:3), el(1:Nel)) is the G = dx / dxsi * dy / deta - dx / deta * dy / dxsi on the boundary face at the r = 0(left) or r = 1 (right) or r = 2(south) or r = 3(north)face on the i sps of the element el
 	Face_Acoef[el][ijp][Knod] is the Case 1) squared length of g_2 = (dx / deta, dy / deta), i.e.g_2(dot)g_2, on the leftand right boundaries(ijp=0,1); Case 2) squared length of g_1 = (dx / dcsi, dy / dcsi), i.e.g_1(dot)g_1, on the bottom and top boundaries(ijp= 2, 3)
@@ -1234,6 +1237,10 @@ void HO_2D::form_metrics() {
 						vol_Dy_Dxsi[el][j][i].y += gps_sps_grad_basis[n][j] * gps_sps_basis[m][i] * local_coor[n][m].y;	//grad at y - dir  * no grad at x - dir  * x / y - coord of geom
 					}
 				vol_jac[el][j][i] = vol_Dx_Dxsi[el][j][i].x * vol_Dy_Dxsi[el][j][i].y - vol_Dx_Dxsi[el][j][i].y * vol_Dy_Dxsi[el][j][i].x;
+				vol_Dxsi_Dx[el][j][i][0][0] =  vol_jac[el][j][i] * vol_Dy_Dxsi[el][j][i].y;
+				vol_Dxsi_Dx[el][j][i][0][1] = -vol_jac[el][j][i] * vol_Dx_Dxsi[el][j][i].y;
+				vol_Dxsi_Dx[el][j][i][1][0] = -vol_jac[el][j][i] * vol_Dy_Dxsi[el][j][i].x;
+				vol_Dxsi_Dx[el][j][i][1][1] =  vol_jac[el][j][i] * vol_Dx_Dxsi[el][j][i].x;
 				g[0].set_coor(-vol_Dx_Dxsi[el][j][i].y, vol_Dy_Dxsi[el][j][i].y);
 				g[1].set_coor(vol_Dx_Dxsi[el][j][i].x, -vol_Dy_Dxsi[el][j][i].x);
 				for (int r = 0; r < 2; ++r)
@@ -1730,8 +1737,8 @@ void HO_2D:: form_Laplace_operator_matrix() {
 	else if (LHS_type==3) Poisson_solver_AMGCL_setup(laplacian_center, laplacian_neighbor);//use AMGCL to solve for the linear system
 
 	//  **************** free unnecessary memory ****************
-	free_array<double>(laplacian_center);
-	free_array<double>(laplacian_neighbor);
+	free_array(laplacian_center);
+	free_array(laplacian_neighbor);
 }
 
 char HO_2D::Euler_time_integrate(double*** vort_in, double*** vort_out, double coeff) {
@@ -2340,13 +2347,13 @@ char HO_2D::calc_RHS_advection(double*** vort_in) {
 	}
 
 	// ********************** free memory on the heap*****************
-	free_array<double>(bndr_disc_flx);
-	free_array<double>(disc_flx);
-	free_array<double>(bndr_vort);
-	free_array<double>(bndr_flx);
-	free_array<double>(upwnd_flx);
-	free_array<double>(local_vort);
-	free_array<double>(local_vel);
+	free_array(bndr_disc_flx);
+	free_array(disc_flx);
+	free_array(bndr_vort);
+	free_array(bndr_flx);
+	free_array(upwnd_flx);
+	free_array(local_vort);
+	free_array(local_vel);
 
 	return 0;
 }
@@ -2544,17 +2551,17 @@ char HO_2D::calc_RHS_advection_continuous(double*** vort_in) {
 	}
 
 	// ********************** free memory on the heap*****************
-	free_array<double>(bndr_vol_flux);
-	free_array<double>(comm_vol_flux);
-	free_array<double>(disc_vol_flux);
-	free_array<double>(cont_vol_flux);
-	free_array<double>(bndr_disc_flx);
-	free_array<double>(disc_flx);
-	free_array<double>(bndr_vort);
-	free_array<double>(bndr_flx);
-	free_array<double>(upwnd_flx);
-	free_array<double>(local_vort);
-	free_array<double>(local_vel);
+	free_array(bndr_vol_flux);
+	free_array(comm_vol_flux);
+	free_array(disc_vol_flux);
+	free_array(cont_vol_flux);
+	free_array(bndr_disc_flx);
+	free_array(disc_flx);
+	free_array(bndr_vort);
+	free_array(bndr_flx);
+	free_array(upwnd_flx);
+	free_array(local_vort);
+	free_array(local_vel);
 
 	return 0;
 }
@@ -2733,15 +2740,15 @@ char HO_2D::calc_RHS_diffusion(double*** vort_in) {
 	}
 
 	// ******************* free memory on heap ***************
-	free_array<double>(local_vort);
-	free_array<double>(bndr_vort);
-	free_array<double>(bndr_grad_vort);
-	free_array<double>(comm_vort);
-	free_array<double>(comm_grad_vort);
-	free_array<double>(f_tilda);
-	free_array<double>(f_tilda_B);
-	free_array<double>(g_tilda);
-	free_array<double>(g_tilda_B);
+	free_array(local_vort);
+	free_array(bndr_vort);
+	free_array(bndr_grad_vort);
+	free_array(comm_vort);
+	free_array(comm_grad_vort);
+	free_array(f_tilda);
+	free_array(f_tilda_B);
+	free_array(g_tilda);
+	free_array(g_tilda_B);
 
 	return 0;
 }
@@ -3267,17 +3274,17 @@ void HO_2D::calc_velocity_vector_from_streamfunction() {
 	}
 
 	// ******************* free memory on heap ***************
-	free_array<double>(local_psi);
+	free_array(local_psi);
 
-	free_array<double>(bndr_psi);
-	free_array<double>(bndr_grad_psi);
-	free_array<double>(comm_psi);
-	free_array<double>(comm_grad_psi);
+	free_array(bndr_psi);
+	free_array(bndr_grad_psi);
+	free_array(comm_psi);
+	free_array(comm_grad_psi);
 
-	free_array<double>(f_tilda);
-	free_array<double>(g_tilda);
-	free_array<double>(f_tilda_B);
-	free_array<double>(g_tilda_B);
+	free_array(f_tilda);
+	free_array(g_tilda);
+	free_array(f_tilda_B);
+	free_array(g_tilda_B);
 }
 
 
@@ -3422,7 +3429,7 @@ void HO_2D::save_smooth_vtk(const int indx, const int subidx) {
 		}
 	}
 
-	free_array<Cmpnts2>(BC_cart_vel);
+	free_array(BC_cart_vel);
 
 
 	// *****************************************************************************************
@@ -3498,9 +3505,9 @@ void HO_2D::save_smooth_vtk(const int indx, const int subidx) {
 		std::cout << "Done writing to file" << std::endl;
 		file_handle.close();
 
-		free_array<double>(om);
-		free_array<double>(psi);
-		free_array<Cmpnts2>(vel);
+		free_array(om);
+		free_array(psi);
+		free_array(vel);
 	}
 
 	//***********************************************************************
@@ -3892,8 +3899,8 @@ void HO_2D::getsolnpts_d(const int32_t _ptlen, double* _xypts) {
 		}
 	}
 
-	free_array<double>(xloc);
-	free_array<double>(yloc);
+	free_array(xloc);
+	free_array(yloc);
 }
 
 void HO_2D::getsolnareas_d(const int32_t _veclen, double* _areas) {

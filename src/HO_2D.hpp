@@ -113,6 +113,7 @@ private:
 	double** sps_grad_radau; //The derivative of the left and right Radau function on the Knod sps points. Left radau=.left, ...
 	Cmpnts2*** vol_Dx_Dxsi; //the derivative of x wrt to xsi_s(s is 0, 1 to make dx / dxsi, dx / deta) at the sps(jx, jy) in tensor form on element el.This forms Vol_Dx_iDxsi_j(el, jy, jx).x, .y
 	Cmpnts2*** vol_Dy_Dxsi; //the derivative of y wrt to xsi_s(s is 0, 1 to make dy / dxsi, dy / deta) at the sps(jx, jy) in tensor form on element el.This forms Vol_Dy_iDxsi_j(el, jy, jx).x, .y
+	double***** vol_Dxsi_Dx;// the transform matrix going the other way
 	Cmpnts2*** face_Dx_Dxsi; //the derivative of x wrt to xsi_s(s is 0, 1 to make dx / dxsi, dx / deta) at the kth flux point on ijp side of an element face.This forms face_Dx_Dxsi_j(el,0:3,k)[0:1]
 	Cmpnts2*** face_Dy_Dxsi; //the derivative of y wrt to xsi_s(s is 0, 1 to make dx / dxsi, dx / deta) at the kth flux point on ijp side of an element face.This forms face_Dy_Dxsi_j(el,0:3,k)[0:1]
 	double*** vol_jac;
