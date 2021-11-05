@@ -1229,18 +1229,21 @@ void HO_2D::form_metrics() {
 		for (int j = 0; j < Knod; ++j)
 			for (int i = 0; i < Knod; ++i) {
 				for (int n = 0; n < Lnod; ++n)
-					for (int m = 0; m < Lnod; ++m) {
-						vol_Dx_Dxsi[el][j][i].x += gps_sps_grad_basis[m][i] * gps_sps_basis[n][j] * local_coor[n][m].x;	//grad at x - dir  * no grad at y - dir  * x / y - coord of geom
-						vol_Dy_Dxsi[el][j][i].x += gps_sps_grad_basis[m][i] * gps_sps_basis[n][j] * local_coor[n][m].y;	//grad at x - dir  * no grad at y - dir  * x / y - coord of geom
+				for (int m = 0; m < Lnod; ++m) {
+					vol_Dx_Dxsi[el][j][i].x += gps_sps_grad_basis[m][i] * gps_sps_basis[n][j] * local_coor[n][m].x;	//grad at x - dir  * no grad at y - dir  * x / y - coord of geom
+					vol_Dy_Dxsi[el][j][i].x += gps_sps_grad_basis[m][i] * gps_sps_basis[n][j] * local_coor[n][m].y;	//grad at x - dir  * no grad at y - dir  * x / y - coord of geom
 
-						vol_Dx_Dxsi[el][j][i].y += gps_sps_grad_basis[n][j] * gps_sps_basis[m][i] * local_coor[n][m].x;	//grad at y - dir  * no grad at x - dir  * x / y - coord of geom
-						vol_Dy_Dxsi[el][j][i].y += gps_sps_grad_basis[n][j] * gps_sps_basis[m][i] * local_coor[n][m].y;	//grad at y - dir  * no grad at x - dir  * x / y - coord of geom
-					}
+					vol_Dx_Dxsi[el][j][i].y += gps_sps_grad_basis[n][j] * gps_sps_basis[m][i] * local_coor[n][m].x;	//grad at y - dir  * no grad at x - dir  * x / y - coord of geom
+					vol_Dy_Dxsi[el][j][i].y += gps_sps_grad_basis[n][j] * gps_sps_basis[m][i] * local_coor[n][m].y;	//grad at y - dir  * no grad at x - dir  * x / y - coord of geom
+				}
 				vol_jac[el][j][i] = vol_Dx_Dxsi[el][j][i].x * vol_Dy_Dxsi[el][j][i].y - vol_Dx_Dxsi[el][j][i].y * vol_Dy_Dxsi[el][j][i].x;
-				vol_Dxsi_Dx[el][j][i][0][0] =  vol_jac[el][j][i] * vol_Dy_Dxsi[el][j][i].y;
-				vol_Dxsi_Dx[el][j][i][0][1] = -vol_jac[el][j][i] * vol_Dx_Dxsi[el][j][i].y;
-				vol_Dxsi_Dx[el][j][i][1][0] = -vol_jac[el][j][i] * vol_Dy_Dxsi[el][j][i].x;
-				vol_Dxsi_Dx[el][j][i][1][1] =  vol_jac[el][j][i] * vol_Dx_Dxsi[el][j][i].x;
+				// dxsi/dx should be scaled as (dx/dxi) / J 
+				const double oovj = 1.0/vol_jac[el][j][i];
+				vol_Dxsi_Dx[el][j][i][0][0] =  oovj * vol_Dy_Dxsi[el][j][i].y;
+				vol_Dxsi_Dx[el][j][i][0][1] = -oovj * vol_Dx_Dxsi[el][j][i].y;
+				vol_Dxsi_Dx[el][j][i][1][0] = -oovj * vol_Dy_Dxsi[el][j][i].x;
+				vol_Dxsi_Dx[el][j][i][1][1] =  oovj * vol_Dx_Dxsi[el][j][i].x;
+
 				g[0].set_coor(-vol_Dx_Dxsi[el][j][i].y, vol_Dy_Dxsi[el][j][i].y);
 				g[1].set_coor(vol_Dx_Dxsi[el][j][i].x, -vol_Dy_Dxsi[el][j][i].x);
 				for (int r = 0; r < 2; ++r)
@@ -2223,14 +2226,27 @@ char HO_2D::calc_RHS_advection(double*** vort_in) {
 				if (dump) std::cout << "\t" << i << "  " << velocity_cart[el][row_col][i].x << " " << velocity_cart[el][row_col][i].y << "\n";
 				local_vort[i][0] = vort_in[el][row_col][i];  // xsi direction
 				local_vort[i][1] = vort_in[el][i][row_col];  //eta direction
-				local_vel[i][0] =  velocity_cart[el][row_col][i].x * vol_Dy_Dxsi[el][row_col][i].y - velocity_cart[el][row_col][i].y * vol_Dx_Dxsi[el][row_col][i].y;  //U^1/J = volumetric flux  = contravariant xsi FLUX component along xsi direction, based on eq. 2.11 in fotis class notes
-				local_vel[i][1] = -velocity_cart[el][i][row_col].x * vol_Dy_Dxsi[el][i][row_col].x + velocity_cart[el][i][row_col].y * vol_Dx_Dxsi[el][i][row_col].x;  //U^2/J = volumetric flux = contravariant eta FLUX component along eta direction,
+				//U^1/J = volumetric flux  = contravariant xsi FLUX component along xsi direction,
+				//  based on eq. 2.11 in fotis class notes
+				//local_vel[i][0]  =  velocity_cart[el][row_col][i].x * vol_Dy_Dxsi[el][row_col][i].y;
+				//local_vel[i][0] += -velocity_cart[el][row_col][i].y * vol_Dx_Dxsi[el][row_col][i].y;
+				//U^2/J = volumetric flux = contravariant eta FLUX component along eta direction
+				//local_vel[i][1]  = -velocity_cart[el][i][row_col].x * vol_Dy_Dxsi[el][i][row_col].x;
+				//local_vel[i][1] +=  velocity_cart[el][i][row_col].y * vol_Dx_Dxsi[el][i][row_col].x;
+				// new, less-confusing way: use Dxsi_Dx explicitly; now this value is Ju
+				const double vj1 = vol_jac[el][row_col][i];
+				local_vel[i][0]  = velocity_cart[el][row_col][i].x * vol_Dxsi_Dx[el][row_col][i][0][0] * vj1;
+				local_vel[i][0] += velocity_cart[el][row_col][i].y * vol_Dxsi_Dx[el][row_col][i][0][1] * vj1;
+				const double vj2 = vol_jac[el][i][row_col];
+				local_vel[i][1]  = velocity_cart[el][i][row_col].x * vol_Dxsi_Dx[el][i][row_col][1][0] * vj2;
+				local_vel[i][1] += velocity_cart[el][i][row_col].y * vol_Dxsi_Dx[el][i][row_col][1][1] * vj2;
 			}
 			if (dump) std::cout << to_string(local_vel, "local_vel", Knod, 2);
 
 			int ijp = 0; //ijp=0 (ibnd=idir=0)
 			for (int idir = 0; idir < 2; ++idir) { //idir=0 (xsi); idir=1: eta direction
-				//discontinuous flux values (f^tilda, g^tilda) on (row_col,1:Knod) solution points for xsi direction and on(row_col, 1:Knod) solution points for eta direction
+				//discontinuous flux values (f^tilda, g^tilda) on (row_col,1:Knod) solution points for
+				//  xsi direction and on(row_col, 1:Knod) solution points for eta direction
 				for (int i = 0; i < Knod; ++i) disc_flx[el][idir][row_col][i] = local_vel[i][idir] * local_vort[i][idir];
 
 				for (int ibnd = 0; ibnd < 2; ++ibnd) { //ibnd=0: left/south); ibnd=1: right/north
@@ -2301,7 +2317,6 @@ char HO_2D::calc_RHS_advection(double*** vort_in) {
 
 	for (int el = 0; el < mesh.N_el; el++) {
 		dump = false;
-		//dump = (el == 43);
 		int ijp = 0;
 		for (int idir = 0; idir < 2; ++idir) { //idir=0 (xsi); idir=1: eta direction
 			for (int ibnd = 0; ibnd < 2; ++ibnd) { //ibnd=0: left/south); ibnd=1: right/north
@@ -2315,6 +2330,7 @@ char HO_2D::calc_RHS_advection(double*** vort_in) {
 		}
 		if (dump) std::cout << to_string(bndr_disc_flx, "bndr_disc_flx", 4, Knod);
 
+		//dump = (el == 43);
 		//Now get the convection
 		for (int j = 0; j < Knod; ++j)
 		for (int i = 0; i < Knod; ++i) {
@@ -3557,7 +3573,6 @@ void HO_2D::save_vorticity_vtk(const int indx, const int subidx) {
 	file_handle << "POINTS " << Knod * Knod * N_el << " double" << std::endl;
 
 	for (int el = 0; el < N_el; el++) {
-		if (el==43) std::cout << "SOLN NODES ON ELEMENT 43\n";
 		for (int j = 0; j < Knod; j++)
 		for (int i = 0; i < Knod; i++) {
 			Cmpnts2 coor(0., 0.); //coordinate of sps[j][i]
@@ -3567,7 +3582,6 @@ void HO_2D::save_vorticity_vtk(const int indx, const int subidx) {
 				coor.multadd(gps_sps_basis[ny][j] * gps_sps_basis[nx][i], mesh.nodes[node_index].coor);
 			}
 			file_handle << coor.x << " " << coor.y << " " << " 0." << std::endl;
-			if (el==43) std::cout << j << " " << i << " " << coor.x << " " << coor.y << "\n";
 		}
 	}
 
