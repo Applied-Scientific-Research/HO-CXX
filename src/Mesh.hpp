@@ -25,7 +25,6 @@
 #include <fstream>
 #include <string>
 #include <vector>
-#include <cassert>
 #include <cmath>
 #include <algorithm>
 #include <ctime> //for the random generator for slope of casted ray

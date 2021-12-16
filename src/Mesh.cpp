@@ -21,6 +21,7 @@
 #include "Mesh.hpp"
 
 #include <cmath>
+#include <cassert>
 
 
 int Mesh::tensor2FEM(int i) {
@@ -351,10 +352,10 @@ void Mesh::process_mesh() {
 	N_el = elements.size();  //total number of elements (2d faces)
 	elem_neighbor.resize(N_el);
 	boundary_edges.resize(N_edges_boundary);
-	std::cout << "  edges vector begins with " << edges.size() << " elements" << std::endl;
+	std::cout << "  elements vector begins with " << elements.size() << " entries" << std::endl;
+	std::cout << "  edges vector begins with " << edges.size() << " boundary edges" << std::endl;
 
 	// *************** detect the total interior edges in the domain and add them to the edges vector (which already has boundary edges) and add them to the elements vector *********************
-	edge _edge;
 	unsigned int edge_index = edges.size();
 	for (int el = 0; el < N_el; ++el) {  //loop over all 2D elements
 		const unsigned int element_type = elements[el].element_type;
@@ -363,9 +364,11 @@ void Mesh::process_mesh() {
 		//type of edge on the boundary of the element el
 		const unsigned int edge_type = edge_type_node_number_inv.at(N_edge_nodes);
 
+		edge _edge;
 		_edge.N_nodes = N_edge_nodes;
 		_edge.edge_type = edge_type;
 		_edge.nodes.resize(N_edge_nodes);
+
 		for (int s = south; s <= west; s++) { //loop over all 4 sides of each element to find the neighbors
 			_edge.nodes[0] = elements[el].nodes[s];
 			_edge.nodes[1] = elements[el].nodes[(s + 1) % 4];
@@ -385,13 +388,13 @@ void Mesh::process_mesh() {
 				}
 			}
 
-			if (!found) {  // is the _edge does not exist in the list of edges
+			if (!found) {  // if the _edge does not exist in the list of edges
 				edges.push_back(_edge);
 				elements[el].edges[s] = edge_index++;
 			}
 		} //for s=south, ...
 	} //for el
-	std::cout << "  after adding interior edges, vector now has " << edges.size() << " elements" << std::endl;
+	std::cout << "  after adding interior edges, now have " << edges.size() << " edges" << std::endl;
 
 	//*********************************************************************************************************************************************************
 	// ************************************* now detect the neighbors of each element **************************************
@@ -405,29 +408,36 @@ void Mesh::process_mesh() {
 					if (elements[el].edges[s] == elements[eln].edges[sn]) {
 						elem_neighbor[el].neighbor[s] = eln;
 						elem_neighbor[el].neighbor_common_side[s] = sn;
+						elem_neighbor[el].is_on_boundary[s] = false;
 						found = true;
 						break;
 					}
 				}
-				if (found) break;
+				if (found) break;	// break out of the "for eln" loop also
 			}
 			if (!found) { // if the side s of element el does not have a neighboring element, then side s SHOULD be on the boundary, so find the edge index
 				elem_neighbor[el].is_on_boundary[s] = true;
 				elem_neighbor[el].boundary_index[s] = elements[el].edges[s];
+				assert(elements[el].edges[s] < boundary_edges.size() && "Error in process_mesh: a boundary edge was found that is not in the boundary_edges array! Check your mesh.");
 			}
 		}
 	}
+
 	//*********************************************************************************************************************
 	// ****************************** form the boundary_edges which has the details of all edges on the global boundary *****************************
 	for (int el = 0; el < N_el; ++el) {
+		//std::cout << "  el " << el << " boundary_index are " << elem_neighbor[el].boundary_index[0] << " " << elem_neighbor[el].boundary_index[1] << " " << elem_neighbor[el].boundary_index[2] << " " << elem_neighbor[el].boundary_index[3] << "\n";
 		for (int s = south; s <= west; s++) {
 			if (elem_neighbor[el].is_on_boundary[s]) { //if the side s of element el is on global boundary
 				edge_index = elem_neighbor[el].boundary_index[s];
+				assert(edge_index < boundary_edges.size() && "Error in Mesh::process_mesh: boundary_edges array not long enough");
+				//std::cout << "  el " << el << " side " << s << " is on boundary, edge index " << edge_index << "\n";
 				boundary_edges[edge_index].element_index = el;
 				boundary_edges[edge_index].side = (cell_sides)s;
 			}
 		}
 	}
+
 	/*
 	// *********************************************************************************************************************
 	// ************* rotate the edges of elements so that north of this element is neighboring the south of neighboring element, ... ***************
@@ -509,7 +519,7 @@ char Mesh::setup_mesh_problem(unsigned int prob_type) {
 
 	if (fabs(dx_ratio - 1.0) > 1.e-4) grid_type = 4;
 	if (prob_type > 6) periodic = true;
-	if (prob_type > 6) grid_type = 3;  //for peridic boundary
+	if (prob_type > 6) grid_type = 3;  //for periodic boundary
 
 	N_Gboundary = (grid_type == 3) ? 2 : 4; // for the cylinder case, the only boundaries are the innermost circleand outermost circle
 	boundaries.resize(N_Gboundary);
@@ -517,6 +527,7 @@ char Mesh::setup_mesh_problem(unsigned int prob_type) {
 	nodes.resize(N_nodes);
 	N_edges_boundary = (periodic || grid_type == 3) ? 2*N_el_i : 2 * (N_el_i + N_el_j);  //number of edges on the boundary
 	N_el = N_el_i * N_el_j; //total number of elements
+
 	//resize the elem_neighbors arrays
 	elem_neighbor.resize(N_el);
 	boundary_edges.resize(N_edges_boundary);
@@ -739,7 +750,7 @@ char Mesh::setup_mesh_problem(unsigned int prob_type) {
 			if (!j) { //the cells attached to the south boundary of the domain
 				boundaries[0].edges.push_back(nb);
 				boundaries[0].N_edges++;
-				elem_neighbor[nc].is_on_boundary[south]=true;
+				elem_neighbor[nc].is_on_boundary[south] = true;
 				elem_neighbor[nc].boundary_index[south] = nb;
 				boundary_edges[nb].element_index = nc;
 				boundary_edges[nb].side = south;
