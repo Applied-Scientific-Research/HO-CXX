@@ -294,7 +294,7 @@ int HO_2D::read_input_file(const std::string filename) {
 		std::getline(file_handle, temp_string);
 		file_handle >> fast; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 
-	// read in the type of matrix formation for poisson equation (1=Eigen, 2=Hypre, 3=amgcl)
+		// read in the type of matrix formation for poisson equation (1=Eigen, 2=Hypre, 3=amgcl)
 		std::getline(file_handle, temp_string);
 		file_handle >> LHS_type; file_handle.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 
@@ -474,9 +474,13 @@ void HO_2D::read_process_sample_points() {
 }
 
 char HO_2D::setup_mesh() {
-	//based on the problem type (problem_type variable) creates the proper mesh. if problem_type is 10 then read from msh file
-	auto errorcode = mesh.read_msh_file();
-	return errorcode;
+	// only if mesh file name is "automatic", call the internal mesh generation system
+	if (mesh.input_msh_file == "automatic") {
+		return mesh.setup_mesh_problem(problem_type);
+	} else {
+		// otherwise read the given mesh file
+		return mesh.read_msh_file();
+	}
 }
 
 void HO_2D::setup_sps_gps() {
@@ -1215,7 +1219,7 @@ void HO_2D::form_metrics() {
 	*/
 
 
-	int Lnod = mesh.Lnod;
+	const int Lnod = mesh.Lnod;
 	double dx_dxsi, dy_dxsi, dx_deta, dy_deta;
 	Cmpnts2 g[2]; //to store g_0=(-partial(x)/partial(eta),partial(y)/partial(eta)) and g_1=(partial(x)/partial(csi),-partial(y)/partial(csi))
 	Cmpnts2** local_coor = new Cmpnts2 * [Lnod]; //local array tp store the coor of the gps in an element, dont really need it just for convenience
@@ -1773,8 +1777,10 @@ char HO_2D::Euler_time_integrate(double*** vort_in, double*** vort_out, double c
 	//update the vorticity field now
 	for (int el = 0; el < mesh.N_el; ++el)
 		for (int ky = 0; ky < Knod; ++ky)
-			for (int kx = 0; kx < Knod; ++kx)
+			for (int kx = 0; kx < Knod; ++kx) {
 				vort_out[el][ky][kx] = dt * (RHS_advective[el][ky][kx] + RHS_diffusive[el][ky][kx]);
+				//vort_out[el][ky][kx] = dt * RHS_diffusive[el][ky][kx];
+			}
 
 	return 0;
 }
@@ -3035,7 +3041,7 @@ void HO_2D::save_output(const int n) {
 	std::string file_name_norm = "Norms_timesteps_";
 	file_name_norm.append(std::to_string(n));
 	file_name_norm.append(".dat");
-	std::cout << "     Writing the results after " << n << "  timesteps into the file:  " << file_name << std::endl;
+	std::cout << "  writing results after " << n << " timesteps to " << file_name << std::endl;
 
 
 	double time = n * dt;
@@ -3104,7 +3110,7 @@ void HO_2D::save_output(const int n) {
 	L1_Norm /= ((double)mesh.N_el * Knod * Knod);
 	L2_Norm = std::sqrt(L2_Norm / ((double)mesh.N_el * Knod * Knod));
 	file_handle_norm << L1_Norm << " \t " << L2_Norm << " \t " << Linf_Norm;
-	std::cout << "Done writing to file" << std::endl;
+	//std::cout << "Done writing to file" << std::endl;
 	file_handle.close();
 	file_handle_norm.close();
 	*/
@@ -3476,7 +3482,7 @@ void HO_2D::save_smooth_vtk(const int indx, const int subidx) {
 		file_name << "_" << std::setw(5) << std::setfill('0') << indx;
 		file_name << ".vtk";
 
-		std::cout << "     Writing the results after " << indx << "  timesteps into the file:  " << file_name.str() << std::endl;
+		std::cout << "  writing fields after " << indx << " timesteps to " << file_name.str() << std::endl;
 
 		std::ofstream file_handle(file_name.str());
 
@@ -3518,7 +3524,7 @@ void HO_2D::save_smooth_vtk(const int indx, const int subidx) {
 		for (int node_id = 0; node_id < mesh.N_nodes; node_id++)
 			file_handle << nodes_velocity[node_id].x << " " << nodes_velocity[node_id].y << " 0.0" << std::endl;
 
-		std::cout << "Done writing to file" << std::endl;
+		//std::cout << "Done writing to file" << std::endl;
 		file_handle.close();
 
 		free_array(om);
@@ -3562,7 +3568,7 @@ void HO_2D::save_vorticity_vtk(const int indx, const int subidx) {
 	// if C++ wasn't stupid, we could easily use sprintf
 	//sprintf(file_name, "vorticity%d_K%d_%05d.vtk", problem_type, Knod, indx);
 
-	std::cout << "     Writing the results after " << indx << "  timesteps into the file:  " << file_name.str() << std::endl;
+	std::cout << "  writing soln pts after " << indx << " timesteps to " << file_name.str() << std::endl;
 
 	std::ofstream file_handle(file_name.str());
 
@@ -3625,7 +3631,7 @@ void HO_2D::save_vorticity_vtk(const int indx, const int subidx) {
 			for (int i = 0; i < Knod; i++)
 				file_handle << velocity_cart[el][j][i].x << " " << velocity_cart[el][j][i].y << " 0." << std::endl;
 
-	std::cout << "Done writing to file" << std::endl;
+	//std::cout << "Done writing to file" << std::endl;
 	file_handle.close();
 }
 
