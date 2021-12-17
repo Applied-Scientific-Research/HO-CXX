@@ -540,7 +540,7 @@ void HO_2D::setup_sps_gps() {
 		gps_local_coor[0] = -1.;
 	}
 	else {
-		std::cout << "Only up to cubic elements (4 nodes on each edge) is allowd!" << std::endl;
+		std::cout << "Only up to cubic elements (4 nodes on each edge) is allowed!" << std::endl;
 		exit(3);
 	}
 
@@ -1368,8 +1368,22 @@ char HO_2D::solve_vorticity_streamfunction() {
 	if (debug) save_output(0);
 
 	// perform time integration, note ti is global step count
-	for (ti = 0; ti <= num_time_steps; ++ti) {
+	for (ti = 0; ti < num_time_steps; ++ti) {
 		std::cout << "step " << ti << " at time " << current_time << std::endl;
+
+		// test for output FIRST
+		if (!(ti % dump_frequency)) {
+
+			// calculate the velocity to be coincident with the vorticity
+			update_BCs(current_time);
+			solve_Poisson(vorticity); //calculate the streamfunction corresponding to the vort_in, i.e. Laplacian(psi)=-vort_in. solves for stream_function
+			calc_velocity_vector_from_streamfunction(); //calculate the Cartesian velocity field velocity_cart from psi
+
+			// now write the VTK files
+			//save_output(ti);
+			save_vorticity_vtk(ti);
+			save_smooth_vtk(ti);
+		}
 
 		// do all the work
 		solve_advection_diffusion();
@@ -1392,16 +1406,21 @@ char HO_2D::solve_vorticity_streamfunction() {
 			}
 		}
 
-		//if you would like to calculate the streamfunction at n+1 time step
-		//solve_Poisson(vorticity);
-
 		current_time += dt;
+	}
 
-		if (!((ti+1) % dump_frequency)) {
-			//save_output(ti);
-			save_vorticity_vtk(ti+1);
-			save_smooth_vtk(ti+1);
-		}
+	// after time stepping, test for output one last time
+	if (!(num_time_steps % dump_frequency)) {
+
+		// calculate the velocity to be coincident with the vorticity
+		update_BCs(current_time);
+		solve_Poisson(vorticity); //calculate the streamfunction corresponding to the vort_in, i.e. Laplacian(psi)=-vort_in. solves for stream_function
+		calc_velocity_vector_from_streamfunction(); //calculate the Cartesian velocity field velocity_cart from psi
+
+		// now write the VTK files
+		//save_output(ti);
+		save_vorticity_vtk(num_time_steps);
+		save_smooth_vtk(num_time_steps);
 	}
 
 	return 0;
@@ -1929,12 +1948,15 @@ void HO_2D::update_BCs(const double this_time) {
 	so this gives more flexibility for velocity BC changes in time */
 
 	if (problem_type==1) {  // for testing: Assume the lid moves to the right from stall and reaches velocity 1 and then again goes back to zero, with a period of 20
+		const bool is_oscillating = false;
 		for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) {
 			if (mesh.boundaries[G_boundary].name == "top") { // the proper boundary is selected
+				if (is_oscillating) {
 				for (int edge_index : mesh.boundaries[G_boundary].edges) { //loop over all the edges forming the top boundary
 					for (int i = 0; i < Knod; ++i) { // loop over all sps on each edge on the proper boundary
 						BC_parl_vel[edge_index][i] = -std::fabs(std::sin(M_PI/20.*this_time)); //the lid moves CW on the global boundary
 					}
+				}
 				}
 			}
 		}
@@ -2598,6 +2620,7 @@ void HO_2D::update_diffusion_BC() {
 			for (int edge_index : mesh.boundaries[Gboundary].edges) {  //loop over edges on the Gboundary global boundary
 				double sign = (f2i[mesh.boundary_edges[edge_index].side] % 2)*2. - 1.; //it gives -1 if the edge_index belongs to west and south of element, other wise +1
 				for (int m = 0; m < Knod; ++m) velocity_jump[edge_index][m] += sign * BC_parl_vel[edge_index][m]; //if S and W of the element is located on the global boundary the sign is negative
+				//if (edge_index==31) std::cout << "  in udbc, edge " << edge_index << " has velocity_jump " << velocity_jump[edge_index][1] << " where BC_parl_vel is " << BC_parl_vel[edge_index][1] << "\n";
 				for (int m = 0; m < Knod; ++m) BC_diffusion[edge_index][m] = velocity_jump[edge_index][m] / (dt * Reyn_inv);
 			}
 		}
@@ -3196,6 +3219,7 @@ void HO_2D::calc_velocity_vector_from_streamfunction() {
 								const int bfpi = (elem_side / 2) * (Knod - 2 * k - 1) + k;
 								velocity_jump[el_b][bfpi] = comm_grad_psi[el][ijp][k] / face_Anorm[el][ijp][k];
 							}
+				//if (el_b==31) std::cout << "  in cvvfs, edge " << el_b << " has velocity_jump " << velocity_jump[el_b][1] << "\n";
 						}
 						else if (BC_switch_Poisson[el_b] == NeumannBC) {
 							const double psign = 2.*(ijp%2)-1.;
