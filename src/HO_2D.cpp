@@ -1133,6 +1133,42 @@ void HO_2D::setup_IC_BC_SRC() {
 
 	} //if problem_type==11
 
+	else if (problem_type==15) { // block of vorticity in a box
+
+		// all boundaries are slip walls
+		for (int G_boundary=0; G_boundary<mesh.N_Gboundary; G_boundary++) {
+			BC_no_slip[G_boundary] = false;
+			for (auto edge_index : mesh.boundaries[G_boundary].edges) {
+				//std::cout << "wall edge index " << edge_index << std::endl;
+				BC_switch_Poisson[edge_index] = DirichletBC;
+				BC_switch_diffusion[edge_index] = NeumannBC;
+				//BC_switch_advection[edge_index] = DirichletBC;
+				for (int k=0; k<Knod; ++k) {
+					//BC_Poisson[edge_index][k] = 0.;	// will set below
+					BC_normal_vel[edge_index][k] = 0.;
+					BC_parl_vel[edge_index][k] = 0.; // it is used to calculate the normal derivative of vorticity
+				}
+			}
+		}
+
+		// assign a simple uniform vorticity here
+		for (int isrc=0; isrc<mesh.N_el; ++isrc) {
+			for (int ky = 0; ky < Knod; ++ky)
+			for (int kx = 0; kx < Knod; ++kx) {
+				Cmpnts2 coor; //coordinate of sps[k][j][i]
+				for (int ly = 0; ly < mesh.Lnod; ++ly)
+				for (int lx = 0; lx < mesh.Lnod; ++lx) {
+					const int node_index = mesh.elements[isrc].nodes[mesh.tensor2FEM(lx, ly)];
+					coor.multadd(gps_sps_basis[ly][ky] * gps_sps_basis[lx][kx], mesh.nodes[node_index].coor);
+				}
+				double zvort = 0.0;
+				if (coor.x > 0.25 and coor.x < 0.75 and coor.y > 0.25 and coor.y < 0.75) zvort = 1.0;
+				initial_vorticity[isrc][ky][kx] = zvort;
+			}
+		}
+
+	} //if problem_type==15
+
 	else if (problem_type==16) { //two counter-rotating vorticies
 
 		// all boundaries are slip walls
@@ -1369,7 +1405,7 @@ char HO_2D::solve_vorticity_streamfunction() {
 
 	// perform time integration, note ti is global step count
 	for (ti = 0; ti < num_time_steps; ++ti) {
-		std::cout << "step " << ti << " at time " << current_time << std::endl;
+		std::cout << "\nstep " << ti << " at time " << current_time << std::endl;
 
 		// test for output FIRST
 		if (!(ti % dump_frequency)) {
@@ -1494,7 +1530,7 @@ char HO_2D::solve_advection_diffusion() {
 	return 0;
 }
 
-void HO_2D:: form_Laplace_operator_matrix() {
+void HO_2D::form_Laplace_operator_matrix() {
 	// This subroutine forms the left hand side matrix derived form the Laplace discretization. The matrix is sparse and in Eigen format
 	// The type of BC for the psi are defined in BC_switch_Poisson which is specified in setup_IC_BC_SRC
 	const int N_el = mesh.N_el;
@@ -1794,12 +1830,10 @@ char HO_2D::Euler_time_integrate(double*** vort_in, double*** vort_out, double c
 	else assert("HO_2D::Euler_time_integrate - advection_type is not 1 or 2");
 
 	//update the vorticity field now
-	for (int el = 0; el < mesh.N_el; ++el)
-		for (int ky = 0; ky < Knod; ++ky)
-			for (int kx = 0; kx < Knod; ++kx) {
-				vort_out[el][ky][kx] = dt * (RHS_advective[el][ky][kx] + RHS_diffusive[el][ky][kx]);
-				//vort_out[el][ky][kx] = dt * RHS_diffusive[el][ky][kx];
-			}
+	for (size_t i = 0; i < (size_t)(mesh.N_el*Knod*Knod); ++i) {
+		vort_out[0][0][i] = dt * (RHS_advective[0][0][i] + RHS_diffusive[0][0][i]);
+		//vort_out[0][0][i] = dt * RHS_diffusive[0][0][i];
+	}
 
 	return 0;
 }
@@ -2612,8 +2646,6 @@ char HO_2D::calc_RHS_advection_continuous(double*** vort_in) {
 
 void HO_2D::update_diffusion_BC() {
 	//updates the BC values for vorticity (BC_diffusion) when BC_no_slip is true
-
-	//std::fill(BC_switch_diffusion, BC_switch_diffusion + mesh.N_edges_boundary, NeumannBC); //pick Neumann BC for diffusion term based on the Fortran code
 
 	for (int Gboundary = 0; Gboundary < mesh.N_Gboundary; ++Gboundary) { //usually 4 in case of square
 		if (BC_no_slip[Gboundary]) {  //no slip condition on the global boundary element Gboundary, so if no slip wall then
